@@ -1,0 +1,6 @@
+build*/
+temp/
+*.md
+!README.md
+*.log
+*.txt
