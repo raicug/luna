@@ -4,3 +4,4 @@ temp/
 !README.md
 *.log
 *.txt
+.config*
