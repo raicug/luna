@@ -4,14 +4,15 @@ Luna is intentionally small at this stage, but a fair amount happens between reg
 
 ## Reading order
 
-1. [Getting started](getting-started.md) — build Luna and run a first script.
-2. [State and lifetime](state-and-lifetime.md) — understand VM ownership and moves.
-3. [Registering functions](registering-functions.md) — expose C++ callables safely.
-4. [Values and validation](values-and-validation.md) — learn the supported types and conversion rules.
-5. [Executing Luau](executing-luau.md) — see how source is compiled and isolated.
-6. [Errors and results](errors-and-results.md) — handle registration and execution failures.
-7. [Architecture](architecture.md) — follow a call through Luna's private layers.
-8. [Testing and contributing](testing-and-contributing.md) — run the checks and follow project conventions.
+1. [Setup](setup.md) — add Luna with FetchContent or a local copy.
+2. [Getting started](getting-started.md) — build Luna and run a first script.
+3. [State and lifetime](state-and-lifetime.md) — understand VM ownership and moves.
+4. [Registering functions](registering-functions.md) — expose C++ callables safely.
+5. [Values and validation](values-and-validation.md) — learn the supported types and conversion rules.
+6. [Executing Luau](executing-luau.md) — see how source is compiled and isolated.
+7. [Errors and results](errors-and-results.md) — handle registration and execution failures.
+8. [Architecture](architecture.md) — follow a call through Luna's private layers.
+9. [Testing and contributing](testing-and-contributing.md) — run the checks and follow project conventions.
 
 ## What Luna currently does
 
@@ -29,4 +30,4 @@ Supported callable values are `bool`, signed 32-bit `int`, `double`, and `std::s
 
 ---
 
-[← Previous: Project README](../README.md) · [Documentation index](README.md) · [Next: Getting started →](getting-started.md)
+[← Previous: Project README](../README.md) · [Documentation index](README.md) · [Next: Setup →](setup.md)

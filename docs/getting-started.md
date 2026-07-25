@@ -40,4 +40,4 @@ The standard Luau libraries are opened when a ready State is created, so ordinar
 
 ---
 
-[← Previous: Documentation index](README.md) · [Documentation index](README.md) · [Next: State and lifetime →](state-and-lifetime.md)
+[← Previous: Setup](setup.md) · [Documentation index](README.md) · [Next: State and lifetime →](state-and-lifetime.md)

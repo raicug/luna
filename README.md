@@ -44,7 +44,7 @@ Consumers include only Luna headers and link only `Luna::Luna`. Luau headers, VM
 
 ## Documentation
 
-Start with the [Luna documentation](docs/README.md) for the complete guide to State ownership, function registration, value conversion, execution, diagnostics, architecture, and testing.
+Start with the [setup guide](docs/setup.md) to add Luna through CMake. The [full documentation](docs/README.md) covers State ownership, function registration, value conversion, execution, diagnostics, architecture, and testing.
 
 ## AI assistance disclosure
 
