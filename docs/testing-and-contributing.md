@@ -31,8 +31,6 @@ The unified executable contains focused unit tests, compiler/VM integration test
 
 Luna currently stops at callable registration and protected source execution. The next milestone adds typed global values, table references, nested table access, and module tables. Usertype/class binding comes after the table and reference lifetime model is stable. Later work may add overloads, optional values, containers, multiple returns, custom converters, sandboxes, coroutines, and hot reload.
 
-Design requirements and implementation plans live in `.kiro/specs/`. Update the relevant spec before widening a public contract or adding a new binding category.
-
 ---
 
 [← Previous: Architecture](architecture.md) · [Documentation index](README.md) · [Next: Project README →](../README.md)
