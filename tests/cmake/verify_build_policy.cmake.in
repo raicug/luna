@@ -1,0 +1,149 @@
+cmake_minimum_required(VERSION 3.25)
+
+set(LUNA_SOURCE_DIR "@PROJECT_SOURCE_DIR@")
+set(LUNA_BINARY_DIR "@PROJECT_BINARY_DIR@")
+set(LUNA_CTEST_COMMAND "@CMAKE_CTEST_COMMAND@")
+set(LUNA_TEST_ENVIRONMENT "@LUNA_TEST_ENVIRONMENT@")
+
+function(luna_policy_failure MESSAGE_TEXT)
+    message(FATAL_ERROR "Build policy check failed: ${MESSAGE_TEXT}")
+endfunction()
+
+function(luna_require_lowercase_path RELATIVE_PATH EXPECTED_PATTERN)
+    string(TOLOWER "${RELATIVE_PATH}" LOWERCASE_PATH)
+    if(NOT RELATIVE_PATH STREQUAL LOWERCASE_PATH)
+        luna_policy_failure("path is not lowercase: ${RELATIVE_PATH}")
+    endif()
+    if(NOT RELATIVE_PATH MATCHES "${EXPECTED_PATTERN}")
+        luna_policy_failure("file is outside its required public/private location: ${RELATIVE_PATH}")
+    endif()
+endfunction()
+
+file(GLOB_RECURSE LUNA_PUBLIC_FILES
+    LIST_DIRECTORIES false
+    RELATIVE "${LUNA_SOURCE_DIR}"
+    "${LUNA_SOURCE_DIR}/include/*"
+)
+if(NOT LUNA_PUBLIC_FILES)
+    luna_policy_failure("no public headers were discovered")
+endif()
+foreach(PUBLIC_FILE IN LISTS LUNA_PUBLIC_FILES)
+    luna_require_lowercase_path("${PUBLIC_FILE}" "^include/luna/.+\\.hpp$")
+endforeach()
+
+file(GLOB_RECURSE LUNA_PRIVATE_FILES
+    LIST_DIRECTORIES false
+    RELATIVE "${LUNA_SOURCE_DIR}"
+    "${LUNA_SOURCE_DIR}/src/*"
+)
+if(NOT LUNA_PRIVATE_FILES)
+    luna_policy_failure("no private implementation files were discovered")
+endif()
+foreach(PRIVATE_FILE IN LISTS LUNA_PRIVATE_FILES)
+    luna_require_lowercase_path("${PRIVATE_FILE}" "^src/.+\\.(cpp|hpp)$")
+endforeach()
+
+set(LUNA_CONSUMER_FILES ${LUNA_PUBLIC_FILES})
+list(APPEND LUNA_CONSUMER_FILES
+    "app/src/main.cpp"
+    "tests/compile/consumer/boundary.cpp"
+)
+foreach(CONSUMER_FILE IN LISTS LUNA_CONSUMER_FILES)
+    file(READ "${LUNA_SOURCE_DIR}/${CONSUMER_FILE}" CONSUMER_CONTENT)
+    string(TOLOWER "${CONSUMER_CONTENT}" LOWERCASE_CONTENT)
+    if(LOWERCASE_CONTENT MATCHES
+       "#[ \t]*include[ \t]*[<\"][^>\"\r\n]*(luau|lua\\.h|lualib\\.h)")
+        luna_policy_failure("consumer-facing file includes Luau directly: ${CONSUMER_FILE}")
+    endif()
+    if(LOWERCASE_CONTENT MATCHES "lua_state|lua_[a-z0-9_]+|luau_[a-z0-9_]+")
+        luna_policy_failure("consumer-facing file exposes a Luau API token: ${CONSUMER_FILE}")
+    endif()
+endforeach()
+
+string(REGEX MATCH "(^|;)RC_PARAMS=max_success=([0-9]+)( |;|$)"
+    LUNA_RC_CONFIGURATION "${LUNA_TEST_ENVIRONMENT}"
+)
+if(NOT LUNA_RC_CONFIGURATION OR CMAKE_MATCH_2 LESS 100)
+    luna_policy_failure(
+        "LunaTests must expose RapidCheck replay output with max_success >= 100"
+    )
+endif()
+
+file(READ "${LUNA_SOURCE_DIR}/CMakePresets.json" LUNA_PRESETS_JSON)
+string(JSON LUNA_TEST_PRESET_COUNT LENGTH "${LUNA_PRESETS_JSON}" testPresets)
+foreach(REQUIRED_PRESET IN ITEMS ninja-debug ninja-release)
+    set(PRESET_FOUND false)
+    if(LUNA_TEST_PRESET_COUNT GREATER 0)
+        math(EXPR LUNA_LAST_TEST_PRESET "${LUNA_TEST_PRESET_COUNT} - 1")
+        foreach(PRESET_INDEX RANGE 0 ${LUNA_LAST_TEST_PRESET})
+            string(JSON PRESET_NAME GET
+                "${LUNA_PRESETS_JSON}" testPresets ${PRESET_INDEX} name
+            )
+            if(PRESET_NAME STREQUAL REQUIRED_PRESET)
+                set(PRESET_FOUND true)
+                string(JSON CONFIGURE_PRESET GET
+                    "${LUNA_PRESETS_JSON}" testPresets ${PRESET_INDEX} configurePreset
+                )
+                string(JSON OUTPUT_ON_FAILURE GET
+                    "${LUNA_PRESETS_JSON}" testPresets ${PRESET_INDEX} output outputOnFailure
+                )
+                string(JSON NO_TESTS_ACTION GET
+                    "${LUNA_PRESETS_JSON}" testPresets ${PRESET_INDEX} execution noTestsAction
+                )
+                if(NOT CONFIGURE_PRESET STREQUAL REQUIRED_PRESET)
+                    luna_policy_failure(
+                        "${REQUIRED_PRESET} does not use its matching configure preset"
+                    )
+                endif()
+                if(NOT OUTPUT_ON_FAILURE)
+                    luna_policy_failure(
+                        "${REQUIRED_PRESET} does not enable output-on-failure"
+                    )
+                endif()
+                if(NOT NO_TESTS_ACTION STREQUAL "error")
+                    luna_policy_failure(
+                        "${REQUIRED_PRESET} does not fail when no tests are discovered"
+                    )
+                endif()
+            endif()
+        endforeach()
+    endif()
+    if(NOT PRESET_FOUND)
+        luna_policy_failure("missing non-interactive test preset ${REQUIRED_PRESET}")
+    endif()
+endforeach()
+
+execute_process(
+    COMMAND "${LUNA_CTEST_COMMAND}" --show-only=json-v1 --test-dir "${LUNA_BINARY_DIR}"
+    RESULT_VARIABLE DISCOVERY_RESULT
+    OUTPUT_VARIABLE DISCOVERY_JSON
+    ERROR_VARIABLE DISCOVERY_ERROR
+)
+if(NOT DISCOVERY_RESULT EQUAL 0)
+    luna_policy_failure("CTest discovery failed: ${DISCOVERY_ERROR}")
+endif()
+
+string(JSON DISCOVERED_TEST_COUNT LENGTH "${DISCOVERY_JSON}" tests)
+set(DISCOVERED_TEST_NAMES)
+if(DISCOVERED_TEST_COUNT GREATER 0)
+    math(EXPR LAST_DISCOVERED_TEST "${DISCOVERED_TEST_COUNT} - 1")
+    foreach(TEST_INDEX RANGE 0 ${LAST_DISCOVERED_TEST})
+        string(JSON TEST_NAME GET "${DISCOVERY_JSON}" tests ${TEST_INDEX} name)
+        list(APPEND DISCOVERED_TEST_NAMES "${TEST_NAME}")
+    endforeach()
+endif()
+
+foreach(REQUIRED_TEST IN ITEMS
+        LunaBuildPolicy
+        LunaTestApp.Build
+        LunaTestApp
+        LunaTests)
+    if(NOT REQUIRED_TEST IN_LIST DISCOVERED_TEST_NAMES)
+        luna_policy_failure("CTest did not discover ${REQUIRED_TEST}")
+    endif()
+endforeach()
+
+message(STATUS
+    "Build policy verified: C++20 targets, private Luau linkage, lowercase layout, "
+    "consumer boundary, presets, RapidCheck replay configuration, and CTest discovery"
+)
