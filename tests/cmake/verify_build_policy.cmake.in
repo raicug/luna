@@ -46,6 +46,7 @@ endforeach()
 set(LUNA_CONSUMER_FILES ${LUNA_PUBLIC_FILES})
 list(APPEND LUNA_CONSUMER_FILES
     "app/src/main.cpp"
+    "demo/imgui_color_text_edit/src/main.cpp"
     "tests/compile/consumer/boundary.cpp"
 )
 foreach(CONSUMER_FILE IN LISTS LUNA_CONSUMER_FILES)

@@ -91,6 +91,18 @@ ctest --preset ninja-release
 
 Luau and RapidCheck are fetched at pinned revisions through CMake `FetchContent`.
 
+## Interactive editor demo
+
+An optional desktop demo combines Luna with [Dear ImGui](https://github.com/ocornut/imgui), [GLFW](https://www.glfw.org/), and [ImGuiColorTextEdit](https://github.com/BalazsJako/ImGuiColorTextEdit). It provides a small Luau editor, a Run button, execution diagnostics, and output from registered C++ callbacks.
+
+```bat
+cmake --preset ninja-debug -DLUNA_BUILD_IMGUI_DEMO=ON
+cmake --build --preset ninja-debug --target LunaImGuiDemo
+.\build\ninja-debug\demo\imgui_color_text_edit\LunaImGuiDemo.exe
+```
+
+The demo is deliberately not registered with CTest because it opens a window and waits for user input. Its dependencies are pinned and fetched only when `LUNA_BUILD_IMGUI_DEMO` is enabled.
+
 ## Tests
 
 CTest registers four checks:
@@ -108,6 +120,7 @@ The unified suite contains 17 RapidCheck properties, each configured for at leas
 include/luna/   Public Luna-owned API
 src/state/      Private State, VM, binding, invocation, and execution code
 app/src/        Consumer smoke application
+demo/           Optional interactive ImGui playground
 tests/unit/     Focused and integration tests
 tests/property/ Property-based tests
 tests/compile/  Standalone-header and consumer-boundary checks
