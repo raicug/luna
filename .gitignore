@@ -2,6 +2,9 @@ build*/
 temp/
 *.md
 !README.md
+!/docs/
+!/docs/*.md
+!/docs/**/*.md
 *.log
 *.txt
 .config*
