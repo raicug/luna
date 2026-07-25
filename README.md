@@ -112,7 +112,6 @@ tests/unit/     Focused and integration tests
 tests/property/ Property-based tests
 tests/compile/  Standalone-header and consumer-boundary checks
 cmake/          Dependency configuration
-.kiro/specs/    Requirements, designs, and implementation plans
 ```
 
 All project source paths are lowercase. C/C++ include blocks are protected with clang-format disable/enable markers to preserve deliberate include ordering.
