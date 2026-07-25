@@ -8,3 +8,4 @@ temp/
 *.log
 *.txt
 .config*
+!CMake*.txt
