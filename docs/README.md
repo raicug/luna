@@ -26,7 +26,6 @@ Supported callable values are `bool`, signed 32-bit `int`, `double`, and `std::s
 - `src/state/` contains all Luau-aware implementation code.
 - `app/src/main.cpp` is the smallest complete consumer example.
 - `tests/` contains compile checks, examples, integration tests, and properties.
-- `.kiro/specs/` records the requirements and design decisions behind the implementation.
 
 ---
 

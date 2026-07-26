@@ -1,10 +1,46 @@
 #pragma once
 
+// Single stable public entry point for Luna consumers. Every consumer-facing
+// type is reachable from this header, and this header contains only Luna and
+// standard-library declarations: no Luau type, header, pointer, constant,
+// stack operation, or registry reference is ever exposed here.
+
 // clang-format off
+#include <luna/binding/argument_pack.hpp>
 #include <luna/binding/binding_registry.hpp>
+#include <luna/binding/callable_descriptor.hpp>
+#include <luna/binding/callable_metadata.hpp>
+#include <luna/binding/class_allocator.hpp>
+#include <luna/binding/class_builder.hpp>
+#include <luna/binding/class_construction.hpp>
+#include <luna/binding/class_member.hpp>
+#include <luna/binding/class_operator.hpp>
+#include <luna/binding/class_relationship.hpp>
+#include <luna/binding/constant_value.hpp>
+#include <luna/binding/conversion.hpp>
+#include <luna/binding/enum_builder.hpp>
+#include <luna/binding/instance_receiver.hpp>
+#include <luna/binding/lifetime_handle.hpp>
+#include <luna/binding/module_registration.hpp>
+#include <luna/binding/namespace_builder.hpp>
+#include <luna/binding/overload.hpp>
+#include <luna/binding/parameter_descriptor.hpp>
+#include <luna/binding/return_pack.hpp>
+#include <luna/binding/supported_callable.hpp>
+#include <luna/binding/value.hpp>
 #include <luna/core/diagnostics/error_category.hpp>
 #include <luna/core/diagnostics/error_diagnostic.hpp>
 #include <luna/core/results/execution_result.hpp>
 #include <luna/core/results/registration_result.hpp>
+#include <luna/generation/artifact.hpp>
+#include <luna/generation/declaration.hpp>
+#include <luna/generation/documentation.hpp>
+#include <luna/generation/publication.hpp>
+#include <luna/module/module_manifest.hpp>
+#include <luna/reflection/ids.hpp>
+#include <luna/reflection/reflection_record.hpp>
+#include <luna/reflection/reflection_snapshot.hpp>
 #include <luna/state/state.hpp>
+#include <luna/type/stable_type_key.hpp>
+#include <luna/type/type_descriptor.hpp>
 // clang-format on

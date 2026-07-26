@@ -18,11 +18,11 @@ Luau call → NativeTrampoline → validator → argument reader
 
 The public template deduces ordered parameter kinds and return disposition, then stores the callable in an `ErasedCallableDescriptor`. `State::Impl` validates the request, prepares a heap-stable `BindingRecord`, and asks the closure installer to place a native global under protection. The store commits only after that succeeds.
 
-A closure carries a pointer to its stable record as an upvalue. Records remain owned by exactly one State and are destroyed only after the VM has closed.
+A closure carries only the permanent dispatch slot of its canonical path, never a record address. Each State owns one dispatch table that issues those slots and publishes an immutable dispatch generation naming the target of every slot. Records remain owned by exactly one State and are destroyed only after the VM has closed.
 
 ## Invocation path
 
-`NativeTrampoline` resolves the record, validates arity and arguments, invokes the erased callable, and writes zero or one result. It catches every C++ exception before returning to Luau. On failure, non-trivial C++ objects leave scope before a minimal tail restores the callback depth, pushes one prepared message, and raises the Luau error.
+`NativeTrampoline` retains the current dispatch generation, resolves its slot to a target record through it, validates arity and arguments, invokes the erased callable, and writes zero or one result. It catches every C++ exception before returning to Luau. On failure, non-trivial C++ objects leave scope before a minimal tail restores the callback depth, pushes one prepared message, and raises the Luau error.
 
 ## Execution and stack safety
 

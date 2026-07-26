@@ -1,5 +1,5 @@
 // clang-format off
-#include "state/binding/registration_checks.hpp"
+#include "state/registration/checks.hpp"
 
 #include <rapidcheck.h>
 

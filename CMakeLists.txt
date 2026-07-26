@@ -7,6 +7,22 @@ option(LUNA_BUILD_IMGUI_DEMO
     OFF
 )
 
+option(LUNA_BUILD_BENCHMARKS
+    "Build the separate Luna benchmark targets outside correctness CTest"
+    OFF
+)
+
+option(LUNA_ENABLE_BENCHMARK_REGRESSION_TESTS
+    "Register bounded Luna benchmark regression checks with CTest"
+    OFF
+)
+
+if(LUNA_ENABLE_BENCHMARK_REGRESSION_TESTS AND NOT LUNA_BUILD_BENCHMARKS)
+    message(FATAL_ERROR
+        "LUNA_ENABLE_BENCHMARK_REGRESSION_TESTS requires LUNA_BUILD_BENCHMARKS"
+    )
+endif()
+
 include(CTest)
 include(cmake/dependencies.cmake)
 
@@ -57,6 +73,15 @@ set_target_properties(LunaTestApp PROPERTIES
 
 if(LUNA_BUILD_IMGUI_DEMO)
     add_subdirectory(demo/imgui_color_text_edit)
+endif()
+
+if(LUNA_BUILD_BENCHMARKS)
+    if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/benchmarks/CMakeLists.txt")
+        message(FATAL_ERROR
+            "LUNA_BUILD_BENCHMARKS is enabled but no benchmarks directory exists yet"
+        )
+    endif()
+    add_subdirectory(benchmarks)
 endif()
 
 if(BUILD_TESTING)

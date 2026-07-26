@@ -36,7 +36,7 @@ Getting a fresh registry at each registration site is cheap and avoids lifetime 
 
 ## What a State owns
 
-Privately, each State owns the VM, committed binding records, and fault/test support. Binding records remain alive while the VM can reference them. During destruction, the VM closes before those records are released, preventing closure upvalues from outliving their targets.
+Privately, each State owns the VM, committed binding records, the dispatch table those records are reached through, and fault/test support. An installed closure holds only a permanent dispatch slot, so it never names a record directly. During destruction, the VM closes before the dispatch table and records are released, so no invocation can resolve a slot after its target is gone.
 
 ---
 

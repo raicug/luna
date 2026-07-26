@@ -55,6 +55,9 @@ set_target_properties(LunaStandalonePublicHeaderCompileChecks PROPERTIES
 
 add_library(LunaConsumerBoundaryCompileCheck OBJECT
     compile/consumer/boundary.cpp
+    compile/consumer/freeze.cpp
+    compile/consumer/generation.cpp
+    compile/consumer/lifecycle.cpp
 )
 target_compile_features(LunaConsumerBoundaryCompileCheck PRIVATE cxx_std_20)
 target_include_directories(LunaConsumerBoundaryCompileCheck PRIVATE
@@ -65,9 +68,30 @@ set_target_properties(LunaConsumerBoundaryCompileCheck PROPERTIES
     FOLDER "luna/tests/compile/consumer"
 )
 
-file(GLOB_RECURSE LUNA_TEST_SOURCES CONFIGURE_DEPENDS
-    "${CMAKE_CURRENT_SOURCE_DIR}/unit/*.cpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/property/*.cpp"
+set(LUNA_TEST_CATEGORY_DIRECTORIES
+    unit
+    property
+    integration
+    fault
+    generation
+)
+
+set(LUNA_TEST_SOURCES)
+foreach(LUNA_TEST_CATEGORY IN LISTS LUNA_TEST_CATEGORY_DIRECTORIES)
+    file(GLOB_RECURSE LUNA_TEST_CATEGORY_SOURCES CONFIGURE_DEPENDS
+        "${CMAKE_CURRENT_SOURCE_DIR}/${LUNA_TEST_CATEGORY}/*.cpp"
+    )
+    list(APPEND LUNA_TEST_SOURCES ${LUNA_TEST_CATEGORY_SOURCES})
+endforeach()
+list(REMOVE_DUPLICATES LUNA_TEST_SOURCES)
+if(NOT LUNA_TEST_SOURCES)
+    message(FATAL_ERROR
+        "No correctness test sources were discovered under tests/"
+    )
+endif()
+
+set(LUNA_GENERATION_GOLDEN_DIRECTORY
+    "${CMAKE_CURRENT_SOURCE_DIR}/generation/golden"
 )
 
 add_executable(LunaTests
@@ -77,6 +101,9 @@ add_executable(LunaTests
     $<TARGET_OBJECTS:LunaConsumerBoundaryCompileCheck>
 )
 target_compile_features(LunaTests PRIVATE cxx_std_20)
+target_compile_definitions(LunaTests PRIVATE
+    "LUNA_GENERATION_GOLDEN_DIRECTORY=\"${LUNA_GENERATION_GOLDEN_DIRECTORY}\""
+)
 target_link_libraries(LunaTests PRIVATE
     Luna::PropertyTestSupport
     Luna::StateTestSupport
@@ -213,16 +240,11 @@ endif()
 
 add_test(NAME LunaTests COMMAND LunaTests)
 set_tests_properties(LunaTests PROPERTIES
-    LABELS "unit;property;compile"
-    ENVIRONMENT "RC_PARAMS=max_success=100"
+    LABELS "unit;property;compile;integration;fault;generation"
+    ENVIRONMENT "RC_PARAMS=max_success=100 verbose_shrinking=1"
 )
 get_test_property(LunaTests ENVIRONMENT LUNA_TEST_ENVIRONMENT)
 
-configure_file(
-    cmake/verify_build_policy.cmake.in
-    "${CMAKE_CURRENT_BINARY_DIR}/verify_build_policy.cmake"
-    @ONLY
-)
 add_test(NAME LunaBuildPolicy
     COMMAND "${CMAKE_COMMAND}"
         -P "${CMAKE_CURRENT_BINARY_DIR}/verify_build_policy.cmake"
@@ -244,4 +266,65 @@ add_test(NAME LunaTestApp COMMAND "$<TARGET_FILE:LunaTestApp>")
 set_tests_properties(LunaTestApp PROPERTIES
     FIXTURES_REQUIRED LunaTestAppBuilt
     LABELS "smoke"
+)
+
+function(luna_collect_directory_tests DIRECTORY_PATH OUTPUT_VARIABLE)
+    get_property(LUNA_LOCAL_TESTS
+        DIRECTORY "${DIRECTORY_PATH}" PROPERTY TESTS
+    )
+    set(LUNA_COLLECTED_TESTS ${LUNA_LOCAL_TESTS})
+    get_property(LUNA_CHILD_DIRECTORIES
+        DIRECTORY "${DIRECTORY_PATH}" PROPERTY SUBDIRECTORIES
+    )
+    foreach(LUNA_CHILD_DIRECTORY IN LISTS LUNA_CHILD_DIRECTORIES)
+        luna_collect_directory_tests(
+            "${LUNA_CHILD_DIRECTORY}" LUNA_CHILD_TESTS
+        )
+        list(APPEND LUNA_COLLECTED_TESTS ${LUNA_CHILD_TESTS})
+    endforeach()
+    set(${OUTPUT_VARIABLE} "${LUNA_COLLECTED_TESTS}" PARENT_SCOPE)
+endfunction()
+
+luna_collect_directory_tests("${PROJECT_SOURCE_DIR}" LUNA_REGISTERED_TESTS)
+set(LUNA_ALLOWED_TESTS
+    LunaTests
+    LunaBuildPolicy
+    LunaTestApp.Build
+    LunaTestApp
+)
+foreach(LUNA_REQUIRED_TEST IN LISTS LUNA_ALLOWED_TESTS)
+    if(NOT LUNA_REQUIRED_TEST IN_LIST LUNA_REGISTERED_TESTS)
+        message(FATAL_ERROR
+            "CTest must keep registering ${LUNA_REQUIRED_TEST}"
+        )
+    endif()
+endforeach()
+foreach(LUNA_REGISTERED_TEST IN LISTS LUNA_REGISTERED_TESTS)
+    if(LUNA_REGISTERED_TEST IN_LIST LUNA_ALLOWED_TESTS)
+        continue()
+    endif()
+    if(LUNA_ENABLE_BENCHMARK_REGRESSION_TESTS
+       AND LUNA_REGISTERED_TEST MATCHES "^LunaBenchmarkRegression\\.")
+        continue()
+    endif()
+    message(FATAL_ERROR
+        "CTest registered an unexpected test: ${LUNA_REGISTERED_TEST}; "
+        "interactive demos must stay outside CTest and benchmark targets stay "
+        "separate unless LUNA_ENABLE_BENCHMARK_REGRESSION_TESTS is enabled"
+    )
+endforeach()
+
+foreach(LUNA_NON_CTEST_TARGET IN ITEMS LunaImGuiDemo)
+    if(TARGET ${LUNA_NON_CTEST_TARGET}
+       AND ${LUNA_NON_CTEST_TARGET} IN_LIST LUNA_REGISTERED_TESTS)
+        message(FATAL_ERROR
+            "${LUNA_NON_CTEST_TARGET} must never be registered with CTest"
+        )
+    endif()
+endforeach()
+
+configure_file(
+    cmake/verify_build_policy.cmake.in
+    "${CMAKE_CURRENT_BINARY_DIR}/verify_build_policy.cmake"
+    @ONLY
 )

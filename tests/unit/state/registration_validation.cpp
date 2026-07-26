@@ -1,7 +1,7 @@
 // clang-format off
 #include <luna/luna.hpp>
 
-#include "state/binding/registration_checks.hpp"
+#include "state/registration/checks.hpp"
 #include "state/testing/test_hooks.hpp"
 
 #include <optional>

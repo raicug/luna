@@ -1,20 +1,35 @@
 // clang-format off
 #include "state/vm/closure_installer.hpp"
 
-#include "state/binding/record.hpp"
+#include "state/dispatch/closure_slot.hpp"
+#include "state/registration/record.hpp"
 #include "state/invocation/trampoline.hpp"
+#include "state/vm/namespace_table.hpp"
 #include "state/vm/stack_checkpoint.hpp"
 
 #include <lua.h>
+
+#include <cstddef>
+#include <string>
+#include <vector>
 // clang-format on
 
 namespace Luna::Detail {
 namespace {
 
+// What one installation needs: the permanent dispatch slot the closure will
+// carry and the exact canonical path it is installed at. The record itself
+// never travels into the virtual machine.
 struct InstallationRequest final {
-  BindingRecord *Record = nullptr;
+  DispatchSlotId Slot;
   const char *GlobalName = nullptr;
+  const std::vector<std::string> *Segments = nullptr;
   bool InjectFailure = false;
+};
+
+struct ObservationRequest final {
+  const std::vector<std::string> *Segments = nullptr;
+  DispatchSlotId *Found = nullptr;
 };
 
 [[nodiscard]] int RaiseLiteral(lua_State *State, const char *Message) {
@@ -26,12 +41,40 @@ struct InstallationRequest final {
 [[nodiscard]] int InstallClosure(lua_State *State) {
   auto *Request =
       static_cast<InstallationRequest *>(lua_tolightuserdata(State, 1));
-  if (!Request || !Request->Record || !Request->GlobalName)
+  if (!Request || !Request->Slot.IsValid() || !Request->GlobalName)
     return RaiseLiteral(State, "Internal error: invalid installation request.");
 
-  lua_pushlightuserdata(State, Request->Record);
+  PushDispatchSlot(State, Request->Slot);
   lua_pushcclosure(State, NativeTrampoline, Request->GlobalName, 1);
   lua_setglobal(State, Request->GlobalName);
+
+  if (Request->InjectFailure)
+    return RaiseLiteral(State, "Injected binding installation failure.");
+  return 0;
+}
+
+// The same installation at one exact nested canonical path. The parent table is
+// never created here: a scoped function plans its namespaces as their own
+// declarations, and canonical order installs a parent before its children.
+[[nodiscard]] int InstallScopedClosure(lua_State *State) {
+  auto *Request =
+      static_cast<InstallationRequest *>(lua_tolightuserdata(State, 1));
+  if (!Request || !Request->Slot.IsValid() || !Request->GlobalName ||
+      !Request->Segments)
+    return RaiseLiteral(State, "Internal error: invalid installation request.");
+
+  const int Checkpoint = lua_gettop(State);
+  if (!PushVmPathContainer(State, *Request->Segments)) {
+    lua_settop(State, Checkpoint);
+    return RaiseLiteral(
+        State,
+        "Internal error: the parent scope of a callable is unavailable.");
+  }
+
+  PushDispatchSlot(State, Request->Slot);
+  lua_pushcclosure(State, NativeTrampoline, Request->GlobalName, 1);
+  SetVmPathField(State, *Request->Segments);
+  lua_settop(State, Checkpoint);
 
   if (Request->InjectFailure)
     return RaiseLiteral(State, "Injected binding installation failure.");
@@ -49,20 +92,36 @@ struct InstallationRequest final {
   return 0;
 }
 
-} // namespace
+[[nodiscard]] int ObserveScopedClosure(lua_State *State) {
+  auto *Request =
+      static_cast<ObservationRequest *>(lua_tolightuserdata(State, 1));
+  if (!Request || !Request->Segments || !Request->Found)
+    return RaiseLiteral(State, "Internal error: invalid observation request.");
 
-ClosureInstallationStatus InstallBindingClosure(lua_State *State,
-                                                BindingRecord &Record,
-                                                bool InjectFailure) noexcept {
-  if (!State)
-    return ClosureInstallationStatus::ProtectedFailure;
+  if (!PushVmPathContainer(State, *Request->Segments))
+    return 0;
 
+  PushVmPathField(State, *Request->Segments);
+  if (lua_iscfunction(State, -1) && lua_getupvalue(State, -1, 1))
+    *Request->Found = DispatchSlotAt(State, -1);
+  return 0;
+}
+
+// The protected budget one scoped operation needs: the container chain, the
+// installed closure, and the protected call itself.
+[[nodiscard]] bool ReserveStack(lua_State *State, std::size_t Segments) {
+  return lua_checkstack(State, static_cast<int>(Segments) + 8);
+}
+
+[[nodiscard]] ClosureInstallationStatus
+InstallAtRootScope(lua_State *State, BindingRecord &Record,
+                   bool InjectFailure) noexcept {
   StackCheckpoint Checkpoint(State);
   if (!lua_checkstack(State, 5))
     return ClosureInstallationStatus::StackCapacityFailure;
 
-  InstallationRequest Request{&Record, Record.GlobalName().c_str(),
-                              InjectFailure};
+  InstallationRequest Request{Record.Slot(), Record.GlobalName().c_str(),
+                              nullptr, InjectFailure};
   lua_getglobal(State, Request.GlobalName);
   lua_pushcfunction(State, InstallClosure, "Luna.InstallBindingClosure");
   lua_pushlightuserdata(State, &Request);
@@ -80,20 +139,103 @@ ClosureInstallationStatus InstallBindingClosure(lua_State *State,
   return ClosureInstallationStatus::ProtectedFailure;
 }
 
+// A scoped installation does not restore the path itself: the transaction
+// journal captured the exact prior value of this path before installation and
+// restores it in reverse order, exactly as it does for a scoped value.
+[[nodiscard]] ClosureInstallationStatus
+InstallAtScopedPath(lua_State *State, BindingRecord &Record,
+                    bool InjectFailure) noexcept {
+  const std::vector<std::string> Segments = SplitVmPath(Record.GlobalName());
+  if (Segments.empty())
+    return ClosureInstallationStatus::ProtectedFailure;
+
+  StackCheckpoint Checkpoint(State);
+  if (!ReserveStack(State, Segments.size()))
+    return ClosureInstallationStatus::StackCapacityFailure;
+
+  InstallationRequest Request{Record.Slot(), Record.GlobalName().c_str(),
+                              &Segments, InjectFailure};
+  lua_pushcfunction(State, InstallScopedClosure,
+                    "Luna.InstallScopedBindingClosure");
+  lua_pushlightuserdata(State, &Request);
+  if (lua_pcall(State, 1, 0, 0) == LUA_OK)
+    return ClosureInstallationStatus::Success;
+  return ClosureInstallationStatus::ProtectedFailure;
+}
+
+} // namespace
+
+ClosureInstallationStatus InstallBindingClosure(lua_State *State,
+                                                BindingRecord &Record,
+                                                bool InjectFailure) noexcept {
+  if (!State)
+    return ClosureInstallationStatus::ProtectedFailure;
+  if (!Record.Slot().IsValid() || !Record.Dispatch())
+    return ClosureInstallationStatus::ProtectedFailure;
+
+  // The machine names this State's dispatch table once, before the first
+  // closure of the State exists. Every closure installed afterwards carries
+  // only its slot, so resolution goes through the table rather than through the
+  // closure payload.
+  if (!PublishDispatchTable(State, Record.Dispatch()))
+    return ClosureInstallationStatus::StackCapacityFailure;
+
+  // A root-scope global keeps exactly the foundation's installation and
+  // self-rollback behavior; a scoped path installs into the namespace table its
+  // own declaration published.
+  if (!IsNestedVmPath(Record.GlobalName()))
+    return InstallAtRootScope(State, Record, InjectFailure);
+  return InstallAtScopedPath(State, Record, InjectFailure);
+}
+
+DispatchSlotId
+ObserveInstalledDispatchSlot(lua_State *State,
+                             const std::string &GlobalName) noexcept {
+  if (!State || GlobalName.empty())
+    return DispatchSlotId{};
+
+  StackCheckpoint Checkpoint(State);
+
+  if (!IsNestedVmPath(GlobalName)) {
+    if (!lua_checkstack(State, 2))
+      return DispatchSlotId{};
+
+    lua_getglobal(State, GlobalName.c_str());
+    if (!lua_iscfunction(State, -1) || !lua_getupvalue(State, -1, 1))
+      return DispatchSlotId{};
+    return DispatchSlotAt(State, -1);
+  }
+
+  const std::vector<std::string> Segments = SplitVmPath(GlobalName);
+  if (Segments.empty() || !ReserveStack(State, Segments.size()))
+    return DispatchSlotId{};
+
+  DispatchSlotId Found;
+  ObservationRequest Request{&Segments, &Found};
+  lua_pushcfunction(State, ObserveScopedClosure,
+                    "Luna.ObserveScopedBindingClosure");
+  lua_pushlightuserdata(State, &Request);
+  if (lua_pcall(State, 1, 0, 0) != LUA_OK)
+    return DispatchSlotId{};
+  return Found;
+}
+
 const BindingRecord *
 ObserveInstalledBinding(lua_State *State,
                         const std::string &GlobalName) noexcept {
-  if (!State)
+  const DispatchSlotId Slot = ObserveInstalledDispatchSlot(State, GlobalName);
+  if (!Slot.IsValid())
     return nullptr;
 
-  StackCheckpoint Checkpoint(State);
-  if (!lua_checkstack(State, 2))
+  // The installed path names a slot; the callable behind it is whatever the
+  // current dispatch generation of this machine's State resolves that slot to.
+  const DispatchTable *Table = ObserveDispatchTable(State);
+  if (!Table)
     return nullptr;
-
-  lua_getglobal(State, GlobalName.c_str());
-  if (!lua_iscfunction(State, -1) || !lua_getupvalue(State, -1, 1))
+  const BindingRecord *Target = Table->Resolve(Slot);
+  if (!Target || Target->GlobalName() != GlobalName)
     return nullptr;
-  return static_cast<const BindingRecord *>(lua_tolightuserdata(State, -1));
+  return Target;
 }
 
 } // namespace Luna::Detail

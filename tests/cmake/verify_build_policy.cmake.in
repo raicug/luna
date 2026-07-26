@@ -4,6 +4,21 @@ set(LUNA_SOURCE_DIR "@PROJECT_SOURCE_DIR@")
 set(LUNA_BINARY_DIR "@PROJECT_BINARY_DIR@")
 set(LUNA_CTEST_COMMAND "@CMAKE_CTEST_COMMAND@")
 set(LUNA_TEST_ENVIRONMENT "@LUNA_TEST_ENVIRONMENT@")
+set(LUNA_TEST_EXECUTABLES "@LUNA_TEST_EXECUTABLES@")
+set(LUNA_ALLOWED_TESTS "@LUNA_ALLOWED_TESTS@")
+set(LUNA_INTERFACE_LINK_LIBRARIES "@LUNA_INTERFACE_LINK_LIBRARIES@")
+set(LUNA_APP_LINK_LIBRARIES "@LUNA_APP_LINK_LIBRARIES@")
+set(LUNA_CONSUMER_LINK_LIBRARIES "@LUNA_CONSUMER_LINK_LIBRARIES@")
+set(LUNA_BENCHMARK_REGRESSION_TESTS "@LUNA_ENABLE_BENCHMARK_REGRESSION_TESTS@")
+set(LUNA_PASCAL_CASE_PATTERN "^[A-Z][A-Za-z0-9]*$")
+set(LUNA_NON_DECLARATION_TOKENS
+    alignas alignof and case catch class co_await consteval constexpr constinit
+    const_cast decltype defined delete do dynamic_cast else enum explicit for
+    goto if inline mutable namespace new noexcept not operator or
+    reinterpret_cast requires return sizeof static_assert static_cast struct
+    switch template this throw try typedef typeid typename union using virtual
+    while
+)
 
 function(luna_policy_failure MESSAGE_TEXT)
     message(FATAL_ERROR "Build policy check failed: ${MESSAGE_TEXT}")
@@ -19,6 +34,116 @@ function(luna_require_lowercase_path RELATIVE_PATH EXPECTED_PATTERN)
     endif()
 endfunction()
 
+function(luna_read_lines FILE_PATH OUTPUT_VARIABLE)
+    file(READ "${FILE_PATH}" FILE_CONTENT)
+    string(REGEX REPLACE ";" "\\\\;" FILE_CONTENT "${FILE_CONTENT}")
+    string(REGEX REPLACE "\r?\n" ";" FILE_LINES "${FILE_CONTENT}")
+    set(${OUTPUT_VARIABLE} "${FILE_LINES}" PARENT_SCOPE)
+endfunction()
+
+function(luna_require_pascal_case IDENTIFIER CONTEXT)
+    if(NOT IDENTIFIER MATCHES "${LUNA_PASCAL_CASE_PATTERN}")
+        luna_policy_failure(
+            "public identifier is not PascalCase: '${IDENTIFIER}' in ${CONTEXT}"
+        )
+    endif()
+endfunction()
+
+# Requirement 1.10: every added or changed include block stays enclosed by
+# clang-format off/on markers.
+function(luna_require_guarded_includes RELATIVE_PATH)
+    luna_read_lines("${LUNA_SOURCE_DIR}/${RELATIVE_PATH}" FILE_LINES)
+    set(INSIDE_MARKED_BLOCK false)
+    set(LINE_NUMBER 0)
+    foreach(FILE_LINE IN LISTS FILE_LINES)
+        math(EXPR LINE_NUMBER "${LINE_NUMBER} + 1")
+        if(FILE_LINE MATCHES "clang-format[ \t]+off")
+            set(INSIDE_MARKED_BLOCK true)
+        elseif(FILE_LINE MATCHES "clang-format[ \t]+on")
+            set(INSIDE_MARKED_BLOCK false)
+        elseif(FILE_LINE MATCHES "^[ \t]*#[ \t]*include" AND
+               NOT INSIDE_MARKED_BLOCK)
+            luna_policy_failure(
+                "include block is missing clang-format off/on markers: ${RELATIVE_PATH}:${LINE_NUMBER}"
+            )
+        endif()
+    endforeach()
+    if(INSIDE_MARKED_BLOCK)
+        luna_policy_failure(
+            "clang-format off marker is never closed: ${RELATIVE_PATH}"
+        )
+    endif()
+endfunction()
+
+# Requirement 1.5: public identifiers stay PascalCase.
+function(luna_require_pascal_case_declarations RELATIVE_PATH)
+    file(READ "${LUNA_SOURCE_DIR}/${RELATIVE_PATH}" RAW_CONTENT)
+
+    string(REGEX MATCHALL "enum[ \t]+class[ \t]+[A-Za-z_][A-Za-z0-9_]*[^{}]*{[^}]*}"
+        ENUM_DEFINITIONS "${RAW_CONTENT}"
+    )
+    foreach(ENUM_DEFINITION IN LISTS ENUM_DEFINITIONS)
+        string(REGEX REPLACE "^[^{]*{" "" ENUMERATOR_BLOCK "${ENUM_DEFINITION}")
+        string(REGEX REPLACE "}$" "" ENUMERATOR_BLOCK "${ENUMERATOR_BLOCK}")
+        string(REPLACE "," ";" ENUMERATORS "${ENUMERATOR_BLOCK}")
+        foreach(ENUMERATOR IN LISTS ENUMERATORS)
+            string(REGEX REPLACE "=.*$" "" ENUMERATOR "${ENUMERATOR}")
+            string(STRIP "${ENUMERATOR}" ENUMERATOR)
+            if(ENUMERATOR)
+                luna_require_pascal_case("${ENUMERATOR}" "${RELATIVE_PATH}")
+            endif()
+        endforeach()
+    endforeach()
+
+    luna_read_lines("${LUNA_SOURCE_DIR}/${RELATIVE_PATH}" FILE_LINES)
+    foreach(FILE_LINE IN LISTS FILE_LINES)
+        string(REGEX REPLACE "//.*$" "" FILE_LINE "${FILE_LINE}")
+        string(REGEX REPLACE "\"[^\"]*\"" " " FILE_LINE "${FILE_LINE}")
+
+        foreach(DECLARATION_PATTERN
+                "namespace[ \t]+([A-Za-z_][A-Za-z0-9_:]*)"
+                "(class|struct|concept)[ \t]+([A-Za-z_][A-Za-z0-9_]*)"
+                "using[ \t]+([A-Za-z_][A-Za-z0-9_]*)[ \t]*=")
+            string(REGEX MATCHALL "${DECLARATION_PATTERN}"
+                DECLARATIONS "${FILE_LINE}"
+            )
+            foreach(DECLARATION IN LISTS DECLARATIONS)
+                string(REGEX REPLACE
+                    "^(namespace|class|struct|concept|using)[ \t]+" ""
+                    DECLARED_NAME "${DECLARATION}"
+                )
+                string(REGEX REPLACE "[ \t]*=$" "" DECLARED_NAME "${DECLARED_NAME}")
+                string(REPLACE "::" ";" DECLARED_SEGMENTS "${DECLARED_NAME}")
+                foreach(DECLARED_SEGMENT IN LISTS DECLARED_SEGMENTS)
+                    if(DECLARED_SEGMENT)
+                        luna_require_pascal_case(
+                            "${DECLARED_SEGMENT}" "${RELATIVE_PATH}"
+                        )
+                    endif()
+                endforeach()
+            endforeach()
+        endforeach()
+
+        # Drop qualified and member calls so only declared callables remain.
+        string(REGEX REPLACE
+            "[A-Za-z0-9_>]+[ \t]*(::|\\.|->)[ \t]*[A-Za-z_][A-Za-z0-9_]*[ \t]*\\("
+            " " FILE_LINE "${FILE_LINE}"
+        )
+        string(REGEX MATCHALL "[A-Za-z_][A-Za-z0-9_]*[ \t]*\\("
+            CALLABLE_DECLARATIONS "${FILE_LINE}"
+        )
+        foreach(CALLABLE_DECLARATION IN LISTS CALLABLE_DECLARATIONS)
+            string(REGEX REPLACE "[ \t]*\\($" "" CALLABLE_NAME
+                "${CALLABLE_DECLARATION}"
+            )
+            if(CALLABLE_NAME IN_LIST LUNA_NON_DECLARATION_TOKENS)
+                continue()
+            endif()
+            luna_require_pascal_case("${CALLABLE_NAME}" "${RELATIVE_PATH}")
+        endforeach()
+    endforeach()
+endfunction()
+
 file(GLOB_RECURSE LUNA_PUBLIC_FILES
     LIST_DIRECTORIES false
     RELATIVE "${LUNA_SOURCE_DIR}"
@@ -29,6 +154,8 @@ if(NOT LUNA_PUBLIC_FILES)
 endif()
 foreach(PUBLIC_FILE IN LISTS LUNA_PUBLIC_FILES)
     luna_require_lowercase_path("${PUBLIC_FILE}" "^include/luna/.+\\.hpp$")
+    luna_require_guarded_includes("${PUBLIC_FILE}")
+    luna_require_pascal_case_declarations("${PUBLIC_FILE}")
 endforeach()
 
 file(GLOB_RECURSE LUNA_PRIVATE_FILES
@@ -41,6 +168,27 @@ if(NOT LUNA_PRIVATE_FILES)
 endif()
 foreach(PRIVATE_FILE IN LISTS LUNA_PRIVATE_FILES)
     luna_require_lowercase_path("${PRIVATE_FILE}" "^src/.+\\.(cpp|hpp)$")
+    luna_require_guarded_includes("${PRIVATE_FILE}")
+endforeach()
+
+file(GLOB_RECURSE LUNA_SUPPORTING_SOURCES
+    LIST_DIRECTORIES false
+    RELATIVE "${LUNA_SOURCE_DIR}"
+    "${LUNA_SOURCE_DIR}/app/*.cpp"
+    "${LUNA_SOURCE_DIR}/app/*.hpp"
+    "${LUNA_SOURCE_DIR}/demo/*.cpp"
+    "${LUNA_SOURCE_DIR}/demo/*.hpp"
+    "${LUNA_SOURCE_DIR}/tests/*.cpp"
+    "${LUNA_SOURCE_DIR}/tests/*.hpp"
+)
+if(NOT LUNA_SUPPORTING_SOURCES)
+    luna_policy_failure("no application or test sources were discovered")
+endif()
+foreach(SUPPORTING_SOURCE IN LISTS LUNA_SUPPORTING_SOURCES)
+    luna_require_lowercase_path("${SUPPORTING_SOURCE}"
+        "^(app|demo|tests)/.+\\.(cpp|hpp)$"
+    )
+    luna_require_guarded_includes("${SUPPORTING_SOURCE}")
 endforeach()
 
 set(LUNA_CONSUMER_FILES ${LUNA_PUBLIC_FILES})
@@ -48,6 +196,7 @@ list(APPEND LUNA_CONSUMER_FILES
     "app/src/main.cpp"
     "demo/imgui_color_text_edit/src/main.cpp"
     "tests/compile/consumer/boundary.cpp"
+    "tests/compile/consumer/freeze.cpp"
 )
 foreach(CONSUMER_FILE IN LISTS LUNA_CONSUMER_FILES)
     file(READ "${LUNA_SOURCE_DIR}/${CONSUMER_FILE}" CONSUMER_CONTENT)
@@ -61,12 +210,47 @@ foreach(CONSUMER_FILE IN LISTS LUNA_CONSUMER_FILES)
     endif()
 endforeach()
 
+# Requirements 1.8 and 19.1: exactly one correctness executable.
+if(NOT LUNA_TEST_EXECUTABLES STREQUAL "LunaTests")
+    luna_policy_failure(
+        "tests must build exactly one correctness executable; found: ${LUNA_TEST_EXECUTABLES}"
+    )
+endif()
+
+# Requirements 1.6 and 19.7: consumers never link Luau directly.
+foreach(LUNA_LUAU_TARGET IN ITEMS Luau.VM Luau.Compiler)
+    if(LUNA_LUAU_TARGET IN_LIST LUNA_INTERFACE_LINK_LIBRARIES)
+        luna_policy_failure(
+            "Luna exposes ${LUNA_LUAU_TARGET} to consumers instead of linking it privately"
+        )
+    endif()
+    if(LUNA_LUAU_TARGET IN_LIST LUNA_APP_LINK_LIBRARIES OR
+       LUNA_LUAU_TARGET IN_LIST LUNA_CONSUMER_LINK_LIBRARIES)
+        luna_policy_failure(
+            "a consumer target links ${LUNA_LUAU_TARGET} directly"
+        )
+    endif()
+endforeach()
+if(NOT LUNA_APP_LINK_LIBRARIES STREQUAL "Luna::Luna")
+    luna_policy_failure("LunaTestApp must link only Luna::Luna")
+endif()
+if(LUNA_CONSUMER_LINK_LIBRARIES)
+    luna_policy_failure(
+        "the consumer boundary compile check must not link any dependency"
+    )
+endif()
+
 string(REGEX MATCH "(^|;)RC_PARAMS=max_success=([0-9]+)( |;|$)"
     LUNA_RC_CONFIGURATION "${LUNA_TEST_ENVIRONMENT}"
 )
 if(NOT LUNA_RC_CONFIGURATION OR CMAKE_MATCH_2 LESS 100)
     luna_policy_failure(
-        "LunaTests must expose RapidCheck replay output with max_success >= 100"
+        "LunaTests must run RapidCheck properties with max_success >= 100"
+    )
+endif()
+if(NOT LUNA_TEST_ENVIRONMENT MATCHES "verbose_shrinking=1")
+    luna_policy_failure(
+        "LunaTests must enable RapidCheck replay output for failing properties"
     )
 endif()
 
@@ -143,8 +327,21 @@ foreach(REQUIRED_TEST IN ITEMS
         luna_policy_failure("CTest did not discover ${REQUIRED_TEST}")
     endif()
 endforeach()
+foreach(DISCOVERED_TEST IN LISTS DISCOVERED_TEST_NAMES)
+    if(DISCOVERED_TEST IN_LIST LUNA_ALLOWED_TESTS)
+        continue()
+    endif()
+    if(LUNA_BENCHMARK_REGRESSION_TESTS AND
+       DISCOVERED_TEST MATCHES "^LunaBenchmarkRegression\\.")
+        continue()
+    endif()
+    luna_policy_failure(
+        "CTest discovered an unexpected test: ${DISCOVERED_TEST}"
+    )
+endforeach()
 
 message(STATUS
-    "Build policy verified: C++20 targets, private Luau linkage, lowercase layout, "
-    "consumer boundary, presets, RapidCheck replay configuration, and CTest discovery"
+    "Build policy verified: lowercase layout, guarded include blocks, PascalCase "
+    "public API, private Luau linkage, one correctness executable, presets, "
+    "RapidCheck replay configuration, and CTest discovery"
 )

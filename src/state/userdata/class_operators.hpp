@@ -1,0 +1,68 @@
+#pragma once
+
+// clang-format off
+#include <luna/binding/class_operator.hpp>
+#include <luna/reflection/ids.hpp>
+
+#include <cstddef>
+#include <cstdint>
+#include <span>
+#include <string>
+#include <string_view>
+// clang-format on
+
+namespace Luna::Detail {
+
+// One supported operator of a registered class: the Luna-owned member segment
+// its candidate is published under, the metatable field it answers, and the
+// call shape the metamethod forwards.
+//
+// `Metamethod` is empty for the two operators Luna's own reserved dispatch
+// answers, because those never occupy a metatable field of their own.
+struct ClassOperatorDescriptor final {
+  ClassOperator Selected = ClassOperator::Call;
+  std::string_view Segment;
+  std::string_view Metamethod;
+  std::size_t OperandCount = 0;
+  bool ForwardsEveryArgument = false;
+  bool ProducesValue = true;
+};
+
+[[nodiscard]] std::span<const ClassOperatorDescriptor>
+ClassOperatorDescriptors() noexcept;
+
+[[nodiscard]] const ClassOperatorDescriptor *
+FindClassOperator(ClassOperator Selected) noexcept;
+
+// Which Luna-owned behaviour a reserved metamethod carries.
+enum class ReservedMetamethodRole : std::uint8_t {
+  Identity,
+  Dispatch,
+  MetatableProtection,
+  Lifetime,
+  Collection
+};
+
+[[nodiscard]] std::string_view
+ReservedMetamethodRoleText(ReservedMetamethodRole Role) noexcept;
+
+struct ReservedMetamethod final {
+  std::string_view Name;
+  ReservedMetamethodRole Role = ReservedMetamethodRole::Dispatch;
+};
+
+[[nodiscard]] std::span<const ReservedMetamethod>
+ReservedMetamethods() noexcept;
+
+[[nodiscard]] const ReservedMetamethod *
+FindReservedMetamethod(std::string_view Name) noexcept;
+
+// One published operator of a registered class.
+struct RegisteredOperator final {
+  ClassOperator Selected = ClassOperator::Call;
+  std::string Segment;
+  std::string QualifiedName;
+  SymbolId Symbol;
+};
+
+} // namespace Luna::Detail

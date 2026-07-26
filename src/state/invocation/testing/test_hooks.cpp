@@ -6,6 +6,7 @@
 #include <lua.h>
 #include <lualib.h>
 
+#include <cstddef>
 #include <type_traits>
 #include <utility>
 // clang-format on
@@ -50,6 +51,19 @@ private:
       },
       Input);
   return true;
+}
+
+// The canonical kind one published value carries, for a dynamic pack whose
+// element types the invocation decided.
+[[nodiscard]] ValueKind PublishedValueKind(lua_State *State, int StackIndex) {
+  switch (lua_type(State, StackIndex)) {
+  case LUA_TBOOLEAN:
+    return ValueKind::Boolean;
+  case LUA_TSTRING:
+    return ValueKind::String;
+  default:
+    return ValueKind::Number;
+  }
 }
 
 } // namespace
@@ -112,6 +126,24 @@ ReturnWriteObservation InvocationPrimitiveTestHooks::Write(
     auto ReadBack = ReadArgument(State.Get(), -1, *Metadata.Kind());
     if (ReadBack.IsSuccess())
       Observation.WrittenValue = std::move(*ReadBack.ConvertedValue);
+  }
+
+  // A published pack left its ordered values in the result positions above the
+  // seeded depth, so they read back in return order.
+  if (Observation.Result.Status == ReturnWriteStatus::PackPublished &&
+      State.Get()) {
+    const int First = static_cast<int>(InitialStackDepth) + 1;
+    for (int Index = 0; Index < Observation.Result.ReturnCount; ++Index) {
+      const int Position = First + Index;
+      const ValueKind Kind =
+          Index < static_cast<int>(Metadata.PackKinds().size())
+              ? Metadata.PackKinds()[static_cast<std::size_t>(Index)]
+              : PublishedValueKind(State.Get(), Position);
+      auto ReadBack = ReadArgument(State.Get(), Position, Kind);
+      if (ReadBack.IsSuccess())
+        Observation.WrittenValues.push_back(
+            std::move(*ReadBack.ConvertedValue));
+    }
   }
   return Observation;
 }

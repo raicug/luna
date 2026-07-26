@@ -1,0 +1,4 @@
+# Pinned generated artifacts are compared byte for byte, so they must survive
+# checkout exactly as generated: canonical UTF-8 without a byte-order mark and
+# with LF line endings on every host.
+* -text
