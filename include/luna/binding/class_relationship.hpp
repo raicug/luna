@@ -1,16 +1,5 @@
 #pragma once
 
-// Explicit relationships between registered classes: base edges and safe
-// downcast policies.
-//
-// A relationship is described, never discovered. `Base` states one edge from
-// the class being registered to a class already identified by its own validated
-// stable key, and `Cast` states the one non-mutating policy a downcast to this
-// class is permitted through. Both are captured where the consumer's types are
-// still complete, so the declared C++ facts - whether the named class really is
-// a base, whether it is publicly reachable, and how a pointer is adjusted - are
-// recorded here rather than guessed by a backend that never sees either type.
-
 // clang-format off
 #include <luna/type/stable_type_key.hpp>
 
@@ -23,38 +12,23 @@ namespace Luna {
 
 namespace Detail {
 
-// The pointer adjustment of one relationship edge. It is a pure function of the
-// pointer it receives and never throws, so it is usable from the validated
-// access gate.
 using ClassPointerAdjustment = void *(*)(void *);
 
-// The non-mutating compatibility probe of one safe downcast: the adjusted
-// read-only pointer when the object really is a value of the target class, and
-// null when it is not. It never mutates, allocates, or throws, so an object it
-// rejects never reaches a committing conversion or a native target.
 using ClassCompatibilityProbe = const void *(*)(const void *);
 
-// The reflected policy identity of a downcast that decides compatibility with
-// runtime type assistance. The assistance stays internal: no persistent
-// identity derives from a runtime type name or address.
 inline constexpr std::string_view RuntimeTypeCastPolicyName =
     "luna.runtimetype";
 
-// One declared base edge of the class being registered.
 struct BaseRequest final {
   StableTypeKey Base;
 
-  // The named class really is a base of the class being registered.
   bool DeclaresBase = false;
 
-  // The base is reachable through one unambiguous public path in C++ itself.
   bool IsAccessible = false;
 
   ClassPointerAdjustment Upcast = nullptr;
 };
 
-// One declared safe downcast to the class being registered, from the class the
-// source key names.
 struct CastRequest final {
   StableTypeKey Source;
   std::string Policy;
@@ -67,9 +41,6 @@ struct CastRequest final {
   ClassPointerAdjustment Downcast = nullptr;
 };
 
-// True when a pointer to `Source` can be adjusted to `Target` without runtime
-// assistance. A virtual base is excluded, because only runtime assistance can
-// adjust away from one.
 template <class Target, class Source>
 concept StaticallyDowncastable =
     requires(Source *Object) { static_cast<Target *>(Object); };
@@ -119,9 +90,6 @@ template <class Target, class Source>
 
 template <class Target, class Source, class Check>
 [[nodiscard]] const void *ProbeThroughDeclaredCheck(const void *Object) {
-  // The declared check is a consumer predicate reached from the access gate, so
-  // an escaping exception is an incompatible object rather than a terminated
-  // process.
   try {
     const Source *Received = static_cast<const Source *>(Object);
     Check Predicate{};

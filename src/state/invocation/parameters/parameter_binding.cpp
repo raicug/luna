@@ -23,9 +23,6 @@
 namespace Luna::Detail {
 namespace {
 
-// The subject one declared shape names. An instance member names its class and
-// member; every other callable keeps the foundation's own wording. The receiver
-// travelling in the metadata is exactly what tells the two apart.
 [[nodiscard]] ConversionSubject Subject(std::string_view CallableName,
                                         const CallableMetadata *Metadata) {
   return InvocationSubject(CallableName, Metadata);
@@ -39,9 +36,6 @@ namespace {
   return DescribeConversionSubjectContext(Named);
 }
 
-// The arity one declared shape accepts, worded so an equivalent shape always
-// reports one identical sentence. A shape with one exact arity keeps the
-// foundation's wording.
 [[nodiscard]] std::string AcceptedArityText(const ParameterArity &Arity) {
   if (!Arity.Maximum)
     return "at least " + std::to_string(Arity.Minimum) + " arguments";
@@ -51,8 +45,6 @@ namespace {
          std::to_string(*Arity.Maximum) + " arguments";
 }
 
-// Every fixed parameter must name a type the captured generation can read, and
-// the declared shape itself must be one Luna described at registration.
 [[nodiscard]] bool
 ShapeIsConsistent(std::span<const ParameterDescriptor> Parameters,
                   const TypeGeneration &Types) {
@@ -69,10 +61,6 @@ ShapeIsConsistent(std::span<const ParameterDescriptor> Parameters,
   return true;
 }
 
-// One variadic call position. The accepted domain is one Luna-owned policy: a
-// boolean, number, string, or nil converts through the captured registry and
-// keeps every inherited limit; any other representation is refused whole,
-// naming the one-based call position and the path of the value that failed.
 [[nodiscard]] bool ReadVariadicElement(const TypeGeneration &Types,
                                        lua_State *State, int StackIndex,
                                        std::size_t Position,
@@ -170,8 +158,6 @@ BoundInvocation BindDeclaredParameters(lua_State *State,
       return Result;
     }
 
-    // Every supplied argument is validated before any default is materialized,
-    // so a refused call materializes no default at all.
     Result.Arguments.Fixed.resize(Arity.FixedCount);
     for (std::size_t Index = 0; Index < Arity.FixedCount; ++Index) {
       if (Index >= static_cast<std::size_t>(ReceivedCount))
@@ -182,9 +168,6 @@ BoundInvocation BindDeclaredParameters(lua_State *State,
       const bool InjectInspectionFailure =
           Faults.Consume(StateFaultPoint::ArgumentInspection);
 
-      // An explicit nil is the empty value exactly when the parameter's own
-      // conversion accepts nil; otherwise it is an ordinary supplied value and
-      // the parameter's converter refuses it.
       if (!InjectInspectionFailure && Parameter.AcceptsNil() &&
           lua_type(State, StackIndex) == LUA_TNIL)
         continue;
@@ -232,8 +215,6 @@ BoundInvocation BindDeclaredParameters(lua_State *State,
       Result.Arguments.HasVariadic = true;
     }
 
-    // Only now, with every supplied argument accepted, is each omitted default
-    // materialized - exactly once.
     for (std::size_t Index = static_cast<std::size_t>(ReceivedCount);
          Index < Arity.FixedCount; ++Index) {
       const ParameterDescriptor &Parameter = Parameters[Index];
@@ -271,8 +252,6 @@ InvokeDeclaredParameters(lua_State *State, std::string_view CallableName,
 
   std::optional<InvocationOutcome> Outcome;
   if (Bound.Arguments.HasVariadic) {
-    // The variadic frame ends with this scope, so a retained view becomes inert
-    // instead of reaching released storage.
     ArgumentFrame Frame(std::move(Bound.Arguments.Variadic));
     const InvocationArguments Arguments(Bound.Arguments.Fixed, Frame.View(),
                                         &Frame.Arguments());

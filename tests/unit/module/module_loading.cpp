@@ -83,11 +83,8 @@ Manifest(std::string Identity, std::string_view VersionText,
   return Depth ? *Depth : -1;
 }
 
-// One scoped enumeration a module declares, so a module's canonical type
-// enumeration has something to report.
 enum class Alignment { Left = 0, Right = 1 };
 
-// One module that publishes a namespace with one constant inside it.
 struct RecordingModule final {
   std::string Namespace;
   std::string Constant;
@@ -164,8 +161,6 @@ void CheckDependencyGraphRunsInOneTransaction() {
   Luna::State Owner;
   Luna::BindingRegistry Registry = Owner.Bindings();
 
-  // Two versions of the same dependency are available; resolution must select
-  // the highest one satisfying the accumulated constraint.
   std::vector<std::string> Order;
   const RecordingModule OldMath{"MathOld", "Version", 1, &Order, "studio.math"};
   const RecordingModule NewMath{"Math", "Version", 2, &Order, "studio.math"};
@@ -260,8 +255,6 @@ void CheckRepeatedLoadIsIdempotentAndConflictsAreRejected() {
   Check(Hooks::LoadedModuleCount(Owner) == 1,
         "an idempotent repeat records no second module");
 
-  // A same-version unequal definition and a different version of a loaded
-  // identity are conflicts, not replacements.
   const Luna::ModuleManifest Unequal =
       Manifest("studio.physics", "1.0.0", {},
                {Exported(Luna::SymbolKind::Namespace, "Physics")});
@@ -308,7 +301,6 @@ void CheckUnresolvableGraphPreservesThePreLoadState() {
   Check(Callbacks == 0,
         "an unresolvable graph never runs a registration callback");
 
-  // An available dependency whose only version violates the constraint.
   Check(Registry
             .ProvideModule(
                 Manifest("studio.math", "1.0.0"),
@@ -351,16 +343,12 @@ void CheckNestedFailurePoisonsTheWholeLoad() {
             .IsSuccess(),
         "the dependency definition becomes available");
 
-  // The requested callback ignores a failing nested registration. An ignored
-  // nested failure still poisons the module's outer transaction.
   const auto Result = Registry.RegisterModule(
       Manifest("studio.engine", "1.0.0",
                {Dependency("studio.math", {">=1.0.0"})}),
       [](Luna::NamespaceBuilder &Builder) {
         Luna::NamespaceBuilder Scope = Builder.RegisterNamespace("Engine");
         static_cast<void>(Scope.RegisterConstant("Ready", true));
-        // An invalid identifier segment is a deterministic staging failure
-        // whose result the callback deliberately drops.
         static_cast<void>(Builder.RegisterNamespace("not a name"));
       });
 
@@ -418,7 +406,6 @@ void CheckCallbackExceptionsAreContained() {
     Check(StackDepth(Owner) == EntryDepth,
           "a thrown callback restores the exact entry stack depth");
 
-    // The State stays usable: the same graph loads once the callback behaves.
     Check(
         Registry
             .RegisterModule(
@@ -645,10 +632,6 @@ void CheckCanonicalEnumerationIsOrderIndependent() {
         "declarations were written in");
 }
 
-// A failed load must leave Luna's private namespace ownership, its module
-// registry, and its available definitions exactly as they were. An ordinary
-// query taken while the load is still in flight must observe only the committed
-// model, never the declarations the open attempt staged.
 void CheckFailedLoadPreservesOwnershipAndQueryIsolation() {
   Luna::State Owner;
   Luna::BindingRegistry Registry = Owner.Bindings();
@@ -697,7 +680,6 @@ void CheckFailedLoadPreservesOwnershipAndQueryIsolation() {
   Check(StackDepth(Owner) == EntryDepth,
         "a failed load restores the exact entry stack depth");
 
-  // The same module loads afterwards and reopens the committed namespace.
   const auto Recovered = Registry.RegisterModule(
       Manifest("studio.engine", "1.0.0"), [](Luna::NamespaceBuilder &Builder) {
         Luna::NamespaceBuilder Reopened = Builder.RegisterNamespace("Studio");

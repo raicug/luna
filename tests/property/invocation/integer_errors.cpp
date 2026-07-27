@@ -90,9 +90,7 @@ SelectOutOfRange(std::uint64_t GeneratedMagnitude, bool Negative) {
 } // namespace
 
 int RunInvalidIntegerClassificationProperties() {
-  // **Validates: Requirements 5.3, 5.4, 5.5, 5.6, 5.8**
   // clang-format off
-  // Feature: luau-binding-foundation, Property 8: Invalid integer numbers are classified deterministically
   const bool Passed = rc::check(
       // clang-format on
       "Invalid integer numbers are classified deterministically",

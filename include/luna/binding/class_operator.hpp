@@ -7,7 +7,6 @@
 
 namespace Luna {
 
-// The operator behaviour one registered class may declare.
 enum class ClassOperator {
   Call,
   Length,
@@ -66,8 +65,6 @@ ClassOperatorText(ClassOperator Selected) noexcept {
   return "call";
 }
 
-// How many operands one operator declares beyond the receiver it operates on.
-// A call forwards every argument it was given instead, so it declares none.
 [[nodiscard]] constexpr std::size_t
 ClassOperatorOperandCount(ClassOperator Selected) noexcept {
   switch (Selected) {
@@ -107,9 +104,6 @@ ClassOperatorProducesValue(ClassOperator Selected) noexcept {
   return Selected != ClassOperator::Assign;
 }
 
-// Indexing and assignment stay behind Luna's own reserved dispatch: the class
-// declares the behaviour, Luna keeps the metamethod, and the declaration is
-// consulted only for a name the class itself declares nothing for.
 [[nodiscard]] constexpr bool
 ClassOperatorUsesReservedDispatch(ClassOperator Selected) noexcept {
   return Selected == ClassOperator::Index || Selected == ClassOperator::Assign;

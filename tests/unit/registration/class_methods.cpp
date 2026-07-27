@@ -40,9 +40,6 @@ void Check(bool Condition, std::string_view Description) {
   std::cerr << "class method check failed: " << Description << '\n';
 }
 
-// How often each declared member target actually ran. An instance member runs
-// on exactly the object the call site supplied, so these counters are what
-// prove a refused receiver never reached native code at all.
 std::size_t ReadCalls = 0;
 std::size_t MutateCalls = 0;
 std::size_t StaticCalls = 0;
@@ -53,8 +50,6 @@ void ResetCounters() {
   StaticCalls = 0;
 }
 
-// One ordinary value class with const and non-const members, an overload set,
-// and one static member.
 struct Vector3 final {
   double X = 0.0;
   double Y = 0.0;
@@ -102,8 +97,6 @@ struct Vector3 final {
   }
 };
 
-// One polymorphic class, so a virtual member proves it dispatches through the
-// object the call site supplied rather than through the declared class.
 struct Shape {
   virtual ~Shape() = default;
 
@@ -132,14 +125,11 @@ struct Square final : Shape {
   return std::static_pointer_cast<Shape>(std::make_shared<Square>());
 }
 
-// One explicit wrapper member: it states the object it operates on through its
-// first parameter instead of through a member pointer.
 [[nodiscard]] double SumOf(const Vector3 &Source) {
   ++ReadCalls;
   return Source.X + Source.Y + Source.Z;
 }
 
-// The whole member surface of one class, declared as one plan.
 [[nodiscard]] Luna::RegistrationResult
 RegisterVector3(Luna::BindingRegistry &Registry) {
   Luna::ClassBuilder<Vector3> Class =
@@ -157,9 +147,6 @@ RegisterVector3(Luna::BindingRegistry &Registry) {
       "Combine",
       Luna::Overload<double(double, double), Vector3>(&Vector3::Combine));
 
-  // One member name declared twice, once for a mutable object and once for a
-  // const one. A mutable receiver prefers the member that may mutate it; a
-  // const receiver reaches only the one that may not.
   auto Adjusting = [](Vector3 &Source, double Factor) {
     ++MutateCalls;
     Source.X *= Factor;
@@ -179,8 +166,6 @@ RegisterVector3(Luna::BindingRegistry &Registry) {
   Luna::ClassBuilder<Vector3> &WithThrowing =
       WithStatic.Method("Throwing", &Vector3::Throwing);
 
-  // A trailing optional parameter of one member follows exactly the ordinary
-  // declared parameter shape.
   auto Offset = [](const Vector3 &Source, std::optional<double> Amount) {
     ++ReadCalls;
     return Source.X + (Amount ? *Amount : 100.0);
@@ -188,9 +173,6 @@ RegisterVector3(Luna::BindingRegistry &Registry) {
   Luna::ClassBuilder<Vector3> &WithOptional =
       WithThrowing.Method("Offset", Offset);
 
-  // A variadic member consumes the call positions after its receiver, and the
-  // positions it reports are the ordinary one-based positions of those
-  // arguments.
   auto Tally = [](const Vector3 &Source, const Luna::ArgumentView &Rest) {
     ++ReadCalls;
     double Total = Source.X;
@@ -232,7 +214,6 @@ RegisterVector3(Luna::BindingRegistry &Registry) {
   return Text.find(Needle) != std::string_view::npos;
 }
 
-// One number the script computed, read back without any conversion of its own.
 [[nodiscard]] int ScriptResult(Luna::State &Host, const std::string &Source) {
   if (!Succeeds(Host, Source))
     return -1;
@@ -240,7 +221,6 @@ RegisterVector3(Luna::BindingRegistry &Registry) {
   return Observed ? *Observed : -1;
 }
 
-// The callback checkpoint a refused call restores exactly.
 [[nodiscard]] bool RestoredCheckpoint(const Luna::State &Host) {
   const auto Observation = Hooks::ObserveLastCallbackStackRestoration(Host);
   return Observation.has_value() &&
@@ -248,7 +228,6 @@ RegisterVector3(Luna::BindingRegistry &Registry) {
          Observation->ErrorDepth == Observation->RestoredDepth + 1;
 }
 
-// The reflected record of one member candidate of one qualified name.
 [[nodiscard]] Luna::ReflectionRecord
 CandidateOf(const Luna::ReflectionSnapshot &Taken, Luna::SymbolKind Kind,
             std::string_view QualifiedName, std::size_t ParameterCount) {
@@ -309,8 +288,6 @@ void CheckMembersAreReflectedAsMembers() {
   Check(!Contains(Dimensions.Signature(), "Studio.MemberVector3"),
         "a static method reflects no receiver at all");
 
-  // Two candidates of one member name form one canonical overload set, exactly
-  // as two constructors of one class do.
   const Luna::ReflectionRecord Combine = Snapshot.Find("Vector3.Combine");
   Check(Combine.IsValid() && Combine.Kind() == Luna::SymbolKind::OverloadSet,
         "several methods of one name form one reflected overload set");
@@ -337,8 +314,6 @@ void CheckColonAndDotCallsAreOneCall() {
         "the class-scope spelling of the same member is the same call");
   Check(ReadCalls == 3, "each of the three spellings ran the member once");
 
-  // The member value reached through the object and the member value reached
-  // through the class are one function, not two agreeing ones.
   Check(ScriptResult(Owner, "local V = Vector3.New(1, 1, 1)\n"
                             "Result = 0\n"
                             "if V.Largest == Vector3.Largest then\n"
@@ -346,9 +321,6 @@ void CheckColonAndDotCallsAreOneCall() {
                             "end") == 1,
         "an instance reaches exactly the member value its class declares");
 
-  // A virtual member of a nested class dispatches through the object the call
-  // site supplied, and its members are reached through the nested class table
-  // exactly as a root-scope class's are.
   Luna::NamespaceBuilder Studio = Registry.RegisterNamespace("Studio");
   Luna::ClassBuilder<Shape> Class =
       Studio.RegisterClass<Shape>("Shape", ShapeKey());
@@ -377,8 +349,6 @@ void CheckOrdinaryArgumentsFollowTheReceiver() {
         "a non-const member mutates exactly the object it was called on");
   Check(MutateCalls == 1, "the mutating member ran exactly once");
 
-  // Ordinary arguments keep their own one-based positions: the receiver is rank
-  // position zero, not argument one.
   const std::string Message =
       Refusal(Owner, "local V = Vector3.New(1, 1, 1)\nV:Grow('a')");
   Check(Contains(Message, "argument 1"),
@@ -389,8 +359,6 @@ void CheckOrdinaryArgumentsFollowTheReceiver() {
   Check(RestoredCheckpoint(Owner),
         "a refused member call restores its callback checkpoint exactly");
 
-  // The same call written as a dot call reports exactly the same argument
-  // position, because it is the same call.
   const std::string DotMessage =
       Refusal(Owner, "local V = Vector3.New(1, 1, 1)\nVector3.Grow(V, 'a')");
   Check(DotMessage == Message,
@@ -425,8 +393,6 @@ void CheckMissingReceiverFailsBeforeArguments() {
   Luna::BindingRegistry Registry = Owner.Bindings();
   Check(RegisterVector3(Registry).IsSuccess(), "the class publishes");
 
-  // A dot call with no receiver at all fails receiver validation, ahead of
-  // every ordinary-argument decision.
   const std::string Missing = Refusal(Owner, "Vector3.Largest()");
   Check(Contains(Missing, "receiver"),
         "a dot call without a receiver fails receiver validation");
@@ -438,23 +404,17 @@ void CheckMissingReceiverFailsBeforeArguments() {
   Check(RestoredCheckpoint(Owner),
         "a refused receiver restores the callback checkpoint exactly");
 
-  // A member whose ordinary arguments are supplied but whose receiver is not
-  // still fails on the receiver first.
   const std::string Shifted = Refusal(Owner, "Vector3.Grow(3)");
   Check(Contains(Shifted, "receiver"),
         "a shifted dot call fails on its receiver rather than its arguments");
   Check(MutateCalls == 0, "a shifted dot call never reached native code");
 
-  // A value that is not of this class at all is refused by the same gate.
   const std::string Foreign = Refusal(Owner, "Vector3.Largest('text')");
   Check(Contains(Foreign, "receiver") &&
             Contains(Foreign, "not a Luna userdata"),
         "a receiver that is not a Luna userdata is refused as the receiver");
   Check(ReadCalls == 0, "a foreign receiver never reached native code");
 
-  // A value of another registered class carries a metatable this State knows,
-  // so the receiver gate refuses it on its dynamic type: no accessible base
-  // path and no cast policy relates the two classes.
   Luna::ClassBuilder<Shape> Class =
       Registry.RegisterClass<Shape>("Shape", ShapeKey());
   Luna::ClassBuilder<Shape> &WithFactory = Class.Factory("Square", &MakeSquare);
@@ -485,8 +445,6 @@ void CheckStaticMethodsUseTheOrdinaryPipeline() {
         "a static method is called without any instance at all");
   Check(StaticCalls == 1, "the static member ran exactly once");
 
-  // A static member takes no receiver, so a supplied one is an ordinary arity
-  // failure rather than a receiver failure.
   const std::string Message =
       Refusal(Owner, "local V = Vector3.New(1, 1, 1)\nV:Dimensions()");
   Check(!Contains(Message, "receiver"),
@@ -515,12 +473,10 @@ void CheckConstReceiversRejectMutatingMembers() {
   Check(Hooks::ExposeClassValue(Owner, Request).Published,
         "one const view of an engine-owned object is published");
 
-  // A const value of the class accepts every member that only reads it.
   Check(ScriptResult(Owner, "Result = Frozen:Largest()") == 5,
         "a const receiver permits a const member");
   Check(ReadCalls == 1, "the const member ran exactly once");
 
-  // It refuses every member that would mutate it, before native code runs.
   const std::string Message = Refusal(Owner, "Frozen:Grow(2)");
   Check(Contains(Message, "receiver") && Contains(Message, "const view"),
         "a const receiver refuses a mutating member");
@@ -529,8 +485,6 @@ void CheckConstReceiversRejectMutatingMembers() {
   Check(RestoredCheckpoint(Owner),
         "a refused const access restores the callback checkpoint exactly");
 
-  // One overload set with a const and a non-const candidate: the const value
-  // reaches only the const one, and a mutable value prefers the other.
   Check(ScriptResult(Owner, "Result = Frozen:Adjust(2)") == 10,
         "a const receiver selects the const candidate of one member name");
   Check(ReadCalls == 2 && MutateCalls == 0,
@@ -541,9 +495,6 @@ void CheckConstReceiversRejectMutatingMembers() {
         "a mutable receiver prefers the candidate that may mutate it");
   Check(MutateCalls == 1, "the mutating candidate of the set ran exactly once");
 
-  // The owner of the borrowed object ends its lifetime: every later member call
-  // on the value exposed through it fails before native code, whether that
-  // member reads its object or mutates it.
   Luna::LifetimeHandle Ending = Lifetime;
   Ending.Invalidate();
   const std::string Expired = Refusal(Owner, "Frozen:Largest()");
@@ -555,7 +506,6 @@ void CheckConstReceiversRejectMutatingMembers() {
 
 void CheckMemberFailuresAndRefusals() {
   {
-    // Two candidates of one member name that no call could tell apart.
     ResetCounters();
     Luna::State Owner;
     Luna::BindingRegistry Registry = Owner.Bindings();
@@ -577,7 +527,6 @@ void CheckMemberFailuresAndRefusals() {
   }
 
   {
-    // One member name is either an instance member or a static one.
     ResetCounters();
     Luna::State Owner;
     Luna::BindingRegistry Registry = Owner.Bindings();
@@ -598,8 +547,6 @@ void CheckMemberFailuresAndRefusals() {
   }
 
   {
-    // Documenting a member that was never declared stays a deterministic
-    // failure, and a declared member may be documented.
     ResetCounters();
     Luna::State Owner;
     Luna::BindingRegistry Registry = Owner.Bindings();
@@ -612,7 +559,6 @@ void CheckMemberFailuresAndRefusals() {
   }
 
   {
-    // A throwing member is translated exactly as any other native target.
     ResetCounters();
     Luna::State Owner;
     Luna::BindingRegistry Registry = Owner.Bindings();

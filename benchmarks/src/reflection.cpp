@@ -1,10 +1,3 @@
-// Reflection lookup benchmark scenario.
-//
-// A snapshot capture, a qualified-name lookup, and a full canonical enumeration
-// are measured separately, because they answer from different parts of the
-// model. The corpus is registered once per mode so a sample measures reading
-// one committed generation rather than building it.
-
 // clang-format off
 #include <luna/luna.hpp>
 
@@ -24,8 +17,6 @@ using LunaBenchmark::ScenarioModel;
 
 [[nodiscard]] int Measure(int Value) { return Value + 1; }
 
-// The measured class and the base it declares, so the registered class graph is
-// a connected one like a real corpus.
 struct Instrument {
   double Reading = 1.0;
 

@@ -1,12 +1,3 @@
-// The private implementation of the public conversion boundary.
-//
-// Every accessor a converter author can reach resolves its Luna-owned token to
-// a live conversion frame and answers from that frame's immutable copy of the
-// value shape. A token that names no live frame answers as an inert value and
-// the attempt is counted, so a retained view or context is detectable rather
-// than dangerous. Nothing here hands back an address, a stack position, or a
-// virtual-machine handle, and no operation in this file names Luau at all.
-
 // clang-format off
 #include <luna/binding/conversion.hpp>
 
@@ -24,8 +15,6 @@ namespace Luna {
 
 namespace {
 
-// Resolve a token to its live frame, counting every access made through a token
-// whose frame has already ended.
 [[nodiscard]] Detail::ConversionFrame *
 ResolveFrame(std::uint64_t Token) noexcept {
   Detail::ConversionFrame *Frame = Detail::FindConversionFrame(Token);

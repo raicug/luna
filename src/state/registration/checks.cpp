@@ -125,8 +125,6 @@ ValidateNamespaceSegment(std::string_view Segment) {
         "': a namespace accepts exactly one identifier segment per "
         "registration.");
 
-  // Every other rule is the identifier grammar the foundation established, so a
-  // segment and a root-scope global accept exactly the same names.
   if (auto Diagnostic = ValidateGlobalIdentifier(Segment)) {
     return InvalidName("Invalid namespace segment '" + std::string(Segment) +
                        "': " + std::string(Diagnostic->Message()));

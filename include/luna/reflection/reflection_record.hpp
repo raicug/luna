@@ -1,13 +1,5 @@
 #pragma once
 
-// Immutable public reflection views. Every view is a tagged handle over one
-// committed reflection generation: it shares that generation's immutable
-// storage, owns nothing mutable, and therefore never refers to a State, a
-// virtual machine, a stack index, a callable target, a metatable, or a native
-// object. A view stays readable and unchanged after later registrations, a
-// freeze, a State move, destruction of the originating State, and reads from
-// another thread.
-
 // clang-format off
 #include <luna/reflection/ids.hpp>
 #include <luna/type/type_descriptor.hpp>
@@ -21,17 +13,13 @@
 namespace Luna {
 
 namespace Detail {
-// One immutable published reflection generation. Its layout stays private.
 class ReflectionStorage;
-} // namespace Detail
+}
 
-// Call-shape disposition of one reflected parameter.
 enum class ParameterDisposition { Required, Optional, Defaulted, Variadic };
 
-// Reflected return shape of one callable candidate.
 enum class ReturnShape { Zero, Scalar, Multiple };
 
-// Relationship between one symbol and one canonical type.
 enum class TypeRelationKind {
   Declared,
   Base,
@@ -88,8 +76,6 @@ TypeRelationKindText(TypeRelationKind Kind) noexcept {
   return "declared";
 }
 
-// Identity of one enclosing scope. The default value is the root scope, so a
-// scope never depends on a table address or a registration order.
 class ScopeId {
 public:
   constexpr ScopeId() noexcept = default;
@@ -122,7 +108,6 @@ private:
   SymbolId OwnerValue;
 };
 
-// One reflected parameter, including its immutable default metadata.
 class ParameterRecord final {
 public:
   ParameterRecord() noexcept = default;
@@ -147,7 +132,6 @@ private:
   std::size_t ParameterIndexValue = 0;
 };
 
-// One reflected returned value in declaration order.
 class ReturnRecord final {
 public:
   ReturnRecord() noexcept = default;
@@ -168,7 +152,6 @@ private:
   std::size_t ReturnIndexValue = 0;
 };
 
-// One immutable name/value attribute attached to a symbol.
 class AttributeRecord final {
 public:
   AttributeRecord() noexcept = default;
@@ -188,8 +171,6 @@ private:
   std::size_t AttributeIndexValue = 0;
 };
 
-// One relationship between a symbol and a canonical type, such as a base, an
-// explicit cast, an operand, or an element type.
 class TypeRelation final {
 public:
   TypeRelation() noexcept = default;
@@ -211,9 +192,6 @@ private:
   std::size_t RelationIndexValue = 0;
 };
 
-// One resolved dependency of a loaded module: the required identity, the
-// version resolution selected for it, and the canonical text of the constraints
-// the manifest declared on it.
 class ModuleDependencyRecord final {
 public:
   ModuleDependencyRecord() noexcept = default;
@@ -235,7 +213,6 @@ private:
   std::size_t DependencyIndexValue = 0;
 };
 
-// One symbol a loaded module declares as exported metadata.
 class ModuleExportRecord final {
 public:
   ModuleExportRecord() noexcept = default;
@@ -256,10 +233,6 @@ private:
   std::size_t ExportIndexValue = 0;
 };
 
-// Provenance of one loaded module. The same view is returned by a record's
-// module provenance and by snapshot module enumeration. Dependencies with their
-// resolved versions, exports, declared namespaces, and declared canonical types
-// are enumerated in canonical deterministic order, never in load order.
 class ModuleRecord final {
 public:
   ModuleRecord() noexcept = default;
@@ -275,8 +248,6 @@ public:
   [[nodiscard]] std::size_t ExportCount() const noexcept;
   [[nodiscard]] ModuleExportRecord Export(std::size_t Index) const;
 
-  // The canonical qualified names of the namespaces and the canonical type
-  // names this module declared, in canonical order.
   [[nodiscard]] std::size_t NamespaceCount() const noexcept;
   [[nodiscard]] std::string_view Namespace(std::size_t Index) const noexcept;
   [[nodiscard]] std::size_t TypeCount() const noexcept;
@@ -292,7 +263,6 @@ private:
   std::size_t ModuleIndexValue = 0;
 };
 
-// One canonical type known to a published generation.
 class TypeRecord final {
 public:
   TypeRecord() noexcept = default;
@@ -314,8 +284,6 @@ private:
   std::size_t TypeIndexValue = 0;
 };
 
-// One reflected symbol. Collections are exposed by count and index so no
-// returned view or string ever outlives the generation that owns it.
 class ReflectionRecord final {
 public:
   ReflectionRecord() noexcept = default;
@@ -333,26 +301,12 @@ public:
   [[nodiscard]] TypeDescriptor Descriptor() const;
   [[nodiscard]] ReturnShape Returns() const noexcept;
 
-  // Value availability of one constant, enumerator, or enumerator alias: the
-  // symbol carries a value whose canonical conversion is available, and
-  // `ValueText` is its canonical textual form. Every other symbol reports no
-  // value and an empty text.
   [[nodiscard]] bool HasValue() const noexcept;
   [[nodiscard]] std::string_view ValueText() const noexcept;
 
-  // The ownership result one construction candidate publishes - a constructor,
-  // a factory, or a singleton accessor - and the canonical identity of the
-  // allocator policy behind it. Every other symbol reports empty views.
   [[nodiscard]] std::string_view OwnershipResult() const noexcept;
   [[nodiscard]] std::string_view AllocatorPolicy() const noexcept;
 
-  // The member half of one class surface: the canonical receiver type a
-  // property or field is reached through, whether a const receiver is enough
-  // for its reads, which directions it permits, when its value is produced, and
-  // how its declared value is owned across the member boundary. A lazy member
-  // reports its policy and never its cache state, so reflection stays a
-  // description of the declaration rather than of runtime. Every non-member
-  // symbol reports an invalid receiver, no directions, and empty policy views.
   [[nodiscard]] TypeId Receiver() const noexcept;
   [[nodiscard]] bool ReceiverPermitsConst() const noexcept;
   [[nodiscard]] bool IsReadable() const noexcept;

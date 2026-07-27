@@ -44,9 +44,6 @@ namespace {
   return Result;
 }
 
-// The receiver half of every member access. It is exactly the ordinary access
-// gate: nothing here re-decides layout, origin, metatable, lifetime, type, or
-// const permission, because that order is already the one gate's own.
 [[nodiscard]] UserdataAccessResult
 ValidateReceiver(const MemberAccessContext &Context, UserdataHeader &Header,
                  bool RequiresMutation) {
@@ -55,19 +52,12 @@ ValidateReceiver(const MemberAccessContext &Context, UserdataHeader &Header,
   return ValidateUserdataAccess(Header, Request);
 }
 
-// One refused receiver of one member, worded through the one shared member
-// vocabulary so a property, a field, and an instance method all explain the
-// identical refusal identically.
 [[nodiscard]] std::string ReceiverRefusalText(const RegisteredMember &Member,
                                               UserdataAccessFailure Failure) {
   return DescribeMemberReceiverRefusal(Member.QualifiedName, Member.ClassName,
                                        Failure);
 }
 
-// The canonical value type the member declares, as the diagnostic names it. The
-// registry owns the public names, so the captured generation is asked first and
-// the descriptor's canonical text is only the fallback for a gate reached
-// without one.
 [[nodiscard]] std::string DeclaredValueText(const MemberAccessContext &Context,
                                             const RegisteredMember &Member) {
   if (Context.Types != nullptr) {
@@ -118,9 +108,6 @@ MemberSideEffectBoundaryText(MemberSideEffectBoundary Boundary) noexcept {
 
 MemberSideEffectBoundary
 MemberSideEffectBoundaryOf(MemberAccessFailure Failure) noexcept {
-  // Only the two outcomes that require the declared target to have started are
-  // on the far side of the boundary. Every earlier refusal is Luna's own
-  // decision, taken while the native object was still untouched.
   switch (Failure) {
   case MemberAccessFailure::RefusedTarget:
   case MemberAccessFailure::ContainedException:
@@ -165,9 +152,6 @@ MemberReadResult ReadClassMember(MemberAccessContext &Context,
                       UserdataAccessFailure::None,
                       DescribeUnknownMember(Member.ClassName, Member.Segment));
 
-  // The receiver first, always. A getter declared on a mutable object needs a
-  // mutable view, so a const receiver is refused here rather than inside the
-  // declared target.
   const UserdataAccessResult Receiver =
       ValidateReceiver(Context, Header, Member.ReadRequiresMutableReceiver);
   if (!Receiver.IsPermitted())
@@ -179,8 +163,6 @@ MemberReadResult ReadClassMember(MemberAccessContext &Context,
         MemberAccessFailure::UnreadableMember, UserdataAccessFailure::None,
         DescribeMemberDirectionRefusal(Member.QualifiedName, true));
 
-  // A lazy member reuses only a value its own getter already produced, for this
-  // object, under this dispatch generation.
   if (Member.IsLazy() && Context.Lazy != nullptr) {
     if (const Value *Cached = Context.Lazy->Observe(
             Header, Member.Member, Context.DispatchGeneration)) {
@@ -205,7 +187,6 @@ MemberReadResult ReadClassMember(MemberAccessContext &Context,
         DescribeMemberUnknownException(Member.QualifiedName, true));
   }
 
-  // A refused getter is never cached, whichever evaluation the member declares.
   if (!Produced.Succeeded)
     return RefuseRead(MemberAccessFailure::RefusedTarget,
                       UserdataAccessFailure::None,
@@ -237,8 +218,6 @@ MemberWriteResult WriteClassMember(MemberAccessContext &Context,
                        UserdataAccessFailure::None,
                        DescribeUnknownMember(Member.ClassName, Member.Segment));
 
-  // Every write mutates the object, so a const view is refused by the one gate
-  // before the direction of the member is even considered.
   const UserdataAccessResult Receiver = ValidateReceiver(Context, Header, true);
   if (!Receiver.IsPermitted())
     return RefuseWrite(MemberAccessFailure::RefusedReceiver, Receiver.Failure,
@@ -249,9 +228,6 @@ MemberWriteResult WriteClassMember(MemberAccessContext &Context,
         MemberAccessFailure::UnwritableMember, UserdataAccessFailure::None,
         DescribeMemberDirectionRefusal(Member.QualifiedName, false));
 
-  // The declared type of the member decides what may be written into it, and it
-  // decides it before the setter runs, so a refused write leaves the native
-  // object exactly as it was.
   if (!Incoming)
     return RefuseWrite(
         MemberAccessFailure::UnavailableRequest,
@@ -290,8 +266,6 @@ MemberWriteResult WriteClassMember(MemberAccessContext &Context,
   MemberWriteResult Result;
   Result.Failure = MemberAccessFailure::None;
 
-  // Only a successful write invalidates. A refused one changed nothing, so the
-  // value a lazy getter produced earlier is still exactly the object's value.
   if (Context.Lazy != nullptr)
     Result.Invalidated = Context.Lazy->InvalidateOwner(Header);
   return Result;
@@ -301,9 +275,6 @@ MemberWriteResult WriteClassMember(MemberAccessContext &Context,
                                    UserdataHeader &Header,
                                    const RegisteredMember &Member,
                                    const Value &Incoming) {
-  // One already converted Luna-owned value still has to match the canonical
-  // type the member declared, and it is still compared at exactly the value
-  // step of the gate rather than ahead of the receiver.
   const MemberValueSource Source = [&Context, &Member,
                                     &Incoming]() -> MemberValueOutcome {
     const TypeDescriptor Offered = CanonicalMemberValueType(Incoming);

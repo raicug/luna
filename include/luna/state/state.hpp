@@ -37,9 +37,6 @@ private:
   friend class BindingRegistry;
   friend class Detail::StateTestHooks;
 
-  // The pending plan of one namespace builder chain reads the implementation
-  // directly, so a builder can classify its captured handle before it stages or
-  // commits anything.
   friend class Detail::NamespaceBuilderState;
 
   [[nodiscard]] RegistrationResult
@@ -48,8 +45,6 @@ private:
 
   [[nodiscard]] RegistrationResult Freeze();
 
-  // Captures exactly one committed reflection generation. A moved-from or
-  // unavailable State yields an empty snapshot instead of failing.
   [[nodiscard]] ReflectionSnapshot CaptureReflection() const;
 
   class Impl;

@@ -1,5 +1,3 @@
-// Implementation of the load-once module registry.
-
 // clang-format off
 #include "state/module/registry.hpp"
 

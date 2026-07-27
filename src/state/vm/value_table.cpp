@@ -19,9 +19,6 @@
 namespace Luna::Detail {
 namespace {
 
-// The metatable field that hides a Luna metatable from `getmetatable` and makes
-// `setmetatable` refuse: a script can neither read the private backing storage
-// through the metatable nor replace the guard that protects it.
 constexpr const char *ProtectedMetatableMarker = "Luna immutable value";
 
 struct ValueRequest final {
@@ -39,9 +36,6 @@ struct ValueRequest final {
   return 0;
 }
 
-// Every supported write to a Luna immutable table fails here, before anything
-// is stored: the proxy is always empty, so `__newindex` runs for an existing
-// field and for a new one alike.
 [[nodiscard]] int RejectImmutableWrite(lua_State *State) {
   const char *Path = lua_tostring(State, lua_upvalueindex(1));
   const char *Field = lua_type(State, 2) == LUA_TSTRING
@@ -55,8 +49,6 @@ struct ValueRequest final {
   return 0;
 }
 
-// Pushes one staged value converted through its canonical type. On refusal
-// nothing is left on the stack above `Checkpoint`.
 [[nodiscard]] bool PushConvertedValue(lua_State *State,
                                       const TypeGeneration &Types,
                                       const TypeDescriptor &Type,
@@ -71,8 +63,6 @@ struct ValueRequest final {
   return true;
 }
 
-// True when the exact path is free. The observed value is popped either way, so
-// the container stays on top.
 [[nodiscard]] bool PathIsFree(lua_State *State,
                               const std::vector<std::string> &Segments) {
   PushVmPathField(State, Segments);
@@ -94,8 +84,6 @@ struct ValueRequest final {
     return 0;
   }
   if (!PathIsFree(State, *Request->Segments)) {
-    // Luna never replaces a value it does not own; the transaction reports the
-    // collision instead.
     lua_settop(State, Checkpoint);
     *Request->Status = ValueInstallationStatus::PathOccupied;
     return 0;
@@ -131,8 +119,6 @@ struct ValueRequest final {
     return 0;
   }
 
-  // The private backing storage. It is never published: only the proxy's
-  // metatable refers to it, and that metatable is itself protected.
   lua_newtable(State);
   const int Backing = lua_gettop(State);
   for (const PlannedValueField &Field : Request->Table->Fields) {
@@ -144,8 +130,6 @@ struct ValueRequest final {
     lua_rawsetfield(State, Backing, Field.Name.c_str());
   }
 
-  // The public proxy stays empty, so every write reaches the guard and every
-  // read is routed to the backing storage.
   lua_newtable(State);
   const int Proxy = lua_gettop(State);
 
@@ -160,7 +144,6 @@ struct ValueRequest final {
   lua_rawsetfield(State, Meta, "__metatable");
   lua_setmetatable(State, Proxy);
 
-  // The container must sit directly below the published proxy.
   lua_remove(State, Backing);
   SetVmPathField(State, *Request->Segments);
   lua_settop(State, Checkpoint);
@@ -168,8 +151,6 @@ struct ValueRequest final {
   return 0;
 }
 
-// The protected budget one installation needs: the container chain, the staged
-// value or the backing, proxy, and metatable triple, and the protected call.
 [[nodiscard]] bool ReserveStack(lua_State *State, std::size_t Segments) {
   return lua_checkstack(State, static_cast<int>(Segments) + 12);
 }

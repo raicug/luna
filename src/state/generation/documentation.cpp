@@ -1,10 +1,3 @@
-// Deterministic human-readable documentation generation. Everything written
-// here comes from one captured immutable reflection snapshot: the traversal is
-// module provenance, then the canonical symbol order the generation published
-// (qualified name, symbol kind, declaration signature, stable identity), so the
-// artifact never depends on registration order, addresses, locale, hash
-// iteration, process-random values, or later changes to a live State.
-
 // clang-format off
 #include <luna/generation/documentation.hpp>
 #include <luna/reflection/ids.hpp>
@@ -27,15 +20,11 @@ using Detail::ModuleKeyText;
 using Detail::SymbolText;
 using Detail::TypeText;
 
-// Continuation lines of one prose block and one list entry line up under their
-// entry text.
 constexpr std::string_view ProseIndent = "   ";
 constexpr std::string_view ArtifactName = "Documentation";
 constexpr std::string_view RootScopeText = "(root)";
 constexpr std::string_view WithoutModuleText = "(no module)";
 
-// Only these kinds declare one call shape of their own, so only they report a
-// return shape even when they publish no named returned value.
 [[nodiscard]] bool DeclaresCallShape(SymbolKind Kind) {
   switch (Kind) {
   case SymbolKind::FunctionCandidate:
@@ -414,8 +403,6 @@ void WriteSymbol(GenerationWriter &Writer, const ReflectionSnapshot &Snapshot,
   Writer.Break();
 }
 
-// Canonical provenance groups: the declarations no module contributed first,
-// then one group per module in the canonical module order of the generation.
 [[nodiscard]] std::vector<std::string>
 ProvenanceGroups(const ReflectionSnapshot &Snapshot) {
   std::vector<std::string> Groups;

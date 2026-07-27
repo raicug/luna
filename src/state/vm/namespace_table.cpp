@@ -15,9 +15,6 @@
 namespace Luna::Detail {
 namespace {
 
-// Canonical separator of every qualified name. It is duplicated here rather
-// than pulled in from the identity model so this translation unit stays a pure
-// virtual-machine boundary.
 constexpr char PathSeparator = '.';
 
 struct PathRequest final {
@@ -40,8 +37,6 @@ struct PathRequest final {
     return RaiseLiteral(State,
                         "Internal error: invalid path observation request.");
 
-  // A missing parent chain means the path holds nothing, exactly as an absent
-  // field does.
   if (!PushVmPathContainer(State, *Request->Segments))
     return 0;
 
@@ -59,8 +54,6 @@ struct PathRequest final {
     return RaiseLiteral(State, "Internal error: invalid path capture request.");
 
   if (!PushVmPathContainer(State, *Request->Segments)) {
-    // The parent table does not exist, so the path holds nothing and the nil
-    // reference reproduces that absence.
     Request->Saved->Kind = VmValueKind::Absent;
     Request->Saved->Reference = LUA_REFNIL;
     Request->Saved->IsCaptured = true;
@@ -80,8 +73,6 @@ struct PathRequest final {
   if (!Request || !Request->Segments)
     return RaiseLiteral(State, "Internal error: invalid path restore request.");
 
-  // A parent that no longer exists is restored by its own journal entry, which
-  // is undone after this one because restoration runs in reverse order.
   if (!PushVmPathContainer(State, *Request->Segments))
     return 0;
 
@@ -105,8 +96,6 @@ struct PathRequest final {
 
   PushVmPathField(State, *Request->Segments);
   if (lua_istable(State, -1)) {
-    // The path already holds a table. Whether that table may be reused as this
-    // namespace is decided by Luna's ownership record, never here.
     Installation.Status = NamespaceTableStatus::Reopened;
     Installation.Table = lua_topointer(State, -1);
     Installation.Reference = lua_ref(State, -1);
@@ -155,8 +144,6 @@ struct PathRequest final {
   return 0;
 }
 
-// Every operation reserves the same protected budget: the container chain never
-// holds more than two values at a time, plus the protected call itself.
 [[nodiscard]] bool ReserveStack(lua_State *State, std::size_t Segments) {
   return lua_checkstack(State, static_cast<int>(Segments) + 8);
 }
@@ -172,8 +159,6 @@ struct PathRequest final {
 
 bool PushVmPathContainer(lua_State *State,
                          const std::vector<std::string> &Segments) noexcept {
-  // The globals table contains a root-scope name; every deeper segment is a raw
-  // field of the table its parent segment holds.
   lua_pushvalue(State, LUA_GLOBALSINDEX);
   for (std::size_t Index = 0; Index + 1 < Segments.size(); ++Index) {
     if (Index == 0)

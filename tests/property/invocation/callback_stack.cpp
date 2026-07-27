@@ -74,9 +74,7 @@ RegisterAtGeneratedDepth(Luna::State &State, std::string_view Name,
 } // namespace
 
 int RunNativeFailureCallbackStackProperties() {
-  // **Validates: Requirements 7.6, 7.7, 7.8**
   // clang-format off
-  // Feature: luau-binding-foundation, Property 16: Native failures restore the callback checkpoint
   const bool Passed = rc::check(
       // clang-format on
       "Native failures restore the callback checkpoint",

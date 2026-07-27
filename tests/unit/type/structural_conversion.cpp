@@ -73,8 +73,6 @@ ArgumentMessage(const Luna::Detail::StructuredDiagnostic &Diagnostic,
   return StructuredValue::List(std::move(Elements));
 }
 
-// -- planned built-in scalars ------------------------------------------------
-
 void CheckSinglePrecision() {
   const TypeDescriptor Float = Fixed(FixedTypeKey::Float);
 
@@ -139,7 +137,6 @@ void CheckTextTypes() {
           "a text type round-trips through the registry");
   }
 
-  // A C string cannot carry an embedded null byte; a string view can.
   const std::string Embedded("a\0b", 3);
   const auto ViewAccepted =
       Hooks::Read(ScriptValue::Text(Embedded), Fixed(FixedTypeKey::StringView));
@@ -153,8 +150,6 @@ void CheckTextTypes() {
   Check(CStringRefused.Diagnostic.ReceivedCount == 3,
         "the embedded-null refusal reports the received byte count");
 
-  // The inherited foundation string policy is preserved exactly, and the
-  // diagnostic reports the received and permitted size.
   const auto AtLimit = Hooks::Read(
       ScriptValue::Text(std::string(MaximumInvocationStringBytes, 'a')),
       Fixed(FixedTypeKey::StringView));
@@ -194,8 +189,6 @@ void CheckNullType() {
         "null publishes exactly one nil");
 }
 
-// -- optional ---------------------------------------------------------------
-
 void CheckOptional() {
   const TypeDescriptor Optional =
       Luna::Detail::OptionalTypeOf(Fixed(FixedTypeKey::Int32));
@@ -225,8 +218,6 @@ void CheckOptional() {
   Check(WrittenPresent.Accepted && WrittenPresent.RoundTripMatches,
         "a present optional publishes its inner value");
 }
-
-// -- sequences, fixed arrays, pairs, tuples ---------------------------------
 
 void CheckSequences() {
   const TypeDescriptor Sequence =
@@ -277,7 +268,6 @@ void CheckSequences() {
             Written.RoundTripMatches,
         "a sequence publishes one table and round-trips");
 
-  // Element counts are a shape rule, never a configured cap.
   std::vector<int> Many;
   for (int Element = 0; Element < 300; ++Element)
     Many.push_back(Element);
@@ -350,8 +340,6 @@ void CheckPairsAndTuples() {
         "a tuple reports the position of its first failing element");
 }
 
-// -- associative maps -------------------------------------------------------
-
 void CheckMaps() {
   const TypeDescriptor Map = Luna::Detail::MapTypeOf(
       Fixed(FixedTypeKey::String), Fixed(FixedTypeKey::Int32));
@@ -376,8 +364,6 @@ void CheckMaps() {
   Check(!ValueFailure.Accepted && ValueFailure.Diagnostic.Path == "[\"alpha\"]",
         "a failing map value reports its complete key path");
 
-  // The canonical key path plus the `.Key` field is what makes a key failure
-  // distinguishable from a value failure at the same entry.
   const auto KeyFailure = Hooks::Read(
       ScriptValue::Table({ScriptValue::Number(4), ScriptValue::Number(1)}),
       Map);
@@ -409,8 +395,6 @@ void CheckMaps() {
         "a map publishes one table and round-trips");
 }
 
-// -- nesting ----------------------------------------------------------------
-
 void CheckNestedAggregates() {
   const TypeDescriptor Nested =
       Luna::Detail::SequenceTypeOf(Luna::Detail::MapTypeOf(
@@ -438,7 +422,6 @@ void CheckNestedAggregates() {
             "32-bit integer but received string.",
         "one atomic diagnostic names the callable, position, and full path");
 
-  // Nesting has no configured depth: ten optional/sequence layers convert.
   TypeDescriptor Deep = Fixed(FixedTypeKey::Int32);
   for (int Layer = 0; Layer < 5; ++Layer)
     Deep = Luna::Detail::SequenceTypeOf(Luna::Detail::OptionalTypeOf(Deep));
@@ -449,8 +432,6 @@ void CheckNestedAggregates() {
   const auto DeepRead = Hooks::Read(DeepValue, Deep);
   Check(DeepRead.Accepted, "nesting depth is not capped");
 }
-
-// -- return shapes ----------------------------------------------------------
 
 void CheckReturnShapes() {
   const auto Nothing =
@@ -489,7 +470,6 @@ void CheckReturnShapes() {
             PackReturn.RoundTripMatches,
         "a return pack publishes its ordered elements");
 
-  // One failing element exposes zero return values and one diagnostic.
   const TypeDescriptor Guarded = Luna::Detail::ReturnPackTypeOf(
       {Fixed(FixedTypeKey::Int32), Fixed(FixedTypeKey::CString)});
   std::vector<StructuredValue> Partial;
@@ -504,7 +484,6 @@ void CheckReturnShapes() {
             Refused.Diagnostic.Position == 2,
         "the failed return element reports its one-based return position");
 
-  // A nested pair inside an aggregate stays one table rather than two values.
   const TypeDescriptor NestedPairs = Luna::Detail::SequenceTypeOf(Pair);
   std::vector<StructuredValue> Rows;
   std::vector<StructuredValue> Row;
@@ -517,7 +496,6 @@ void CheckReturnShapes() {
             NestedReturn.RoundTripMatches,
         "a nested pair publishes one table inside its parent aggregate");
 
-  // A failed nested element leaves no partial table behind.
   const TypeDescriptor Strings =
       Luna::Detail::SequenceTypeOf(Fixed(FixedTypeKey::CString));
   std::vector<StructuredValue> Texts;
@@ -530,8 +508,6 @@ void CheckReturnShapes() {
             NoPartialTable.Diagnostic.Path == "[2]",
         "a failed aggregate element publishes no partial table");
 }
-
-// -- argument packs ---------------------------------------------------------
 
 void CheckArgumentPacks() {
   const TypeDescriptor Homogeneous =
@@ -580,8 +556,6 @@ void CheckArgumentPacks() {
         "a variadic failure reports both the call position and nested path");
 }
 
-// -- enumerations and registered classes ------------------------------------
-
 void CheckEnumerationsAndClasses() {
   const StableTypeKey EnumKey("Studio.Alignment");
   const TypeDescriptor Enumeration = TypeDescriptor::ForEnumeration(EnumKey);
@@ -616,7 +590,6 @@ void CheckEnumerationsAndClasses() {
   Check(WrittenEnum.Accepted && WrittenEnum.PublishedCount == 1,
         "an enumeration publishes its underlying value");
 
-  // An enumeration nests like any other leaf.
   std::vector<TypeRecord> NestedRecords = EnumerationRecords;
   const auto Sequence = Hooks::Read(
       ScriptValue::Array({ScriptValue::Number(1), ScriptValue::Text("two")}),
@@ -640,18 +613,12 @@ void CheckEnumerationsAndClasses() {
             WithClass->IsAvailableForRead(Luna::Detail::SequenceTypeOf(Class)),
         "an aggregate over a registered class is describable");
 
-  // A class handle is only readable through the State that registered the
-  // class: the metatable identity and origin identity an access validates
-  // against live there. A generation assembled without one refuses
-  // deterministically instead of trusting the value it was handed.
   const auto ClassRead = Hooks::Read(ScriptValue::Nil(), Class, ClassRecords);
   Check(!ClassRead.Accepted &&
             ClassRead.Diagnostic.Failure == StructuredFailure::UnavailableType,
         "a class handle read without its registered class refuses "
         "deterministically");
 }
-
-// -- declaration closure ----------------------------------------------------
 
 void CheckDeclarationClosure() {
   const std::shared_ptr<const TypeGeneration> BuiltIn =
@@ -679,7 +646,6 @@ void CheckDeclarationClosure() {
   Check(!Declared.empty() && Declared.back().Descriptor == Nested,
         "children are declared before the parent that nests them");
 
-  // The declarations enter an ordinary generation without conflicting.
   Luna::Detail::TypeDeclarationStatus Status =
       Luna::Detail::TypeDeclarationStatus::Acceptable;
   const std::shared_ptr<const TypeGeneration> Extended =
@@ -695,7 +661,6 @@ void CheckDeclarationClosure() {
                                    "single-precision number",
         "a structural public name is composed from its children");
 
-  // An unregistered class leaf refuses instead of being invented.
   std::vector<TypeRecord> Refused;
   TypeDescriptor BlockingLeaf;
   Check(Luna::Detail::DeclareStructuralTypes(

@@ -9,8 +9,6 @@
 
 namespace {
 
-// The class-builder construction API compiles from this header alone: no other
-// Luna header, no Luau include path, and nothing but the standard library.
 struct StandaloneWidget final {
   double Width = 0.0;
 
@@ -84,16 +82,12 @@ static_assert(
                    std::string_view>,
     "A class builder reports its canonical qualified name.");
 
-// The declared C++ shape a registration captures is decided here, where the
-// class type is still complete.
 static_assert(Luna::Detail::ClassPolicyFor<StandaloneWidget>().ByteCount ==
                   sizeof(StandaloneWidget),
               "A class policy captures the declared storage size.");
 static_assert(Luna::Detail::ClassPolicyFor<StandaloneWidget>().IsDestructible,
               "A class policy captures whether Luna could release a value.");
 
-// The class-member API compiles from this header alone too: every member
-// operation is reachable and stages through the same builder.
 [[nodiscard]] int StandaloneWidgetArea(const StandaloneWidget &Source) {
   return static_cast<int>(Source.Width);
 }

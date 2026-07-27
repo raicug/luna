@@ -1,6 +1,3 @@
-// Focused coverage for class operators, their ordinary overload pipeline,
-// Luna-owned metamethod protection, and canonical operator reflection.
-
 // clang-format off
 #include <luna/binding/binding_registry.hpp>
 #include <luna/binding/class_builder.hpp>

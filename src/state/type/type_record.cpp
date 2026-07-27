@@ -15,8 +15,6 @@ namespace Luna::Detail {
 
 bool EnumerationDomain::Accepts(std::int64_t Candidate) const noexcept {
   if (IsBitflags) {
-    // Every unsupported bit rejects the whole value: the mask is never applied
-    // to the candidate, so nothing is truncated on the way in or out.
     return (Candidate & ~SupportedBits) == 0;
   }
   if (Values.empty())
@@ -73,8 +71,6 @@ bool TypeRecord::IsComplete() const {
   if (!Identity.IsValid() || !Descriptor.IsValid() || PublicName.empty())
     return false;
 
-  // `void` is the one type that carries no value: it is neither readable nor
-  // writable and has no representation, no converter, and no value mapping.
   if (IsVoid())
     return !IsReadable && !IsWritable && !ValueRepresentation &&
            Representation == LuauRepresentation::None && !Read && !Write &&
@@ -83,8 +79,6 @@ bool TypeRecord::IsComplete() const {
   if (!IsReadable && !IsWritable)
     return false;
 
-  // One type converts either as a scalar or as a structural aggregate. Mixing
-  // the two pairs would leave the direction a converter runs in ambiguous.
   if ((Read || Write) && IsStructural())
     return false;
   if (IsReadable && !Read && !StructuredRead)

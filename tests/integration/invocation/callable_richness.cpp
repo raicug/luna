@@ -1,25 +1,3 @@
-// Integration coverage of callable richness through the real Luau compiler and
-// virtual machine.
-//
-// What the earlier cases cover one at a time - overload sets, declared
-// parameter shapes, and return packs - is exercised here together, at a nested
-// qualified name, and against injected internal failures:
-//
-//   * One nested overload set whose candidates declare fixed, optional,
-//     defaulted, and variadic parameters, plus one nested set whose candidates
-//     publish zero, one, and many return values.
-//   * The read, write, and target failures of one multi-candidate call: the
-//     selected candidate is the only one that ever commits anything, a refused
-//     call publishes zero values, the callback checkpoint is restored exactly,
-//     and the State stays reusable afterwards.
-//   * Deterministic diagnostic ordering: the no-match diagnostic of one call
-//     renders its candidates in canonical order, so two States that registered
-//     the same candidates in different orders report one identical message.
-//
-// Every call is driven from script source, so the whole path is under test:
-// registration, canonical grouping, side-effect-free probing, Pareto selection,
-// declared-shape binding, atomic publication, and error recovery.
-
 // clang-format off
 #include <luna/luna.hpp>
 
@@ -49,8 +27,6 @@ void Check(bool Condition, std::string_view Description) {
   std::cerr << "callable richness integration check failed: " << Description
             << '\n';
 }
-
-// -- the nested model under test --------------------------------------------
 
 int DoubledCalls = 0;
 int ProductCalls = 0;
@@ -82,8 +58,6 @@ void ResetCalls() {
   BlendRightCalls = 0;
 }
 
-// `Studio.Math.Combine`: one nested overload set of four candidates whose
-// shapes differ in arity, in parameter type, and in the variadic tail.
 [[nodiscard]] int Doubled(int Value) {
   ++DoubledCalls;
   return Value * 2;
@@ -104,7 +78,6 @@ void ResetCalls() {
   return static_cast<int>(Arguments.Size());
 }
 
-// `Studio.Text`: the omittable shapes at a nested path.
 [[nodiscard]] std::string Pad(std::string Text, std::optional<int> Width) {
   ++PadCalls;
   const std::size_t Target =
@@ -119,9 +92,6 @@ void ResetCalls() {
   return Value + Amount;
 }
 
-// `Studio.Math.Emit`: one nested overload set whose candidates publish zero,
-// one, and many return values, so every publication path is reachable through
-// one resolved call.
 [[nodiscard]] std::pair<int, int> Divide(int Left, int Right) {
   ++PairCalls;
   if (Right == 0)
@@ -154,8 +124,6 @@ void Clear(int Value) {
   return 0;
 }
 
-// `Studio.Math.Blend`: two candidates whose rank sequences can never dominate
-// each other, because each one is exact in the position the other converts.
 [[nodiscard]] int BlendLeft(int Left, double Right) {
   ++BlendLeftCalls;
   return Left + static_cast<int>(Right);
@@ -166,8 +134,6 @@ void Clear(int Value) {
   return static_cast<int>(Left) + Right;
 }
 
-// One plan publishes the whole nested model, so every candidate below belongs
-// to a namespace the same transaction installed.
 [[nodiscard]] bool RegisterNestedModel(Luna::State &Owner) {
   Luna::BindingRegistry Registry = Owner.Bindings();
   Luna::NamespaceBuilder Studio = Registry.RegisterNamespace("Studio");
@@ -215,17 +181,12 @@ void Clear(int Value) {
   return Text.find(Needle) != std::string_view::npos;
 }
 
-// The callback checkpoint a refused call restores exactly: the stack returns to
-// its entry depth and carries only the one error value the failure reports,
-// which is also what "published zero return values" means at this boundary.
 [[nodiscard]] bool RestoredCheckpoint(const Luna::State &Owner) {
   const auto Observation = Hooks::ObserveLastCallbackStackRestoration(Owner);
   return Observation.has_value() &&
          Observation->EntryDepth == Observation->RestoredDepth &&
          Observation->ErrorDepth == Observation->RestoredDepth + 1;
 }
-
-// -- nested overload sets with rich shapes ----------------------------------
 
 void CheckNestedOverloadSetsResolveRichShapes() {
   ResetCalls();
@@ -275,8 +236,6 @@ void CheckNestedOverloadSetsResolveRichShapes() {
         "every resolved nested call restores the exact root stack depth");
 }
 
-// -- canonical diagnostic ordering ------------------------------------------
-
 void CheckNoMatchDiagnosticsAreOrderedCanonically() {
   ResetCalls();
   Luna::State Owner;
@@ -298,8 +257,6 @@ void CheckNoMatchDiagnosticsAreOrderedCanonically() {
   Check(RestoredCheckpoint(Owner),
         "a refused nested resolution restores the callback checkpoint");
 
-  // The same candidates declared in another order report one identical
-  // message: candidate order is canonical, never registration order.
   Luna::State Permuted;
   Luna::BindingRegistry Registry = Permuted.Bindings();
   Luna::NamespaceBuilder Studio = Registry.RegisterNamespace("Studio");
@@ -313,8 +270,6 @@ void CheckNoMatchDiagnosticsAreOrderedCanonically() {
   Check(Failure(Permuted, "return Studio.Math.Combine({})") == NoMatch,
         "the no-match diagnostic never depends on registration order");
 }
-
-// -- incomparable candidates at a nested path -------------------------------
 
 void CheckNestedAmbiguityCommitsNothing() {
   ResetCalls();
@@ -335,7 +290,6 @@ void CheckNestedAmbiguityCommitsNothing() {
   Check(RestoredCheckpoint(Owner),
         "an ambiguous nested call restores the callback checkpoint");
 
-  // Each candidate still wins the calls it alone accepts exactly.
   Check(Succeeds(Owner,
                  "assert(Studio.Math.Blend(1, 2.5) == 3, 'left exact')\n"
                  "assert(Studio.Math.Blend(1.5, 2) == 3, 'right exact')\n"),
@@ -344,8 +298,6 @@ void CheckNestedAmbiguityCommitsNothing() {
         "each unambiguous call invokes exactly its own candidate, once");
 }
 
-// -- injected read, write, and target failures ------------------------------
-
 void CheckInjectedFailuresDuringMultiCandidateCalls() {
   ResetCalls();
   Luna::State Owner;
@@ -353,9 +305,6 @@ void CheckInjectedFailuresDuringMultiCandidateCalls() {
         "the nested model registers before the fault matrix");
   const auto EntryDepth = Hooks::ObserveRootStackDepth(Owner);
 
-  // Probing commits nothing, so it never reaches the committing reader: one
-  // injected read fault survives resolution of a multi-candidate call and is
-  // consumed by the selected candidate's own conversion instead.
   Hooks::InjectFault(Owner, FaultPoint::ArgumentInspection);
   const std::string FixedRead =
       Failure(Owner, "return Studio.Math.Combine(2, 3)");
@@ -370,8 +319,6 @@ void CheckInjectedFailuresDuringMultiCandidateCalls() {
   Check(RestoredCheckpoint(Owner),
         "an injected read failure restores the callback checkpoint");
 
-  // The same fault while the selected candidate is the variadic one, whose
-  // first call position is the one the failure names.
   Hooks::InjectFault(Owner, FaultPoint::ArgumentInspection);
   const std::string VariadicRead =
       Failure(Owner, "return Studio.Math.Combine(1, 2, 3)");
@@ -380,8 +327,6 @@ void CheckInjectedFailuresDuringMultiCandidateCalls() {
         "an injected variadic read failure names its first call position");
   Check(TailCalls == 0, "an injected variadic read failure invokes no target");
 
-  // A publication that cannot reserve its resources refuses after the selected
-  // target ran exactly once, and publishes zero values.
   Hooks::InjectFault(Owner, FaultPoint::ReturnStackCapacity);
   const std::string Unreserved =
       Failure(Owner, "return Studio.Math.Emit(7, 2)");
@@ -392,8 +337,6 @@ void CheckInjectedFailuresDuringMultiCandidateCalls() {
   Check(RestoredCheckpoint(Owner),
         "a refused pack publication restores the callback checkpoint");
 
-  // An injected write failure of a dynamic pack: the same atomicity applies to
-  // a shape whose element count the invocation decided.
   Hooks::InjectFault(Owner, FaultPoint::ReturnWrite);
   const std::string Written = Failure(Owner, "return Studio.Math.Emit('a', 3)");
   Check(Contains(Written, "Injected internal return-writer failure") &&
@@ -403,8 +346,6 @@ void CheckInjectedFailuresDuringMultiCandidateCalls() {
   Check(RestoredCheckpoint(Owner),
         "an injected write failure restores the callback checkpoint");
 
-  // The zero-value candidate of the same set fails its finalization the same
-  // deterministic way.
   Hooks::InjectFault(Owner, FaultPoint::VoidFinalization);
   const std::string Finalized = Failure(Owner, "return Studio.Math.Emit(4)");
   Check(Contains(Finalized, "Injected internal void-finalization failure") &&
@@ -412,8 +353,6 @@ void CheckInjectedFailuresDuringMultiCandidateCalls() {
         "an injected finalization failure is reported for the void candidate");
   Check(VoidCalls == 1, "the selected zero-return candidate ran exactly once");
 
-  // A selected candidate that throws keeps the foundation's translation, and
-  // no other candidate of the set ever ran.
   const std::string Thrown = Failure(Owner, "return Studio.Math.Emit(true)");
   Check(Contains(Thrown, "Runtime error:") &&
             Contains(Thrown, "callable 'Studio.Math.Emit'") &&
@@ -428,7 +367,6 @@ void CheckInjectedFailuresDuringMultiCandidateCalls() {
   Check(Hooks::ObserveRootStackDepth(Owner) == EntryDepth,
         "every injected failure restores the exact root stack depth");
 
-  // The State keeps resolving, converting, and publishing afterwards.
   Check(Succeeds(Owner,
                  "assert(Studio.Math.Combine(2, 3) == 6, 'fixed')\n"
                  "assert(Studio.Math.Combine(1, 2, 3) == 3, 'variadic')\n"

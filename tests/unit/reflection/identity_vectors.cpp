@@ -28,7 +28,6 @@ using Luna::Detail::SymbolDescriptor;
 using Luna::Detail::SymbolIdentityRegistry;
 using Luna::Detail::TypeIdentityRegistry;
 
-// Set to true only while regenerating the pinned vectors below.
 constexpr bool DumpVectors = false;
 
 enum class Color { Red, Green };
@@ -142,8 +141,6 @@ FreeSignature(Luna::TypeDescriptor ReturnType,
   return Signature;
 }
 
-// The namespace identity is itself a pinned vector, so every derived symbol
-// vector below is reproducible from the pinned data alone.
 [[nodiscard]] Luna::SymbolId StudioNamespaceId() {
   const std::optional<Luna::SymbolId> Identity =
       SymbolIdentityRegistry::ComputeIdentity(Luna::Detail::MakeScopeSymbol(
@@ -219,9 +216,6 @@ FreeSignature(Luna::TypeDescriptor ReturnType,
   return Vectors;
 }
 
-// Every pinned identity must be canonical lowercase hexadecimal that parses
-// back to the exact same bytes, so a vector can never encode an unreachable
-// value.
 template <class Identity>
 [[nodiscard]] bool MatchesPinnedText(const Identity &Value,
                                      std::string_view Pinned) {
@@ -233,8 +227,6 @@ template <class Identity>
   return Value.IsValid() && Value.ToString() == Pinned;
 }
 
-// Requirement 2.1: fixed and structural identities are pinned values, so an
-// encoding or digest change can never pass unnoticed.
 [[nodiscard]] bool VerifyPinnedTypeVectors() {
   const std::vector<TypeVector> Vectors = EveryTypeVector();
   std::vector<Luna::TypeId> Identities;
@@ -246,7 +238,6 @@ template <class Identity>
     Identities.push_back(*Identity);
   }
 
-  // The pinned set is collision-free, so each vector pins a distinct type.
   for (std::size_t Left = 0; Left < Identities.size(); ++Left) {
     for (std::size_t Right = Left + 1; Right < Identities.size(); ++Right) {
       if (Identities[Left] == Identities[Right])
@@ -254,8 +245,6 @@ template <class Identity>
     }
   }
 
-  // Resolution reproduces the pinned identities in forward and reverse
-  // insertion order, so no vector depends on registration order.
   TypeIdentityRegistry Forward;
   TypeIdentityRegistry Reverse;
   for (std::size_t Index = 0; Index < Vectors.size(); ++Index) {
@@ -271,8 +260,6 @@ template <class Identity>
   return Forward.Size() == Vectors.size() && Reverse.Size() == Vectors.size();
 }
 
-// Requirement 2.2: symbol identities are pinned per kind, parent scope,
-// signature, receiver, alias target, and module provenance.
 [[nodiscard]] bool VerifyPinnedSymbolVectors() {
   const std::vector<SymbolVector> Vectors = SymbolVectors();
   std::vector<Luna::SymbolId> Identities;
@@ -297,11 +284,9 @@ template <class Identity>
     }
   }
 
-  // The derived parent scope is the pinned namespace identity itself.
   if (StudioNamespaceId() != Identities.front())
     return false;
 
-  // A type identity and a symbol identity never share a pinned value.
   for (const TypeVector &Type : EveryTypeVector()) {
     for (const SymbolVector &Symbol : Vectors) {
       if (Type.Identity == Symbol.Identity)

@@ -12,8 +12,6 @@
 namespace Luna {
 namespace {
 
-// Every accessor tolerates an absent generation so a default-constructed view
-// answers deterministically instead of reading unowned storage.
 [[nodiscard]] const Detail::ReflectionStorage *
 Resolve(const std::shared_ptr<const Detail::ReflectionStorage> &Storage) {
   return Storage ? Storage.get() : Detail::ReflectionStorage::Empty().get();

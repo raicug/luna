@@ -33,7 +33,6 @@ template <class Type> [[nodiscard]] constexpr ValueKind ValueKindFor() {
     return ValueKind::String;
 }
 
-// The declared element types of one returned pair or tuple, in return order.
 template <class Pack> struct FixedReturnPackKinds;
 
 template <class First, class Second>
@@ -50,9 +49,6 @@ struct FixedReturnPackKinds<std::tuple<Elements...>> {
   }
 };
 
-// One returned pair or tuple staged as ordered values. Nothing is published
-// here: the pack is complete native storage the return writer validates before
-// it exposes anything.
 template <class Pack>
 [[nodiscard]] std::vector<Value> StageReturnPack(Pack &&Source) {
   std::vector<Value> Staged;
@@ -67,18 +63,12 @@ template <class Pack>
   return Staged;
 }
 
-// One invocation's outcome, described by the declared return shape: `void`
-// produces zero values, a supported scalar one, and a pair, tuple, or dynamic
-// return pack its ordered elements.
 template <class Return, class Invoker>
 [[nodiscard]] InvocationOutcome CaptureReturn(Invoker &&Invoke) {
   if constexpr (std::same_as<Return, void>) {
     Invoke();
     return InvocationOutcome::Void();
   } else if constexpr (std::same_as<Return, ConstructedInstance>) {
-    // A construction candidate produces one native object plus its ownership
-    // statement. Nothing is published here: the object is staged until the
-    // whole publication succeeds.
     return InvocationOutcome::WithInstance(Invoke());
   } else if constexpr (IsDynamicReturnPack<Return>) {
     const ReturnPack Produced = Invoke();
@@ -93,22 +83,15 @@ template <class Return, class Invoker>
   }
 }
 
-// The callable declares at least one optional, defaulted, or variadic
-// parameter, so its shape is described by parameter descriptors rather than by
-// one value kind per position.
 template <class... Parameters>
 inline constexpr bool HasRelaxedParameterShape =
     (false || ... || IsRelaxedParameter<Parameters>);
 
-// Number of parameters that consume one call position each. A variadic tail
-// consumes the rest and owns no fixed position.
 template <class... Parameters>
 inline constexpr std::size_t FixedParameterCountOf =
     (std::size_t{0} + ... +
      (IsVariadicParameterType<Parameters> ? std::size_t{0} : std::size_t{1}));
 
-// The default declared for the fixed parameter at `Position`, if any. Defaults
-// are declared for the trailing fixed parameters, in declared order.
 [[nodiscard]] inline const Value *
 DeclaredDefaultAt(std::span<const Value> Defaults, std::size_t Position,
                   std::size_t FixedCount) {
@@ -122,9 +105,6 @@ DeclaredDefaultAt(std::span<const Value> Defaults, std::size_t Position,
   return &Defaults[Position - FirstDefaulted];
 }
 
-// One parameter's immutable descriptor. A declared default turns an otherwise
-// required or optional parameter into a defaulted one, and an optional
-// parameter keeps accepting an explicit nil either way.
 template <class Parameter>
 [[nodiscard]] ParameterDescriptor
 MakeParameterDescriptor(const Value *Default) {
@@ -160,9 +140,6 @@ MakeParameterDescriptors(std::span<const Value> Defaults) {
   return Descriptors;
 }
 
-// The slot of one fixed parameter is usable when it carries exactly the value
-// the parameter converts, and an omitted slot is usable only for a parameter
-// that accepts omission.
 template <class Parameter>
 [[nodiscard]] bool ParameterSlotIsUsable(const InvocationArguments &Arguments,
                                          std::size_t Position) {
@@ -184,7 +161,6 @@ template <class Parameter>
   }
 }
 
-// The native argument one parameter receives.
 template <class Parameter>
 [[nodiscard]] decltype(auto)
 ParameterArgumentFor(const InvocationArguments &Arguments,
@@ -241,9 +217,6 @@ public:
     }
   }
 
-  // The richer call shape. Omitted optional slots, materialized defaults, and
-  // the variadic tail all arrive here already validated; anything else is an
-  // internal inconsistency rather than a caller mistake.
   [[nodiscard]] InvocationOutcome
   InvokeDeclared(const InvocationArguments &Arguments) {
     if (!HasTarget())
@@ -311,9 +284,6 @@ struct DescriptorMetadata<Return(Parameters...)> {
     return CreateWithDefaults(std::span<const Value>());
   }
 
-  // One construction candidate: its parameters are described exactly as any
-  // other callable's - required, optional, defaulted, or variadic - and its
-  // result is one value of the registered class the declaration names.
   [[nodiscard]] static CallableMetadata
   CreateForInstance(const StableTypeKey &Class) {
     ReturnMetadata Produced = ReturnMetadata::ForInstance(Class);
@@ -328,9 +298,6 @@ struct DescriptorMetadata<Return(Parameters...)> {
     }
   }
 
-  // One canonical metadata builder for both shapes: the foundation's fixed
-  // arity keeps its exact value-kind list, and every richer shape is described
-  // by immutable parameter descriptors.
   [[nodiscard]] static CallableMetadata
   CreateWithDefaults(std::span<const Value> Defaults) {
     if constexpr (HasRelaxedParameterShape<Parameters...>) {
@@ -355,8 +322,6 @@ MakeErasedCallableDescriptor(Callable &&Target) {
   using Adapter = CallableAdapter<Signature, StoredCallable>;
 
   if constexpr (IsDefaultedCallable<NormalizedCallable>::value) {
-    // The declared defaults are read before the target is moved into its
-    // adapter, so the metadata never observes a moved-from wrapper.
     CallableMetadata Metadata =
         DescriptorMetadata<Signature>::CreateWithDefaults(Target.Defaults());
     return ErasedCallableDescriptor(std::move(Metadata),

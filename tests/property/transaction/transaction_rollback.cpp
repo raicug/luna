@@ -41,8 +41,6 @@ using PublicationObservation = Luna::Detail::PublicationObservation;
 using SubmissionReport = Luna::Detail::JoinedSubmissionReport;
 using TransactionStatus = Luna::Detail::TransactionStatus;
 
-// Deterministic byte source. Equal bytes always drive the equal scenario, so a
-// shrunk counterexample rebuilds the exact same transaction attempt.
 class ByteCursor final {
 public:
   explicit ByteCursor(std::span<const std::uint8_t> Bytes) noexcept
@@ -75,25 +73,17 @@ private:
   return Luna::Detail::MakeErasedCallableDescriptor(Missing);
 }
 
-// Disjoint name pools. The group, the committed baseline, the overlay probe,
-// and the reuse check never share a canonical path, so one scenario's
-// expectations never depend on another's.
 constexpr std::array GroupNames{"alpha", "bravo", "charlie",
                                 "delta", "echo",  "foxtrot"};
 constexpr std::array CommittedNames{"kept_one", "kept_two"};
 constexpr std::array ProbeNames{"probe_one", "probe_two"};
 
-// Every overlay category that owns a journal scope today. The stores behind
-// type, dispatch, module, metatable, and cache overlays arrive with later
-// milestones, so their journalled entries are driven through the probe.
 constexpr std::array OverlayScopes{
     InstallationScope::Binding,       InstallationScope::Type,
     InstallationScope::Reflection,    InstallationScope::Dispatch,
     InstallationScope::Module,        InstallationScope::Metatable,
     InstallationScope::IdentityCache, InstallationScope::LookupCache};
 
-// How one generated attempt fails, if it fails at all. Every mode after `None`
-// is one distinct failure point of the outermost transaction.
 enum class FailureMode : std::size_t {
   None,
   DuplicateInGroup,
@@ -110,8 +100,6 @@ enum class FailureMode : std::size_t {
   Count
 };
 
-// The failure points that only exist inside the publication phase. An attempt
-// that stops before publication never reaches them.
 [[nodiscard]] constexpr bool RequiresPublication(FailureMode Mode) noexcept {
   return Mode == FailureMode::PublicationPreparation ||
          Mode == FailureMode::PathJournal ||
@@ -139,14 +127,12 @@ InjectedFault(FailureMode Mode) noexcept {
   return std::nullopt;
 }
 
-// One generated declaration of the nested group, in submission order.
 struct PlannedDeclaration final {
   std::string Name;
   bool NameIsValid = true;
   bool HasTarget = true;
 };
 
-// The exact value one canonical path held before the attempt started.
 struct PathPrior final {
   std::string Name;
   std::string Kind = "absent";
@@ -179,8 +165,6 @@ struct PathPrior final {
   return Source;
 }
 
-// One script that invokes every named binding and accumulates the results, so a
-// published or committed callable is verified through the real virtual machine.
 [[nodiscard]] std::string SumScript(const std::vector<std::string> &Names,
                                     const std::string &Target) {
   std::string Source = Target + " = 0";
@@ -199,10 +183,6 @@ struct PathPrior final {
   return Total;
 }
 
-// The independent transaction model. It walks the generated submissions in
-// order, applies the same deterministic validation precedence and the same two
-// nested preparation faults, and reports what the outermost transaction must
-// have planned, staged, and rejected. It never reads Luna's transaction.
 struct ExpectedAttempt final {
   std::size_t Submissions = 0;
   std::size_t Planned = 0;
@@ -210,12 +190,8 @@ struct ExpectedAttempt final {
   std::size_t NestedFailures = 0;
   std::optional<Luna::ErrorCategory> FirstFailure;
 
-  // Canonical order of the planned paths: qualified name order, never
-  // submission order.
   std::vector<std::string> CanonicalPaths;
 
-  // The same planned paths in the order they were submitted, which is the order
-  // the plan itself keeps.
   std::vector<std::string> SubmissionPaths;
 
   [[nodiscard]] bool CouldPublish() const noexcept {
@@ -233,7 +209,6 @@ Simulate(const std::vector<PlannedDeclaration> &Group,
   std::vector<std::string> Pending;
 
   for (const PlannedDeclaration &Declaration : Group) {
-    // A submission that is not ignored stops the group at the first failure.
     if (Expected.NestedFailures != 0 && !IgnoreNestedFailures)
       break;
     ++Expected.Submissions;
@@ -252,8 +227,6 @@ Simulate(const std::vector<PlannedDeclaration> &Group,
       Failure = Luna::ErrorCategory::DuplicateGlobalName;
 
     if (!Failure) {
-      // The declaration joins the canonical plan, then stages its protected
-      // resource unless one of the preparation faults claims it first.
       Pending.push_back(Declaration.Name);
       ++Expected.Planned;
       if (PreparationFault) {
@@ -280,7 +253,6 @@ Simulate(const std::vector<PlannedDeclaration> &Group,
   return Expected;
 }
 
-// What the installation and publication phases of the attempt must observe.
 struct ExpectedPublication final {
   bool Published = false;
   PreparationStatus Preparation = PreparationStatus::Prepared;
@@ -295,9 +267,6 @@ struct ExpectedPublication final {
   bool ObservesStackDepth = false;
 };
 
-// Each function declaration journals its staged overlay and then the exact
-// prior value of its path, in canonical order; restoration visits those entries
-// newest first.
 [[nodiscard]] ExpectedPublication
 ExpectedJournal(const ExpectedAttempt &Attempt,
                 const std::vector<PathPrior> &Priors, FailureMode Mode,
@@ -315,8 +284,6 @@ ExpectedJournal(const ExpectedAttempt &Attempt,
 
   const std::vector<std::string> &Paths = Attempt.CanonicalPaths;
 
-  // A journal capture failure records the staged overlay of the canonically
-  // first declaration and stops before that declaration's path is touched.
   if (Mode == FailureMode::PathJournal) {
     Expected.Installation = InstallationStatus::JournalFailure;
     Expected.JournalledEntries = 1;
@@ -335,7 +302,6 @@ ExpectedJournal(const ExpectedAttempt &Attempt,
     return Expected;
   }
 
-  // Everything else journals and installs every declaration first.
   Expected.JournalledEntries = 2U * Paths.size();
   Expected.JournalledPaths = Paths.size();
   Expected.InstalledPaths = Paths.size();
@@ -377,11 +343,6 @@ void VerifyPathHoldsPrior(Luna::State &Owner, const PathPrior &Prior) {
     RC_ASSERT(Hooks::ObserveIntegerGlobal(Owner, Prior.Name) == Prior.Number);
 }
 
-// The categories whose committed stores arrive with later milestones - types
-// beyond the migrated converters, dispatch indirection, modules, metatables,
-// and the identity and lookup caches - are journalled through the same
-// reverse-order path as the ones that exist today. This drives every overlay
-// scope directly and compares it with the same independent journal model.
 void VerifyOverlayJournal(Luna::State &Owner, ByteCursor &Cursor) {
   std::vector<PathPrior> Priors;
   std::vector<std::string> Paths;
@@ -437,8 +398,6 @@ void VerifyOverlayJournal(Luna::State &Owner, ByteCursor &Cursor) {
   RC_ASSERT(Hooks::ObserveRootStackDepth(Owner) == EntryDepth);
 
   if (Restore) {
-    // Reverse order: the newest journalled overlay is discarded first and the
-    // canonically first path is restored last.
     std::vector<std::string> ExpectedOrder;
     for (std::size_t Index = OverlayKeys.size(); Index > 0; --Index)
       ExpectedOrder.push_back(OverlayKeys[Index - 1]);
@@ -461,15 +420,11 @@ void VerifyOverlayJournal(Luna::State &Owner, ByteCursor &Cursor) {
     RC_ASSERT(Hooks::ObserveIntegerGlobal(Owner, Path) == 4242);
 }
 
-// What one attempt driven through the joined submission hooks must report:
-// what it planned, staged, and rejected, what an ordinary query saw while it
-// was open, and what its installation journal did.
 void VerifyJoinedAttempt(const SubmissionReport &Report,
                          const ExpectedAttempt &Attempt,
                          const ExpectedPublication &Publication,
                          std::size_t SubmittedCount, std::size_t CommittedCount,
                          bool Publish, int SeedDepth) {
-  // What the outermost transaction planned, staged, and rejected.
   RC_ASSERT(Report.Submitted == SubmittedCount);
   RC_ASSERT(Report.JoinedSubmissions == Attempt.Submissions);
   RC_ASSERT(Report.Planned == Attempt.Planned);
@@ -489,26 +444,20 @@ void VerifyJoinedAttempt(const SubmissionReport &Report,
                                   ? TransactionStatus::Committed
                                   : TransactionStatus::RolledBack));
 
-  // Pending data is visible to validation inside the transaction and nowhere
-  // else.
   RC_ASSERT(Report.CommittedSymbolsInView == CommittedCount);
   RC_ASSERT(Report.PendingSymbolsInView == Attempt.Planned);
   RC_ASSERT(Report.PublishedGenerationWhileOpen == CommittedCount);
   RC_ASSERT(Report.PublishedSymbolsWhileOpen == CommittedCount);
-  // Every committed callable published one reflection generation of its own;
-  // the open attempt adds none of its own until it publishes.
   RC_ASSERT(Report.ReflectionGenerationWhileOpen == CommittedCount);
   RC_ASSERT(Report.StagedBindingsWhileOpen == Attempt.Prepared);
   RC_ASSERT(Report.VmVisibleDeclarationsWhileOpen == 0);
   RC_ASSERT(Report.EntryStackDepth == SeedDepth);
   RC_ASSERT(Report.StackDepthWhileOpen == SeedDepth);
 
-  // Preparation of the candidate generation is invisible either way.
   RC_ASSERT(Report.Preparation == PreparationStatus::Prepared);
   RC_ASSERT(Report.CandidateGeneration == CommittedCount + 1);
   RC_ASSERT(Report.CandidateSymbols == CommittedCount + Attempt.Planned);
 
-  // The journal of the attempt, and what restoration did with it.
   const PublicationObservation &Observed = Report.Publication;
   RC_ASSERT(Observed.IsPublished == Publication.Published);
   RC_ASSERT(Observed.Preparation == Publication.Preparation);
@@ -522,14 +471,9 @@ void VerifyJoinedAttempt(const SubmissionReport &Report,
   RC_ASSERT(Observed.RestorationOrder == Publication.RestorationOrder);
   RC_ASSERT(Observed.RestoredEveryEntry == Publication.RestoredEverything);
   RC_ASSERT(Observed.RestoredEntryStackDepth == Publication.RestoredEverything);
-  // An attempt that stops before publication reports no publication
-  // observation at all, which is itself part of the contract.
   RC_ASSERT(Observed.EntryStackDepth == (Publish ? SeedDepth : 0));
   if (Publication.ObservesStackDepth)
     RC_ASSERT(Observed.StackDepthAfter == SeedDepth);
-  // A published plan that describes at least one callable publishes exactly one
-  // reflection generation with it; a plan that describes nothing publishes
-  // none.
   const bool ReflectionAdvances = Publication.Published && Attempt.Planned != 0;
   RC_ASSERT(Observed.ReflectionAdvanced == ReflectionAdvances);
   if (Publication.Published) {
@@ -539,7 +483,6 @@ void VerifyJoinedAttempt(const SubmissionReport &Report,
               CommittedCount + (ReflectionAdvances ? 1U : 0U));
   }
 
-  // One coherent generation, or none at all.
   RC_ASSERT(Report.PublishedGenerationAfter ==
             CommittedCount + (Publication.Published ? 1U : 0U));
   RC_ASSERT(Report.PublishedSymbolsAfter ==
@@ -551,11 +494,6 @@ void VerifyJoinedAttempt(const SubmissionReport &Report,
             (Publication.Published ? Attempt.Planned : 0U));
 }
 
-// What the same group must report when it is submitted behind the private
-// callback boundary and the callback throws partway through. A contained
-// callback failure poisons the outermost transaction, so the attempt never
-// reaches installation: it journals nothing, publishes nothing, and every
-// ordinary query keeps observing the committed model.
 void VerifyCallbackAttempt(const CallbackObservation &Observed,
                            const ExpectedAttempt &Attempt,
                            const std::vector<PathPrior> &Priors,
@@ -568,18 +506,13 @@ void VerifyCallbackAttempt(const CallbackObservation &Observed,
   RC_ASSERT(Observed.ExceptionKind ==
             std::string(ThrowStandard ? "standard" : "unknown"));
 
-  // Only the declarations submitted before the throw joined the plan.
   RC_ASSERT(Observed.PlannedWhileOpen == Attempt.Planned);
   RC_ASSERT(Observed.PendingSymbolsInView == Attempt.Planned);
   RC_ASSERT(Observed.NestedFailures == Attempt.NestedFailures);
   RC_ASSERT(!Observed.CouldPublishWhileOpen);
 
-  // Ordinary queries taken while the attempt was still in flight, including
-  // the same reflection query taken from another thread.
   RC_ASSERT(Observed.GenerationWhileOpen == CommittedCount);
   RC_ASSERT(Observed.GenerationSymbolsWhileOpen == CommittedCount);
-  // Each committed callable reflects one overload set and one candidate, and
-  // the open attempt contributes neither until it publishes.
   RC_ASSERT(Observed.SnapshotGenerationWhileOpen == CommittedCount);
   RC_ASSERT(Observed.SnapshotSymbolsWhileOpen == CommittedCount * 2);
   RC_ASSERT(Observed.ForeignSnapshotGenerationWhileOpen ==
@@ -592,8 +525,6 @@ void VerifyCallbackAttempt(const CallbackObservation &Observed,
   RC_ASSERT(Observed.EntryStackDepth == SeedDepth);
   RC_ASSERT(Observed.StackDepthWhileOpen == SeedDepth);
 
-  // Every planned path keeps the exact value it held at entry, in plan order,
-  // both while the attempt is open and after it is contained.
   std::vector<std::string> ExpectedKinds;
   for (const std::string &Path : Attempt.SubmissionPaths)
     ExpectedKinds.push_back(PriorKindOf(Priors, Path));
@@ -621,7 +552,6 @@ void VerifyCallbackAttempt(const CallbackObservation &Observed,
 } // namespace
 
 int RunGeneralizedTransactionRollbackProperties() {
-  // **Validates: Requirements 3.2, 4.1, 4.2, 4.4, 4.5, 4.6, 4.7, 4.9**
   // clang-format off
   // Feature: reflection-driven-binding-system, Property 21: Outermost registration transactions publish all changes or none
   const bool Passed = rc::check(
@@ -636,9 +566,6 @@ int RunGeneralizedTransactionRollbackProperties() {
             Choice.Pick(static_cast<std::size_t>(FailureMode::Count)));
         const bool IgnoreNestedFailures = Choice.Pick(2) == 0;
 
-        // A failure point that only exists inside publication requires an
-        // attempt that reaches publication; every other scenario may also stop
-        // before it, which is what a nested submission does.
         const bool Publish = RequiresPublication(Mode) || Choice.Pick(2) == 0;
         const int SeedDepth = static_cast<int>(Plan.Pick(5));
 
@@ -646,8 +573,6 @@ int RunGeneralizedTransactionRollbackProperties() {
         if (Mode == FailureMode::DuplicateCommitted && CommittedCount == 0)
           CommittedCount = 1;
 
-        // The nested group: one to four distinct declarations in generated
-        // submission order, each with a generated prior value on its path.
         std::vector<std::string> AvailableNames(GroupNames.begin(),
                                                 GroupNames.end());
         std::vector<PlannedDeclaration> Group;
@@ -679,9 +604,6 @@ int RunGeneralizedTransactionRollbackProperties() {
           Priors.push_back(std::move(Prior));
         }
 
-        // One generated validation failure joins the group at a generated
-        // submission position, so the failing declaration is not always the
-        // canonically first one.
         if (Mode == FailureMode::DuplicateInGroup ||
             Mode == FailureMode::DuplicateCommitted ||
             Mode == FailureMode::InvalidName ||
@@ -711,7 +633,6 @@ int RunGeneralizedTransactionRollbackProperties() {
         Luna::State Owner;
         RC_ASSERT(Owner.IsReady());
 
-        // The committed baseline the attempt must preserve exactly.
         std::vector<std::string> Committed;
         for (std::size_t Index = 0; Index < CommittedCount; ++Index) {
           Committed.emplace_back(CommittedNames[Index]);
@@ -747,16 +668,11 @@ int RunGeneralizedTransactionRollbackProperties() {
         if (const auto Fault = InjectedFault(Mode))
           Hooks::InjectFault(Owner, *Fault);
 
-        // Where inside the group a registration callback throws, and what it
-        // throws. Any position in `[0, size]` throws, so the callback may fail
-        // before the first declaration or after the last one staged.
         const bool UsedCallback = Mode == FailureMode::CallbackThrow;
         const std::size_t ThrowAfter =
             UsedCallback ? Choice.Pick(Group.size() + 1) : 0;
         const bool ThrowStandard = Choice.Pick(2) == 0;
 
-        // The declarations the attempt really submits: the whole group, or the
-        // prefix a throwing callback submitted before it threw.
         std::vector<PlannedDeclaration> Attempted = Group;
         if (UsedCallback) {
           Attempted.erase(Attempted.begin() +
@@ -772,9 +688,6 @@ int RunGeneralizedTransactionRollbackProperties() {
                                                           : NullAdder());
         }
 
-        // A callback failure runs the same group behind the private callback
-        // boundary; every other failure point drives the joined submission
-        // hooks directly.
         std::optional<SubmissionReport> JoinedReport;
         std::optional<CallbackObservation> CallbackReport;
         if (UsedCallback)
@@ -788,17 +701,12 @@ int RunGeneralizedTransactionRollbackProperties() {
           JoinedReport = Hooks::SubmitJoinedFunctions(
               Owner, std::move(Declarations), IgnoreNestedFailures);
 
-        // The independent model walks the declarations the attempt actually
-        // submitted. A throwing callback ignores every nested result and
-        // poisons the transaction, so its attempt never reaches publication.
         const ExpectedAttempt Attempt = Simulate(
             Attempted, Committed, UsedCallback ? FailureMode::None : Mode,
             UsedCallback || IgnoreNestedFailures);
         const ExpectedPublication Publication =
             ExpectedJournal(Attempt, Priors, Mode, Publish && !UsedCallback);
 
-        // What the attempt planned, staged, rejected, journalled, and let an
-        // ordinary query observe while it was still open.
         if (CallbackReport) {
           VerifyCallbackAttempt(*CallbackReport, Attempt, Priors, Group.size(),
                                 Committed.size(), ThrowStandard, SeedDepth);
@@ -807,7 +715,6 @@ int RunGeneralizedTransactionRollbackProperties() {
                               Committed.size(), Publish, SeedDepth);
         }
 
-        // One coherent generation, or none at all.
         const std::uint64_t ExpectedGeneration =
             Committed.size() + (Publication.Published ? 1U : 0U);
         const std::size_t ExpectedSymbols =
@@ -827,15 +734,11 @@ int RunGeneralizedTransactionRollbackProperties() {
         if (const auto Fault = InjectedFault(Mode))
           RC_ASSERT(Hooks::PendingFaults(Owner, *Fault) == 0);
 
-        // A failed attempt leaves the committed generation set itself
-        // untouched, not merely an equal copy of it.
         if (!Publication.Published)
           RC_ASSERT(AfterGenerations == EntryGenerations);
 
         RC_ASSERT(Hooks::SetRootStackDepth(Owner, 0));
 
-        // Every committed declaration keeps its exact behavior and its exact
-        // immutable record.
         RC_ASSERT(Owner.Execute(CommittedCheck).IsSuccess());
         RC_ASSERT(Hooks::ObserveIntegerGlobal(Owner, "committed_total") ==
                   CommittedSum);
@@ -859,16 +762,12 @@ int RunGeneralizedTransactionRollbackProperties() {
           RC_ASSERT(Hooks::ObserveIntegerGlobal(Owner, "group_total") ==
                     ExpectedSum(Attempt.CanonicalPaths.size()));
         } else {
-          // Every touched path holds the exact value it held at entry,
-          // including its absence, and no declaration of the group is
-          // reachable.
           for (const PathPrior &Prior : Priors) {
             VerifyPathHoldsPrior(Owner, Prior);
             RC_ASSERT(!Hooks::BindingIsCommitted(Owner, Prior.Name));
           }
         }
 
-        // The State stays fully reusable afterwards.
         RC_ASSERT(
             Owner.Bindings().Register("reuse_after", &AddIntegers).IsSuccess());
         RC_ASSERT(Hooks::GenerationsOf(Owner)->Generation() ==
@@ -878,7 +777,6 @@ int RunGeneralizedTransactionRollbackProperties() {
 
         VerifyOverlayJournal(Owner, Choice);
 
-        // The overlay probe never disturbs the committed model.
         RC_ASSERT(Hooks::GenerationsOf(Owner)->Generation() ==
                   ExpectedGeneration + 1);
         RC_ASSERT(Hooks::PendingBindingCount(Owner) == 0);

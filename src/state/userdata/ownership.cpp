@@ -100,13 +100,9 @@ bool OwnershipRecord::RetainsCleanupMetadata() const noexcept {
       !Metatable.IsValid())
     return false;
 
-  // The protocol this value's storage came from is still named at all. Without
-  // it no cleanup decision could be made.
   if (!Allocator.IsDeclared())
     return false;
 
-  // A known-constructed Lua-owned object is only releasable while its
-  // destruction step is still reachable.
   if (Ownership == OwnershipModel::LuaOwned && WasConstructed &&
       !Allocator.DeclaresDestruction())
     return false;
@@ -119,8 +115,6 @@ bool OwnershipRecord::HasLiveHandle() const noexcept {
   if (!Handle)
     return false;
 
-  // One comparison decides it: an invalidated handle has advanced past the
-  // generation this value was published under.
   const std::uint64_t Current = Handle->Generation();
   return Handle->IsLive() && Current == HandleGeneration;
 }
@@ -146,8 +140,6 @@ OwnershipOutcome OwnershipRegistry::Stage(UserdataHeader &Header,
   if (Find(Staged.Identity) != nullptr)
     return OwnershipOutcome::Refuse(OwnershipFailure::DuplicateIdentity);
 
-  // Luna never owns the storage of an object it only borrows, so a protocol
-  // that would deallocate it is refused before anything is recorded.
   if (Header.Ownership == OwnershipModel::Borrowed &&
       Staged.Allocator.OwnsStorage())
     return OwnershipOutcome::Refuse(OwnershipFailure::BorrowedStorageOwnership);
@@ -158,9 +150,6 @@ OwnershipOutcome OwnershipRegistry::Stage(UserdataHeader &Header,
   Owned->Lifetime = LifetimeState::Allocated;
   Owned->Storage = Staged.Storage;
 
-  // Every value names the protocol it was created under, including the one that
-  // declares no step: a value Luna neither created nor releases still has to
-  // say so, and saying so is what makes its cleanup decisions readable.
   Owned->Allocator = Staged.Allocator.IsDeclared() ? Staged.Allocator
                                                    : BorrowedStorageProtocol();
   Owned->Origin = Header.Origin;
@@ -177,9 +166,6 @@ OwnershipOutcome OwnershipRegistry::Stage(UserdataHeader &Header,
   Header.Payload.Storage = Staged.Storage;
   Header.Payload.SharedOwnership = nullptr;
 
-  // The value names the immutable allocator record its cleanup will use. Luna
-  // retains that record here, so the record outlives the allocator value the
-  // consumer supplied and stays valid through this value's final release step.
   Header.Allocator.Record = AllocatorRecordIdentity(Recorded->Allocator);
   return OwnershipOutcome::Accept();
 }
@@ -201,8 +187,6 @@ void OwnershipRegistry::DiscardStorage(const ClassAllocator &Allocator,
   if (Storage == nullptr || !Allocator.OwnsStorage())
     return;
 
-  // Nothing was constructed in this storage and no record ever described it, so
-  // the one step it warrants is the deallocation it is given here.
   ++Counted.Deallocate;
   const AllocatorStepOutcome Given =
       DeallocateObjectStorage(Allocator, Storage);
@@ -224,8 +208,6 @@ OwnershipOutcome OwnershipRegistry::Construct(UserdataHeader &Header,
     ++Built.ContainedException;
 
   if (!Constructed.Performed) {
-    // No object exists, so the staged storage is simply given back: cleanup
-    // deallocates without destroying anything it never constructed.
     ++Built.ConstructionFailure;
     static_cast<void>(Release(Header, ReleaseCause::ConstructionFailure));
     return OwnershipOutcome::Refuse(OwnershipFailure::RefusedConstruction);
@@ -264,8 +246,6 @@ OwnershipOutcome OwnershipRegistry::Establish(UserdataHeader &Header,
 
   switch (Recorded->Ownership) {
   case OwnershipModel::Borrowed:
-    // A borrowed object is never Luna's to delete, so the only thing that can
-    // end it is the explicit lifetime the owner declared.
     if (!HasHandle)
       return OwnershipOutcome::Refuse(OwnershipFailure::MissingLifetimeHandle);
     if (!Request.Handle.IsValid())
@@ -276,7 +256,6 @@ OwnershipOutcome OwnershipRegistry::Establish(UserdataHeader &Header,
     break;
 
   case OwnershipModel::LuaOwned:
-    // Exactly one destruction, so exactly one destruction step is required.
     if (HasHandle)
       return OwnershipOutcome::Refuse(
           OwnershipFailure::UnexpectedLifetimeHandle);
@@ -288,7 +267,6 @@ OwnershipOutcome OwnershipRegistry::Establish(UserdataHeader &Header,
     break;
 
   case OwnershipModel::Shared:
-    // Exactly one corresponding shared ownership reference per stored object.
     if (HasHandle)
       return OwnershipOutcome::Refuse(
           OwnershipFailure::UnexpectedLifetimeHandle);
@@ -386,9 +364,6 @@ bool OwnershipRegistry::Release(UserdataHeader &Header,
 }
 
 bool OwnershipRegistry::ReleaseCollected(UserdataHeader &Header) noexcept {
-  // Collection is one more cause of the same gate. The only thing it changes is
-  // that for the duration of this call no step may re-enter the virtual
-  // machine, because the collector that called it is still traversing.
   const bool WasFinalizing = IsFinalizing;
   IsFinalizing = true;
   const bool Released = Release(Header, ReleaseCause::GarbageCollection);
@@ -444,8 +419,6 @@ bool OwnershipRegistry::LifetimePermitsAccess(
   if (Header.Ownership != OwnershipModel::Borrowed)
     return true;
 
-  // The value is only reachable while its declared lifetime is still exactly
-  // the one it was published under.
   return Recorded->HasLiveHandle() &&
          Header.Handle.Generation == Recorded->HandleGeneration;
 }
@@ -489,7 +462,6 @@ bool OwnershipRegistry::RetainsCleanupMetadata() const noexcept {
     if (!Held)
       return false;
 
-    // A value whose every applicable step has already run needs nothing more.
     if (Held->Lifetime == LifetimeState::Released)
       continue;
     if (!Held->RetainsCleanupMetadata())
@@ -527,8 +499,6 @@ void OwnershipRegistry::RemoveCacheEntry(
   if (IsShuttingDown || !RemoveFromCache)
     return;
 
-  // Nothing a cache remover does may escape a garbage collector or a State
-  // destructor.
   try {
     RemoveFromCache(Record.Identity);
   } catch (...) {
@@ -543,20 +513,14 @@ bool OwnershipRegistry::ReleaseRecord(OwnershipRecord &Record,
   if (Record.Lifetime == LifetimeState::Released)
     return false;
 
-  // Access stops first, and it stops for every cause. A value that never got
-  // past `Allocated` was never accessible, so it moves straight to release.
   if (Record.Lifetime != LifetimeState::Allocated)
     InvalidateRecord(Record, Header);
 
-  // The identity-cache entry goes before the payload it points at.
   RemoveCacheEntry(Record);
 
   if (!Record.RetainsCleanupMetadata())
     ++Counted.IncompleteMetadata;
 
-  // Native destruction, only for an object Luna owns and only for one that was
-  // actually constructed. A borrowed object is never destroyed here, and
-  // storage nothing was ever constructed in is never destroyed at all.
   if (Record.Ownership == OwnershipModel::LuaOwned && Record.WasConstructed) {
     ++Counted.Destroy;
     const AllocatorStepOutcome Destroyed =
@@ -569,7 +533,6 @@ bool OwnershipRegistry::ReleaseRecord(OwnershipRecord &Record,
       Header->Lifetime = LifetimeState::Destroyed;
   }
 
-  // Exactly one shared ownership reference is released, exactly once.
   if (Record.SharedOwnership) {
     ++Counted.SharedRelease;
     try {
@@ -584,8 +547,6 @@ bool OwnershipRegistry::ReleaseRecord(OwnershipRecord &Record,
     }
   }
 
-  // Storage Luna owns is deallocated last, whether or not anything was ever
-  // constructed in it.
   if (Record.Allocator.OwnsStorage() && Record.Storage != nullptr) {
     ++Counted.Deallocate;
     const AllocatorStepOutcome Given =
@@ -594,9 +555,6 @@ bool OwnershipRegistry::ReleaseRecord(OwnershipRecord &Record,
       ++Counted.ContainedException;
   }
 
-  // Only now does Luna let go of the metadata cleanup needed, the retained
-  // allocator protocol included: this value was the last thing keeping its own
-  // claim on it.
   ++Counted.MetadataRelease;
   Record.Storage = nullptr;
   Record.Handle.reset();

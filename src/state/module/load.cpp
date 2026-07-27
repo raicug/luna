@@ -47,9 +47,6 @@ ModuleDefinitionLibrary::Add(ModuleDefinition Definition) {
   if (!Definition.Registration.IsValid())
     return AddStatus::MissingRegistration;
 
-  // The catalog decides availability: an identical definition of the same
-  // precedence is a duplicate, an unequal one at the same precedence is a
-  // conflict, and neither one replaces what is already available.
   const ModuleCatalog::AddStatus Added = Available.Add(Definition.Manifest);
   switch (Added) {
   case ModuleCatalog::AddStatus::Added:
@@ -120,9 +117,6 @@ MakeModulePlanEntry(const ModuleManifest &Manifest,
   DescriptorPlanEntry Entry;
   Entry.Category = PlanEntryKind::Module;
 
-  // A module installs no virtual-machine value of its own: its exported symbols
-  // install themselves. Its canonical name is the manifest identity, which is
-  // also the journal key of its module overlay.
   Entry.VmPath = Manifest.Identity();
   Entry.Symbol =
       MakeModuleSymbol(Manifest.Identity(), SymbolId(), ProvenanceOf(Manifest));
@@ -147,9 +141,6 @@ MakeModulePlanEntry(const ModuleManifest &Manifest,
   Module.Symbol = Entry.Identity;
   Module.Documentation = Manifest.Documentation();
 
-  // Every declared dependency together with the version resolution selected for
-  // it, so module reflection reports resolved versions rather than constraints
-  // alone.
   for (const ModuleDependency &Dependency : Manifest.Dependencies()) {
     ReflectionModuleDependencyFields Fields;
     Fields.Identity = Dependency.Identity;

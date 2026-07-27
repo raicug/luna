@@ -16,8 +16,6 @@
 namespace Luna::Detail {
 namespace {
 
-// Component tags. Each value is a stable part of the schema and is never
-// reused for another component.
 enum class ComponentTag : std::uint8_t {
   TypeNode = 0x10,
   FixedLeaf = 0x11,
@@ -95,8 +93,6 @@ void CanonicalEncoder::WriteRootTag(CanonicalDomain Domain) {
 void CanonicalEncoder::WriteTag(std::uint8_t Tag) { BytesValue.push_back(Tag); }
 
 void CanonicalEncoder::WriteUnsigned(std::uint64_t Value) {
-  // Fixed-width big-endian bytes keep the encoding independent of the host
-  // byte order and of any text formatting.
   for (std::size_t Index = 0; Index < 8; ++Index)
     BytesValue.push_back(
         static_cast<std::uint8_t>((Value >> ((7 - Index) * 8)) & 0xffULL));

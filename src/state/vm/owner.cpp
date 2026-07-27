@@ -29,9 +29,6 @@ VirtualMachineOwner::VirtualMachineOwner() noexcept {
   if (Handle) {
     luaL_openlibs(Handle);
 
-    // Every typed userdata this machine ever holds is collected through Luna's
-    // one contained boundary, so the collector is installed before any value
-    // can exist rather than when the first class is exposed.
     static_cast<void>(InstallUserdataCollector(Handle));
     StateTestControl::RecordSuccessfulCreation();
   }
@@ -105,8 +102,6 @@ void VirtualMachineOwner::ReleaseSavedValue(SavedVmValue &Saved) noexcept {
 
 bool VirtualMachineOwner::CaptureVmPath(const std::string &Path,
                                         SavedVmValue &Saved) noexcept {
-  // A root-scope path keeps the exact global capture the foundation
-  // established; only a nested table path takes the namespace route.
   if (!IsNestedVmPath(Path))
     return Luna::Detail::CaptureGlobalValue(Handle, Path, Saved);
   return CaptureVmPathValue(Handle, Path, Saved);

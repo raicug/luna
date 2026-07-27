@@ -1,13 +1,5 @@
 #pragma once
 
-// The prepared corpus every script-driven benchmark scenario measures against.
-//
-// Preparation is deliberately separate from measurement. A scenario registers
-// its corpus once per measured mode, outside the timed region, and a corpus
-// that cannot be prepared in one mode is reported as a blocked case carrying
-// Luna's own deterministic diagnostic - never as a fast one, and never as a
-// silent one.
-
 // clang-format off
 #include <luna/luna.hpp>
 
@@ -35,7 +27,6 @@ DiagnosticText(const Luna::ExecutionResult &Result) {
   return "Luna returned no diagnostic";
 }
 
-// One State prepared in one measured mode.
 class ScenarioModel final {
 public:
   using Configure =
@@ -74,7 +65,6 @@ public:
     return Owner.Bindings();
   }
 
-  // Runs one prepared script, reporting Luna's diagnostic when it refuses.
   [[nodiscard]] bool Run(const std::string &Script) {
     const Luna::ExecutionResult Result = Owner.Execute(Script);
     if (Result.IsSuccess())

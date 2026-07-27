@@ -89,7 +89,6 @@ private:
   return Diagnostic;
 }
 
-// The canonical type one published pack element belongs to.
 [[nodiscard]] TypeDescriptor ElementTypeOf(const TypeDescriptor &Type,
                                            std::size_t Position) {
   const std::span<const TypeDescriptor> Children = Type.Children();
@@ -299,7 +298,6 @@ StructuralConversionTestHooks::PublishReturn(const StructuredValue &Source,
     return Observation;
   }
 
-  // Ordered multiple values read back one element at a time, in order.
   const int First = lua_gettop(State.Get()) - Observation.PublishedCount + 1;
   std::vector<StructuredValue> Elements;
   bool Recovered = true;

@@ -1,10 +1,3 @@
-// Native invocation benchmark scenario.
-//
-// The declared shapes here are deliberately minimal, so a sample measures the
-// invocation path itself: entering the callback, restoring the stack, and
-// returning zero values, one value, or a dynamic pack. The corpus is registered
-// once per mode, outside the timed region.
-
 // clang-format off
 #include <luna/luna.hpp>
 
@@ -35,8 +28,6 @@ void Touch() { ++SideEffectCount; }
 
 constexpr std::size_t LoopCount = 250;
 
-// The fixed-return shapes and the dynamic pack are separate corpora, so a mode
-// that cannot prepare one still reports measured numbers for the other.
 [[nodiscard]] Luna::RegistrationResult
 RegisterFixedCorpus(Luna::BindingRegistry &Registry) {
   if (auto Result = Registry.RegisterFunction("Touch", &Touch);

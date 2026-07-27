@@ -16,8 +16,6 @@
 namespace Luna::Detail {
 namespace {
 
-// The canonical type of one dynamic pack. Its element count and element types
-// belong to the invocation, so the shape itself is Luna's owning value pack.
 [[nodiscard]] TypeDescriptor DynamicPackType() {
   return TypeDescriptor::ForFixed(FixedTypeKey::ValuePack);
 }
@@ -52,8 +50,6 @@ TypeDescriptor CanonicalReturnType(const ReturnMetadata &Return) {
     return ReturnPackTypeOf(std::move(Elements));
   }
   case ReturnDisposition::Instance:
-    // One value of one registered class, named by the validated stable key the
-    // declaration carries.
     if (const StableTypeKey *Class = Return.InstanceKey())
       return TypeDescriptor::ForClass(*Class);
     break;
@@ -68,9 +64,6 @@ std::vector<TypeDescriptor>
 PublishedReturnTypes(const TypeDescriptor &ReturnType) {
   std::vector<TypeDescriptor> Published;
 
-  // A dynamic pack publishes values whose canonical types the invocation
-  // decides, so registration has no element type to check here; publication
-  // validates each element against the generation the call captured.
   if (ReturnType.FixedKey() == FixedTypeKey::ValuePack)
     return Published;
 
@@ -129,8 +122,6 @@ MakeReflectedReturnFields(const ReturnMetadata &Return) {
           Describe("Result", CanonicalValueType(*Return.Kind())));
     return Reflected;
   case ReturnDisposition::Pack: {
-    // A dynamic pack reflects the multiple-value shape without per-value
-    // records: its element types are decided by each invocation.
     if (!Return.HasDeclaredPackShape())
       return Reflected;
     const std::span<const ValueKind> Kinds = Return.PackKinds();

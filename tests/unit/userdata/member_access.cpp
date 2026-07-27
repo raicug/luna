@@ -36,9 +36,6 @@ void Check(bool Condition, std::string_view Description) {
   std::cerr << "member access check failed: " << Description << '\n';
 }
 
-// How often each declared accessor ran. A lazy getter that produced a value
-// once must not run again while that value is still valid, so these counters
-// are the direct observation of the cache doing its job.
 std::size_t LevelReads = 0;
 std::size_t LevelWrites = 0;
 std::size_t WeightReads = 0;
@@ -146,8 +143,6 @@ IntegerOf(const Luna::Detail::ClassMemberAccessObservation &Observed) {
   return Held ? *Held : -1;
 }
 
-// Reads and writes through the generated descriptors, with the declared type
-// and the declared directions decided before any accessor runs.
 void CheckTypedAccessFollowsItsDeclaration() {
   ResetCounters();
   Luna::State Owner;
@@ -177,8 +172,6 @@ void CheckTypedAccessFollowsItsDeclaration() {
   Check(FieldWritten.Reached && Object.Charge == 9,
         "a writable field writes through its generated setter");
 
-  // The declared type decides what may be written, and it decides it before the
-  // setter runs, so a refused write leaves the object exactly as it was.
   const int Before = Object.Charge;
   const auto Mistyped =
       WriteMember(Owner, "Gadget_Value", "Charge", std::string("nine"));
@@ -186,7 +179,6 @@ void CheckTypedAccessFollowsItsDeclaration() {
             Object.Charge == Before,
         "a value of another canonical type is refused before the setter runs");
 
-  // A const data member is read-only, and a write-only property is write-only.
   const auto ConstantWrite = WriteMember(Owner, "Gadget_Value", "Serial", 1);
   Check(!ConstantWrite.Reached && ConstantWrite.Failure == "unwritable_member",
         "a const field permits no write");
@@ -194,7 +186,6 @@ void CheckTypedAccessFollowsItsDeclaration() {
   Check(!HiddenRead.Reached && HiddenRead.Failure == "unreadable_member",
         "a write-only property permits no read");
 
-  // A getter declared on a mutable object needs a mutable view.
   const auto Weight = ReadMember(Owner, "Gadget_Value", "Weight");
   Check(Weight.Reached && WeightReads == 1,
         "a non-const getter reads through a mutable view");
@@ -204,8 +195,6 @@ void CheckTypedAccessFollowsItsDeclaration() {
         "a member this class never declared is not accessible at all");
 }
 
-// The receiver is validated before the direction, the value, and the target, so
-// a refused receiver always reports itself first.
 void CheckReceiverRanksBeforeEverythingElse() {
   ResetCounters();
   Luna::State Owner;
@@ -218,7 +207,6 @@ void CheckReceiverRanksBeforeEverythingElse() {
                      ConstAccess::Const) == "created",
         "one const value of the class is exposed");
 
-  // A const receiver permits reads and refuses every write before native code.
   const auto Read = ReadMember(Owner, "Const_Value", "Level");
   Check(Read.Reached && LevelReads == 1,
         "a const receiver permits a const-declared read");
@@ -235,14 +223,11 @@ void CheckReceiverRanksBeforeEverythingElse() {
             Object.Charge == Before,
         "a const receiver refuses a writable field before native code");
 
-  // A getter that needs a mutable receiver is refused by the same gate.
   const auto MutableGetter = ReadMember(Owner, "Const_Value", "Weight");
   Check(!MutableGetter.Reached && MutableGetter.Failure == "refused_receiver" &&
             MutableGetter.Receiver == "const_violation" && WeightReads == 0,
         "a getter declared on a mutable object is refused at a const view");
 
-  // A stale receiver outranks the direction of the member: an invalidated
-  // lifetime is reported before an unwritable member ever is.
   ++Generation;
   const auto Expired = WriteMember(Owner, "Const_Value", "Serial", 1);
   Check(!Expired.Reached && Expired.Failure == "refused_receiver" &&
@@ -250,9 +235,6 @@ void CheckReceiverRanksBeforeEverythingElse() {
         "an expired receiver is reported before the member's own direction");
 }
 
-// The whole lazy cache rule: only a successful getter is recorded, per userdata
-// and per dispatch generation, and a write, an explicit invalidation, a
-// generation change, or retiring the value all end its validity.
 void CheckLazyValuesAreCachedAndInvalidated() {
   ResetCounters();
   Luna::State Owner;
@@ -288,13 +270,11 @@ void CheckLazyValuesAreCachedAndInvalidated() {
   Check(Reused.Reached && ExpensiveReads == 1 && Reused.ServedFromCache,
         "a second read of a lazy property reuses the recorded value");
 
-  // A different exposed object of the same class has its own value.
   const auto SecondRead = ReadMember(Owner, "Second_Value", "Expensive");
   Check(SecondRead.Reached && ExpensiveReads == 2 &&
             !SecondRead.ServedFromCache,
         "a lazy value is cached per userdata, not per member");
 
-  // A successful write invalidates; a refused write does not.
   const auto Invalidating = WriteMember(Owner, "First_Value", "Charge", 7);
   Check(Invalidating.Reached && Invalidating.Invalidated == 1 &&
             Hooks::LazyMemberCacheEntryCountOf(Owner, &First) == 0,
@@ -313,12 +293,10 @@ void CheckLazyValuesAreCachedAndInvalidated() {
             Hooks::LazyMemberCacheEntryCountOf(Owner, &First) == 1,
         "a refused write invalidates nothing at all");
 
-  // An explicit invalidation drops every entry of one object.
   Check(Hooks::InvalidateClassMemberCache(Owner, "First_Value") == 1 &&
             Hooks::LazyMemberCacheEntryCountOf(Owner, &First) == 0,
         "an explicit invalidation drops the cached values of its object");
 
-  // A failed getter is never recorded, whichever evaluation is declared.
   Second.GetterFails = true;
   Check(Hooks::InvalidateClassMemberCache(Owner, "Second_Value") == 1,
         "the second object's recorded value is dropped before it is retried");
@@ -331,8 +309,6 @@ void CheckLazyValuesAreCachedAndInvalidated() {
         "a failed lazy getter records nothing");
   Second.GetterFails = false;
 
-  // Generation replacement invalidates by mismatch: the entries stay where they
-  // are and simply stop matching, so nothing is traversed to drop them.
   const auto Recorded = ReadMember(Owner, "Second_Value", "Expensive");
   Check(Recorded.Reached && Recorded.Recorded &&
             Hooks::LiveLazyMemberCacheEntryCount(Owner) == 1,
@@ -358,8 +334,6 @@ void CheckLazyValuesAreCachedAndInvalidated() {
         "stale one");
 }
 
-// Retiring or releasing an exposed value drops its cached values first, so no
-// entry can name a payload that is being released.
 void CheckRetiringOneValueDropsItsCachedValues() {
   ResetCounters();
   Luna::State Owner;
@@ -384,8 +358,6 @@ void CheckRetiringOneValueDropsItsCachedValues() {
   Check(Hooks::ClassUserdataNamesLazyEntries(Owner, "Retired_Value") == false,
         "the retired value's header names no entries any more");
 
-  // The retired value can no longer reach native code, so no later read can
-  // repopulate the cache either.
   const auto AfterRetire = ReadMember(Owner, "Retired_Value", "Expensive");
   Check(!AfterRetire.Reached && AfterRetire.Failure == "refused_receiver",
         "a retired value refuses every later member access");

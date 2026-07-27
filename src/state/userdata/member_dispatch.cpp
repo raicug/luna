@@ -29,15 +29,9 @@
 namespace Luna::Detail {
 namespace {
 
-// Where the two metamethods find what they need. The class table is upvalue one
-// and the class's own qualified name is upvalue two, so neither closure holds a
-// registered class, a member, or any other Luna record whose address a later
-// registration could move.
 constexpr int ClassTableUpvalue = 1;
 constexpr int ClassNameUpvalue = 2;
 
-// The stack positions of one member metamethod. Both are fixed by the virtual
-// machine: the value, the key, and - for an assignment - the incoming value.
 constexpr int ReceiverPosition = 1;
 constexpr int KeyPosition = 2;
 constexpr int IncomingPosition = 3;
@@ -54,9 +48,6 @@ Refuse(MemberDispatchStage Stage, MemberSideEffectBoundary Boundary,
   return Observed;
 }
 
-// The step one gate failure belongs to. The gate's own enumerator order is the
-// order of its checks, so this is a naming of that order rather than a second
-// one.
 [[nodiscard]] MemberDispatchStage
 StageOf(MemberAccessFailure Failure) noexcept {
   switch (Failure) {
@@ -85,8 +76,6 @@ StageOf(MemberAccessFailure Failure) noexcept {
   return Name != nullptr ? std::string(Name) : std::string();
 }
 
-// The member name one access asked for. Only a string key can name a member, so
-// anything else is reported as the representation that actually arrived.
 [[nodiscard]] std::string KeyTextOf(lua_State *State) {
   if (lua_type(State, KeyPosition) == LUA_TSTRING) {
     const char *Text = lua_tostring(State, KeyPosition);
@@ -96,9 +85,6 @@ StageOf(MemberAccessFailure Failure) noexcept {
   return Name != nullptr ? std::string(Name) : std::string("?");
 }
 
-// The class table already answers this name, so it is a method, a static
-// method, a constructor, or a factory of the class rather than a typed
-// accessor. The value it holds is left on the stack when the answer is yes.
 [[nodiscard]] bool PushClassTableEntry(lua_State *State) {
   lua_pushvalue(State, lua_upvalueindex(ClassTableUpvalue));
   lua_pushvalue(State, KeyPosition);
@@ -111,8 +97,6 @@ StageOf(MemberAccessFailure Failure) noexcept {
   return true;
 }
 
-// The header of the receiver, when the receiver really is a Luna userdata of
-// exactly this layout. The gate decides everything else about it.
 [[nodiscard]] UserdataHeader *MutableReceiverHeader(lua_State *State) noexcept {
   if (lua_type(State, ReceiverPosition) != LUA_TUSERDATA)
     return nullptr;
@@ -124,7 +108,6 @@ StageOf(MemberAccessFailure Failure) noexcept {
   return static_cast<UserdataHeader *>(Block);
 }
 
-// Everything one dispatch resolved before the gate runs.
 struct ResolvedMember final {
   const UserdataAccessContext *Context = nullptr;
   const RegisteredClass *Registered = nullptr;
@@ -135,7 +118,6 @@ struct ResolvedMember final {
   std::string MemberName;
   std::string QualifiedName;
 
-  // The refusal that stopped resolution, when one did.
   bool Resolved = false;
   MemberDispatchObservation Refusal;
 };
@@ -168,8 +150,6 @@ struct ResolvedMember final {
     return Resolved;
   }
 
-  // Only a string key can name a member, and only a name this class declared is
-  // one at all.
   if (lua_type(State, KeyPosition) != LUA_TSTRING ||
       Resolved.Registered->FindMember(Resolved.MemberName) == nullptr) {
     Resolved.Refusal =
@@ -180,8 +160,6 @@ struct ResolvedMember final {
   }
   Resolved.Member = Resolved.Registered->FindMember(Resolved.MemberName);
 
-  // A receiver that is not a Luna userdata of this layout never reaches the
-  // gate, and it is refused as the receiver it was, not as something else.
   Resolved.Header = MutableReceiverHeader(State);
   if (Resolved.Header == nullptr) {
     Resolved.Refusal =
@@ -194,8 +172,6 @@ struct ResolvedMember final {
     return Resolved;
   }
 
-  // One capture at dispatch entry: every conversion and every diagnostic of
-  // this access reads the same immutable type generation.
   Resolved.Types = Resolved.Context->Types != nullptr
                        ? Resolved.Context->Types->Capture()
                        : TypeGeneration::Foundation();
@@ -228,8 +204,6 @@ AccessContextFor(const ResolvedMember &Resolved) {
   return Access;
 }
 
-// One read, from the metamethod entry to exactly one published value or one
-// deterministic refusal that published nothing.
 [[nodiscard]] MemberDispatchObservation DispatchRead(lua_State *State) {
   const ResolvedMember Resolved = ResolveMember(State, true);
   if (!Resolved.Resolved) {
@@ -259,10 +233,6 @@ AccessContextFor(const ResolvedMember &Resolved) {
     return Observed;
   }
 
-  // The value the getter produced is published last, and only completely. A
-  // publication that cannot happen leaves the stack exactly as the metamethod
-  // was entered, so the getter's result never becomes a partial script-visible
-  // value.
   const std::string Declared = std::string(
       Resolved.Types->PublicNameOf(Resolved.Member->ValueDescriptor));
   const TypeRecord *Record = Resolved.Types->Find(Resolved.Member->ValueType);
@@ -288,9 +258,6 @@ AccessContextFor(const ResolvedMember &Resolved) {
   return Observed;
 }
 
-// One write. The incoming value is converted only when the gate reaches its
-// value step, so a refused receiver never converts anything at all, and a
-// refused write stores nothing.
 [[nodiscard]] MemberDispatchObservation DispatchWrite(lua_State *State) {
   const ResolvedMember Resolved = ResolveMember(State, false);
   if (!Resolved.Resolved) {
@@ -345,14 +312,8 @@ AccessContextFor(const ResolvedMember &Resolved) {
   return Observed;
 }
 
-// The error tail every refused dispatch shares. Only trivially destructible
-// locals remain alive across the raise, the stack is returned to exactly the
-// depth the metamethod was entered at, and the restoration is recorded through
-// the same observation the foundation's own callback checkpoint uses.
 constexpr std::size_t LocalDiagnosticCapacity = 512;
 
-// One refusal of one assignment to a declared method of the class. It is
-// resolved without the gate, because the name is not a typed accessor at all.
 [[nodiscard]] MemberDispatchObservation
 RefuseMethodAssignment(lua_State *State) {
   const std::string ClassName = ClassNameOf(State);
@@ -366,10 +327,6 @@ RefuseMethodAssignment(lua_State *State) {
   return Observed;
 }
 
-// The declared indexing or assignment operator of this class, left on the stack
-// when the class declares one and the name reached is not a typed accessor of
-// its own. Luna keeps the metamethod: the declaration is the behaviour Luna
-// consults, never a replacement of Luna's own dispatch.
 [[nodiscard]] bool PushDeclaredKeyOperator(lua_State *State, bool Reading) {
   std::string_view Segment;
   {
@@ -392,8 +349,6 @@ RefuseMethodAssignment(lua_State *State) {
     if (Described == nullptr)
       return false;
 
-    // The segment is a Luna-owned constant, so nothing that owns memory stays
-    // alive across the pushes below.
     Segment = Described->Segment;
   }
 
@@ -410,9 +365,6 @@ RefuseMethodAssignment(lua_State *State) {
   return true;
 }
 
-// One member metamethod, from entry to either its published values or its one
-// deterministic refusal. Everything that owns memory lives inside the inner
-// scope, so the raise at the tail destroys nothing.
 template <bool Reading> [[nodiscard]] int DispatchMember(lua_State *State) {
   if (State == nullptr)
     return 0;
@@ -429,10 +381,6 @@ template <bool Reading> [[nodiscard]] int DispatchMember(lua_State *State) {
 
   {
     try {
-      // The class table answers first: a method, a static method, a
-      // constructor, and a factory of the class are all one function value
-      // reached through the class scope itself, so a read of one of those names
-      // is that value and an assignment to one of them is refused.
       bool ClassTableHolds = false;
       if (PushClassTableEntry(State)) {
         if constexpr (Reading)
@@ -448,9 +396,6 @@ template <bool Reading> [[nodiscard]] int DispatchMember(lua_State *State) {
         Dispatch = Context->Dispatch;
       }
 
-      // A declared indexing or assignment operator answers only a name the
-      // class itself declares nothing for, so a typed accessor and a member of
-      // the class scope both still win.
       if (!ClassTableHolds && PushDeclaredKeyOperator(State, Reading)) {
         MemberDispatchObservation Observed;
         Observed.Attempted = true;
@@ -505,10 +450,6 @@ template <bool Reading> [[nodiscard]] int DispatchMember(lua_State *State) {
     }
   }
 
-  // The declared operator is an ordinary member candidate, so it performs its
-  // own receiver validation, its own overload resolution, and its own
-  // deterministic refusal. Nothing that owns memory is alive here, which is
-  // what lets its refusal propagate as an ordinary error.
   if (ForwardToOperator) {
     const int Forwarded = Reading ? 2 : 3;
     const int Results = Reading ? 1 : 0;
@@ -521,14 +462,10 @@ template <bool Reading> [[nodiscard]] int DispatchMember(lua_State *State) {
   }
 
   if (Published >= 0) {
-    // A successful access published exactly what it converted and nothing else.
     lua_settop(State, EntryDepth + Published);
     return Published;
   }
 
-  // Only trivially destructible locals are alive from here on, so the raise
-  // destroys nothing. The stack returns to exactly the entry depth before the
-  // diagnostic is pushed, which is what removes every partial result.
   if (Length == 0) {
     static constexpr char Fallback[] = "Luna: the member access was refused.";
     Prepared = Local;

@@ -168,9 +168,7 @@ InvocationSource(const std::array<ReceivedKind, Arity> &Received) {
 } // namespace
 
 int RunIncompatibleArgumentTypesProperties() {
-  // **Validates: Requirements 5.2, 5.6, 5.7, 5.8**
   // clang-format off
-  // Feature: luau-binding-foundation, Property 7: Incompatible argument types identify the first mismatch
   const bool Passed = rc::check(
       // clang-format on
       "Incompatible argument types identify the first mismatch",

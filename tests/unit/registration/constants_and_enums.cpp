@@ -33,17 +33,11 @@ void Check(bool Condition, std::string_view Description) {
   std::cerr << "constant and enumeration check failed: " << Description << '\n';
 }
 
-// One scoped enumeration, one unscoped one, one whose underlying type is
-// deliberately narrow, and one bitflag set.
 enum class Alignment { Left = 0, Center = 1, Right = 2 };
 enum class Narrow : signed char { Small = 1 };
 enum class Access : int { None = 0, Read = 1, Write = 2, Execute = 4 };
 enum Unscoped { First = 1, Second = 2 };
 
-// One enumeration whose declared underlying type is wider than the
-// exact-integer domain Luna converts through, and one whose underlying type is
-// unsigned. They separate the two range checks: the declared C++ range and
-// Luna's own representation domain.
 enum class Wide : long long { Zero = 0 };
 enum class Mask : unsigned char { None = 0 };
 
@@ -57,7 +51,6 @@ enum class Mask : unsigned char { None = 0 };
   return Luna::StableTypeKey("Studio.Alignment");
 }
 
-// One registered scoped enumeration inside one namespace, committed as a unit.
 [[nodiscard]] Luna::RegistrationResult
 RegisterAlignment(Luna::BindingRegistry &Registry) {
   Luna::NamespaceBuilder Studio = Registry.RegisterNamespace("Studio");
@@ -135,7 +128,6 @@ void CheckUnsupportedAndOutOfRangeConstantsAreRefused() {
   Check(!MissingKey.IsSuccess(),
         "an enumeration constant without its stable key is refused");
 
-  // A registered constant of an unregistered enumeration has no canonical type.
   const auto Unregistered =
       Registry.RegisterConstant("Default", Alignment::Left, AlignmentKey());
   Check(!Unregistered.IsSuccess(),
@@ -189,7 +181,6 @@ void CheckScopedEnumerationPublishesTypedTable() {
             Center.Attribute(0).Value() == "true",
         "an enumerator reflects its own attributes");
 
-  // The enumeration scope enumerates its members in canonical name order.
   const Luna::ReflectionRecordRange Members =
       Snapshot.Symbols(Luna::ScopeId(Enumeration.Id()));
   Check(Members.Size() == 3, "the enumeration scope holds its three members");
@@ -363,8 +354,6 @@ void CheckBitflagsRequireDeclarationAndRejectUnsupportedBits() {
     Check(DeclaresFlags,
           "a bitflag enumeration reflects its declared supported bits");
 
-    // A combination of declared bits is a value of the enumeration; a value
-    // carrying an unsupported bit is refused whole.
     Check(Registry
               .RegisterConstant("Full", static_cast<Access>(3),
                                 Luna::StableTypeKey("Studio.Access"))
@@ -397,8 +386,6 @@ void CheckBitflagsRequireDeclarationAndRejectUnsupportedBits() {
   }
 
   {
-    // Without the explicit declaration an enumeration is not a flag set, so a
-    // combination of its enumerators is not one of its values.
     Luna::State Owner;
     Luna::BindingRegistry Registry = Owner.Bindings();
     Luna::EnumBuilder<Access> Enumeration = Registry.RegisterEnum<Access>(
@@ -461,10 +448,6 @@ void CheckOutOfRangeEnumeratorsAreRefused() {
   }
 }
 
-// The two enumerator range checks are exact at their own limits: the last
-// representable value of the declared C++ underlying type is accepted and the
-// first value past it is refused, and the same holds for the exact-integer
-// domain Luna converts an enumeration through.
 void CheckEnumeratorRangeBoundaries() {
   constexpr auto NarrowLowest =
       static_cast<std::int64_t>(std::numeric_limits<signed char>::min());
@@ -521,8 +504,6 @@ void CheckEnumeratorRangeBoundaries() {
   }
 
   {
-    // An unsigned underlying type starts at zero, so its own limits are exact
-    // in both directions too.
     Luna::State Owner;
     Luna::BindingRegistry Registry = Owner.Bindings();
     Luna::EnumBuilder<Mask> Enumeration =
@@ -549,8 +530,6 @@ void CheckEnumeratorRangeBoundaries() {
   }
 
   {
-    // A wider declared underlying type reaches Luna's own representation
-    // domain first, and that domain is exact at its limits as well.
     Luna::State Owner;
     Luna::BindingRegistry Registry = Owner.Bindings();
     Luna::EnumBuilder<Wide> Enumeration =
@@ -598,8 +577,6 @@ void CheckEnumeratorRangeBoundaries() {
   }
 
   {
-    // A declared supported mask is a value of the enumeration too, so it obeys
-    // exactly the same domain limits.
     Luna::State Owner;
     Luna::BindingRegistry Registry = Owner.Bindings();
     Luna::EnumBuilder<Wide> Enumeration =
@@ -621,7 +598,6 @@ void CheckEnumeratorRangeBoundaries() {
   }
 
   {
-    // A constant obeys the same domain at its own limits.
     Luna::State Owner;
     Luna::BindingRegistry Registry = Owner.Bindings();
     Check(Registry.RegisterConstant("Highest", CanonicalHighest).IsSuccess() &&
@@ -643,8 +619,6 @@ void CheckEnumerationScopesAreNotNamespaces() {
   Luna::BindingRegistry Registry = Owner.Bindings();
   Check(RegisterAlignment(Registry).IsSuccess(), "the enumeration publishes");
 
-  // An enumeration table is Luna-owned but it is not a namespace, so a
-  // namespace request at its path collides instead of reopening it.
   Luna::NamespaceBuilder Studio = Registry.RegisterNamespace("Studio");
   const auto Adoption = Studio.RegisterNamespace("Alignment").Commit();
   Check(!Adoption.IsSuccess(),
@@ -653,8 +627,6 @@ void CheckEnumerationScopesAreNotNamespaces() {
                                      Luna::ErrorCategory::DuplicateGlobalName,
         "a namespace over an enumeration is a deterministic collision");
 
-  // An enumeration owns its enumerators and nothing else, so it is never the
-  // parent scope of another declaration.
   Luna::NamespaceBuilder Nested = Registry.RegisterNamespace("Studio");
   const auto Inside = Nested.RegisterConstant("Alignment", 1).Commit();
   Check(!Inside.IsSuccess(),
@@ -701,7 +673,6 @@ void CheckFailedPlansLeaveNothingBehind() {
   Luna::BindingRegistry Registry = Owner.Bindings();
   const std::uint64_t Generation = Hooks::GenerationsOf(Owner)->Generation();
 
-  // A collision: the enumeration name is already a script-created table.
   Check(Owner.Execute("Alignment = { Marker = 3 }").IsSuccess(),
         "the script creates its own table");
   Luna::EnumBuilder<Alignment> Enumeration =
@@ -716,8 +687,6 @@ void CheckFailedPlansLeaveNothingBehind() {
   Check(Registry.Reflection().IsEmpty(),
         "a refused enumeration publishes no reflection record");
 
-  // A whole plan fails together: the namespace, the enumeration, and the
-  // constant of one plan all disappear when one declaration is refused.
   Luna::NamespaceBuilder Studio = Registry.RegisterNamespace("Studio");
   Luna::EnumBuilder<Alignment> Nested =
       Studio.RegisterEnum<Alignment>("Alignment", AlignmentKey());
@@ -737,8 +706,6 @@ void CheckFailedPlansLeaveNothingBehind() {
   Check(Depth && *Depth == 0,
         "a failed plan restores the exact entry stack depth");
 
-  // The State stays reusable, and the same plan without the refused constant
-  // publishes.
   Luna::NamespaceBuilder Retry = Registry.RegisterNamespace("Studio");
   Luna::EnumBuilder<Alignment> Valid =
       Retry.RegisterEnum<Alignment>("Alignment", AlignmentKey());

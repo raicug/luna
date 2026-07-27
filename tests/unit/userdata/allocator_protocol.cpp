@@ -1,30 +1,3 @@
-// Focused coverage of the semantic allocator protocol and of the cleanup its
-// milestones warrant.
-//
-// The protocol is four steps and nothing else: obtain suitably aligned storage,
-// construct one object in it, destroy an object known to be constructed, give
-// the storage back. A consumer supplies whichever of those steps it owns as an
-// ordinary callable, and Luna erases every one of them - together with whatever
-// state the callable captured - into one immutable record it retains until the
-// last value created through it has finished its cleanup.
-//
-// What is checked here is that completed milestones decide cleanup exactly:
-//
-//   * allocation that produced nothing is cleaned up by nothing at all;
-//   * construction that refused, or threw, gives the storage back without
-//     destroying an object that was never constructed;
-//   * ownership refused after construction destroys, then releases, then
-//     deallocates, each exactly once;
-//   * a published value's final release performs every applicable step exactly
-//     once and a second release performs none of them;
-//   * the retained protocol is still reachable at the final step, long after
-//   the
-//     allocator value the consumer held is gone.
-//
-// Every failure also has to leave the State exactly as it found it: nothing
-// published, no owner behind, the stack restored, and the next construction
-// succeeding.
-
 // clang-format off
 #include <luna/binding/binding_registry.hpp>
 #include <luna/binding/class_allocator.hpp>
@@ -69,9 +42,6 @@ void Check(bool Condition, std::string_view Description) {
   std::cerr << "allocator protocol check failed: " << Description << '\n';
 }
 
-// One representative native object whose construction is observable, so "was
-// constructed" and "was destroyed" are separately checkable rather than
-// assumed.
 struct Probe final {
   int Value = 0;
   bool IsLive = false;
@@ -89,9 +59,6 @@ void ResetStorageCounters() {
   DeallocateCalls = 0;
 }
 
-// What one generated protocol is asked to do. The state lives here and is
-// captured by the steps themselves, which is exactly how a consumer's arena
-// would travel with its protocol.
 struct StoragePolicy final {
   bool AllocationFails = false;
   bool ConstructionRefuses = false;
@@ -123,7 +90,6 @@ struct StoragePolicy final {
     ++DestroyCalls;
     Probe *Built = static_cast<Probe *>(Storage);
 
-    // A destruction step only ever sees an object Luna knows is constructed.
     Check(Built->IsLive, "destruction only ever runs on a constructed object");
     Built->IsLive = false;
     Built->~Probe();
@@ -141,8 +107,6 @@ struct StoragePolicy final {
       std::move(Deallocate));
 }
 
-// One State with one registered class, so every constructed value carries a
-// complete, real class identity.
 class Fixture final {
 public:
   Fixture() {
@@ -181,8 +145,6 @@ private:
   return Hooks::ConstructClassValue(Host, Request);
 }
 
-// The object one published value carries, named through its own header rather
-// than through any address the test kept.
 [[nodiscard]] void *ConstructedObjectAt(const Luna::State &Host,
                                         const std::string &Path) {
   const std::optional<Luna::Detail::UserdataHeader> Header =
@@ -207,8 +169,6 @@ void CheckNothingWasPublished(
         "a refused construction installs no value at the path it named");
 }
 
-// The public protocol answers what it declares, and nothing about it needs a
-// virtual machine to be true.
 void CheckDeclaredStepsDecideTheProtocol() {
   const ClassAllocator Undeclared;
   Check(!Undeclared.IsDeclared() && !Undeclared.OwnsStorage() &&
@@ -236,23 +196,17 @@ void CheckDeclaredStepsDecideTheProtocol() {
   Check(Copied.RefersToSame(Owned) && !Copied.RefersToSame(Undeclared),
         "copies of one allocator name exactly the same protocol");
 
-  // Luna's own protocol for a complete class type declares the same four steps
-  // without the consumer writing any of them.
   const ClassAllocator Ordinary = ClassAllocator::ForOwnedObject<Probe>();
   Check(Ordinary.DeclaresAllocation() && Ordinary.DeclaresConstruction() &&
             Ordinary.DeclaresDestruction() && Ordinary.OwnsStorage(),
         "the ordinary protocol of a class declares every step");
 
-  // An adopted object is destroyed and never deallocated, which is the whole
-  // difference between owning an object and owning its storage.
   const ClassAllocator Adopted = ClassAllocator::ForAdoptedObject<Probe>();
   Check(Adopted.DeclaresDestruction() && !Adopted.OwnsStorage() &&
             !Adopted.DeclaresAllocation(),
         "an adopted object's protocol destroys but never deallocates");
 }
 
-// One complete construction: every milestone in order, every step exactly once,
-// and the object the script holds is the object the construction step built.
 void CheckCompleteConstructionPublishesOnce() {
   ResetStorageCounters();
   {
@@ -296,8 +250,6 @@ void CheckCompleteConstructionPublishesOnce() {
     Check(Hooks::AccessClassUserdata(Host, Read).DeliveredExpectedObject,
           "the constructed object reaches native code through the value");
 
-    // The final release performs every applicable step exactly once, and a
-    // second release performs none of them.
     Check(Hooks::ReleaseClassValue(Host, Object, ReleaseCause::LifecycleAction),
           "the constructed value releases once");
     Check(DestroyCalls == 1 && DeallocateCalls == 1,
@@ -314,8 +266,6 @@ void CheckCompleteConstructionPublishesOnce() {
         "State destruction performs no second release");
 }
 
-// Luna's own protocol for a complete class type, with no construction step
-// supplied by the caller at all: the protocol's own step is the one that runs.
 void CheckOrdinaryProtocolConstructsAndReleases() {
   Fixture Owner;
   Luna::State &Host = Owner.StateObject();
@@ -335,8 +285,6 @@ void CheckOrdinaryProtocolConstructsAndReleases() {
         "the ordinary protocol destroys once and deallocates once");
 }
 
-// Allocation that produced nothing: the one failure the protocol answers with
-// no cleanup call whatsoever.
 void CheckAllocationFailureCleansUpNothing() {
   ResetStorageCounters();
   Fixture Owner;
@@ -361,15 +309,12 @@ void CheckAllocationFailureCleansUpNothing() {
   Check(Owner.Released().MetadataRelease == 0,
         "no release step runs for a value that was never staged");
 
-  // The same path publishes as soon as its storage exists.
   StoragePolicy Working;
   Check(ConstructValue(Host, "Unallocated", OwnedStorageProtocol(&Working))
             .Published,
         "the State constructs a value after a refused allocation");
 }
 
-// Construction that refused, and construction that threw: both mean no object
-// exists, so both give the storage back without destroying anything.
 void CheckConstructionFailureDeallocatesWithoutDestroying() {
   for (int Variant = 0; Variant < 2; ++Variant) {
     ResetStorageCounters();
@@ -416,9 +361,6 @@ void CheckConstructionFailureDeallocatesWithoutDestroying() {
   }
 }
 
-// Ownership refused after construction succeeded: the object is destroyed, then
-// what ownership took is released, then the storage is deallocated - each step
-// exactly once, and in that order.
 void CheckOwnershipFailureDestroysBeforeDeallocating() {
   ResetStorageCounters();
   Fixture Owner;
@@ -432,8 +374,6 @@ void CheckOwnershipFailureDestroysBeforeDeallocating() {
   Policy.ConstructedValue = 13;
   const ClassAllocator Allocator = OwnedStorageProtocol(&Policy);
 
-  // Exactly the steps a constructor candidate takes: allocate, stage,
-  // construct.
   const Luna::Detail::StorageAllocationOutcome Allocated =
       Gate->Allocate(Allocator);
   Check(Allocated.Succeeded() && AllocateCalls == 1,
@@ -461,8 +401,6 @@ void CheckOwnershipFailureDestroysBeforeDeallocating() {
   Check(ConstructCalls == 1 && DestroyCalls == 0 && DeallocateCalls == 0,
         "a constructed object has nothing cleaned up yet");
 
-  // A Lua-owned object is never given a lifetime handle, so this statement is
-  // one Luna refuses - after construction has already happened.
   Luna::Detail::OwnershipRequest Request;
   Request.Handle = Luna::LifetimeHandle();
   const auto Refused = Gate->Establish(Header, Request);
@@ -494,17 +432,12 @@ void CheckOwnershipFailureDestroysBeforeDeallocating() {
         "nothing");
 }
 
-// Storage the protocol allocated and staging then refused: no record ever
-// described it, so it is given straight back - and nothing was constructed in
-// it, so nothing is destroyed.
 void CheckRefusedStagingGivesTheStorageBack() {
   ResetStorageCounters();
   Fixture Owner;
   Luna::State &Host = Owner.StateObject();
   StoragePolicy Policy;
 
-  // Luna never owns the storage of an object it only borrows, and a protocol
-  // that would deallocate it says exactly that.
   const Luna::LifetimeHandle Lifetime;
   const auto Refused =
       ConstructValue(Host, "Borrowed", OwnedStorageProtocol(&Policy),
@@ -520,8 +453,6 @@ void CheckRefusedStagingGivesTheStorageBack() {
         "no record was ever created, so no metadata is released");
 }
 
-// The protocol outlives the consumer's own allocator value: Luna retains the
-// immutable record until the last value created through it completes cleanup.
 void CheckRetainedProtocolOutlivesItsAllocatorValue() {
   ResetStorageCounters();
   Fixture Owner;
@@ -530,8 +461,6 @@ void CheckRetainedProtocolOutlivesItsAllocatorValue() {
   Policy->ConstructedValue = 7;
 
   {
-    // The consumer's allocator value is gone before the value is ever released,
-    // and its steps still run.
     const ClassAllocator Temporary = OwnedStorageProtocol(Policy.get());
     Check(ConstructValue(Host, "Retained", Temporary).Published,
           "the value constructs through the consumer's own protocol");
@@ -548,8 +477,6 @@ void CheckRetainedProtocolOutlivesItsAllocatorValue() {
         "no cleanup step ran without the protocol it required");
 }
 
-// A value Luna neither created nor releases still names a protocol - the one
-// that declares no step - so its cleanup decisions are readable and empty.
 void CheckBorrowedValuesNameTheEmptyProtocol() {
   ResetStorageCounters();
   Fixture Owner;

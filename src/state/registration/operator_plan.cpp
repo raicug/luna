@@ -70,9 +70,6 @@ ValidateStagedOperator(const StagedOperator &Declaration) {
         Subject, "an operator operates on one value of its class, so it "
                  "declares that value as its receiver.");
 
-  // A forwarding operator accepts whatever the call site supplied, so its
-  // ordinary parameters are resolved exactly like any other overload set. Every
-  // other operator has a fixed operand count no call could change.
   if (Described->ForwardsEveryArgument)
     return std::nullopt;
 
@@ -101,10 +98,6 @@ ValidateStagedOperator(const StagedOperator &Declaration) {
     return std::nullopt;
   }
 
-  // A call is the one operator whose ordinary callable return shape is not
-  // constrained: zero, one, and multiple values are all forwarded exactly as
-  // the selected candidate produced them. Every other operator produces one
-  // value for its virtual-machine operation.
   if (Declaration.Selected != ClassOperator::Call &&
       (Returns == ReturnDisposition::Void ||
        Returns == ReturnDisposition::Suppress ||

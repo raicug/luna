@@ -1,0 +1,19 @@
+BasedOnStyle: LLVM
+IndentWidth: 4
+TabWidth: 4
+UseTab: Never
+ColumnLimit: 100
+AllowShortFunctionsOnASingleLine: Inline
+AllowShortIfStatementsOnASingleLine: false
+BreakBeforeBraces: Attach
+PointerAlignment: Left
+DerivePointerAlignment: false
+SpacesBeforeTrailingComments: 1
+SortIncludes: false
+IncludeBlocks: Preserve
+ReflowComments: true
+FixNamespaceComments: true
+ 
+# Reduce clang-format churn for macro-heavy code
+MacroBlockBegin: "/*"
+MacroBlockEnd: "*/"

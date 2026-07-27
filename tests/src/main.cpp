@@ -60,6 +60,7 @@ int RunInternalValidationFailureProperties();
 int RunInvalidIntegerClassificationProperties();
 int RunInvocableValidRegistrationProperties();
 int RunInvocationPrimitiveTests();
+int RunLifecycleStagingTests();
 int RunLoadOnceModuleResolutionProperties();
 int RunModuleGraphIntegrationTests();
 int RunModuleLoadingTests();
@@ -231,6 +232,8 @@ int main() {
       TestCase{"transactional module loading", RunModuleLoadingTests},
       TestCase{"module graph loading through the real virtual machine",
                RunModuleGraphIntegrationTests},
+      TestCase{"staged and restored dynamic module lifecycle attempts",
+               RunLifecycleStagingTests},
       TestCase{"hierarchical registration through the real virtual machine",
                RunHierarchicalRegistrationIntegrationTests},
       TestCase{"deterministic documentation generation from one snapshot",

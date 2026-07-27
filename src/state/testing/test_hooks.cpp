@@ -217,9 +217,6 @@ bool StateTestHooks::RetargetDispatchSlot(State &Owner,
   if (!Slot || !Target)
     return false;
 
-  // Exactly what a compatible replacement publishes: the same permanent slot,
-  // the same canonical name it was installed under, and a new target with the
-  // metadata one invocation of it needs.
   Dispatch.Bind(*Slot, std::string(SlotName), Target, Target->Faults(),
                 &Bindings.Types());
   return true;
@@ -269,9 +266,6 @@ StateTestHooks::OverloadCandidateSignatures(const State &Owner,
     if (!Candidate || !Candidate->IsCommitted)
       continue;
 
-    // The canonical parameter shape of one candidate, in declaration order,
-    // including the declared shape: an omittable parameter is marked and a
-    // variadic tail is spelled as the final ellipsis.
     std::string Text = "(";
     const auto &Parameters = Candidate->Signature.ParameterTypes;
     for (std::size_t Position = 0; Position < Parameters.size(); ++Position) {
@@ -569,8 +563,6 @@ bool StateTestHooks::NamespaceIsOwned(const State &Owner,
   if (!Ownership)
     return false;
 
-  // The recorded table must still be the table an ordinary query observes at
-  // that exact path.
   const VmPathObservation Observed =
       Owner.Implementation->VirtualMachine.ObserveVmPath(
           std::string(QualifiedName));
@@ -711,24 +703,16 @@ std::optional<UserdataHeader> StateTestHooks::DescribeClassUserdata(
 
 namespace {
 
-// The generation one modelled lifetime handle reports. A test owns the counter,
-// so advancing it is exactly what invalidating a handle does.
 [[nodiscard]] std::uint64_t
 ObserveModelledHandleGeneration(const void *Record) noexcept {
   return Record != nullptr ? *static_cast<const std::uint64_t *>(Record) : 0;
 }
 
-// One resolved member access: the published member of one registered class,
-// plus everything the one member gate needs from the State it belongs to. It
-// carries the context by value so a visitor can keep using it inside the
-// protected call.
 struct MemberAccessTarget final {
   const RegisteredMember *Member = nullptr;
   bool ClassIsRegistered = false;
   MemberAccessContext Context;
 
-  // The generation the access captured. It is retained here so the context can
-  // keep naming its types through it for the whole access.
   std::shared_ptr<const TypeGeneration> Types;
 };
 
@@ -838,8 +822,6 @@ StateTestHooks::ExposeClassValue(State &Owner,
   if (!Types)
     return Observed;
 
-  // Both contexts are already named by class publication; naming them again
-  // costs nothing and keeps this hook independent of publication order.
   static_cast<void>(
       Owner.Implementation->VirtualMachine.PublishUserdataContexts(
           Owner.Implementation->UserdataAccess(),
@@ -883,8 +865,6 @@ ClassValueWriteObservation StateTestHooks::ConstructClassValue(
           Owner.Implementation->UserdataAccess(),
           Owner.Implementation->UserdataExposure()));
 
-  // No storage: the protocol's allocation step is what produces it, which is
-  // exactly what makes this a construction rather than an exposure.
   auto Intent = std::make_shared<ClassExposureIntent>();
   Intent->Storage = nullptr;
   Intent->Ownership = Request.Ownership;
@@ -1320,8 +1300,6 @@ StateTestHooks::ObserveVmPathValueKind(State &Owner,
   if (!Owner.Implementation || !Owner.Implementation->IsReady())
     return std::nullopt;
 
-  // The capture is released immediately: this hook only reports what the path
-  // holds right now.
   SavedVmValue Saved;
   VirtualMachineOwner &Machine = Owner.Implementation->VirtualMachine;
   if (!Machine.CaptureVmPath(Path, Saved))
@@ -1348,7 +1326,6 @@ PublicationObservation StateTestHooks::ProbeInstallationJournal(
                                 EntryDepth);
 
     for (const std::string &Path : Paths) {
-      // Nothing is written before the prior value or absence is recorded.
       if (!Journal.JournalVirtualMachinePath(Path))
         break;
       if (Implementation.VirtualMachine.SetIntegerGlobal(Path, 4242))
@@ -1368,6 +1345,14 @@ PublicationObservation StateTestHooks::ProbeInstallationJournal(
 
   Observed.StackDepthAfter = Implementation.VirtualMachine.StackDepth();
   return Observed;
+}
+
+LifecycleAttemptObservation
+StateTestHooks::PrepareLifecycleAttempt(State &Owner,
+                                        const LifecycleAttempt &Attempt) {
+  if (!Owner.Implementation)
+    return LifecycleAttemptObservation();
+  return Owner.Implementation->PrepareLifecycleAttempt(Attempt);
 }
 
 void StateTestHooks::InjectFault(State &Owner, StateFaultPoint Point,

@@ -65,13 +65,8 @@ UserdataCacheLookup UserdataIdentityCache::Evaluate(
   if (Live == nullptr)
     return Lookup;
 
-  // Return immutable decision material by value. No caller retains a pointer
-  // into the vector that a later record or invalidation can replace.
   Lookup.Entry = *Live;
 
-  // Ownership is the first incompatibility, because handing back a value owned
-  // differently, or creating a second one, are both ways of ending up with two
-  // owners of one object.
   if (Live->Ownership != Request.Ownership) {
     Lookup.Decision = UserdataCacheDecision::ConflictingOwnership;
     return Lookup;
@@ -142,8 +137,6 @@ bool UserdataIdentityCache::Record(const UserdataCacheEntry &Entry) {
     return true;
   }
 
-  // A live entry is never overwritten: that is what keeps one native identity
-  // from acquiring a second header, and therefore a second owner.
   if (Existing->IsActive)
     return false;
   *Existing = Entry;

@@ -49,8 +49,6 @@ void Check(bool Condition, std::string_view Description) {
   std::cerr << "userdata ownership check failed: " << Description << '\n';
 }
 
-// One representative native object, plus the exact number of times Luna ran
-// each storage step on it.
 struct Probe final {
   int Value = 7;
 };
@@ -69,9 +67,6 @@ void ResetStorageCounters() {
   return static_cast<Probe *>(::operator new(sizeof(Probe)));
 }
 
-// The semantic protocol of storage Luna owns: it constructs the object,
-// destroys it exactly once, and gives the storage back. Every step is
-// Luau-free, and none of them names anything but the storage it was handed.
 [[nodiscard]] ClassAllocator OwnedStorageProtocol() {
   ClassAllocator::AllocateOperation Allocate =
       [](const StorageRequest &Wanted) -> void * {
@@ -109,8 +104,6 @@ std::uint64_t NextNonce = 0;
   return Identity;
 }
 
-// One State with one registered class, so every header a test stages carries a
-// complete, real class identity.
 class Fixture final {
 public:
   Fixture() {
@@ -142,8 +135,6 @@ private:
   OwnershipRegistry *Gate = nullptr;
 };
 
-// A lifetime handle is one atomic, idempotent, monotonic statement about one
-// borrowed object.
 void CheckLifetimeHandleSemantics() {
   Luna::LifetimeHandle Handle;
   Check(Handle.IsDeclared() && Handle.IsValid(),
@@ -176,15 +167,11 @@ void CheckLifetimeHandleSemantics() {
         "an undeclared handle is never the same lifetime as a declared one");
 }
 
-// A borrowed value requires an explicit handle, is never deleted by Luna, and
-// stops being reachable the moment its handle is invalidated.
 void CheckBorrowedOwnership() {
   ResetStorageCounters();
   Fixture Owner;
   Probe Borrowed;
 
-  // Without a declared handle the exposure is refused, and nothing is left
-  // behind.
   {
     UserdataHeader Header =
         Owner.HeaderFor(OwnershipModel::Borrowed, ConstAccess::Mutable);
@@ -204,7 +191,6 @@ void CheckBorrowedOwnership() {
           "a refused borrowed exposure never destroys or deallocates");
   }
 
-  // Luna refuses to own the storage of an object it only borrows.
   {
     UserdataHeader Header =
         Owner.HeaderFor(OwnershipModel::Borrowed, ConstAccess::Mutable);
@@ -238,8 +224,6 @@ void CheckBorrowedOwnership() {
   Check(Owner.Registry().LifetimePermitsAccess(Header),
         "a published borrowed value with a live handle permits access");
 
-  // Invalidation is atomic with respect to access: one comparison rejects every
-  // later access, and no native code runs.
   Handle.Invalidate();
   Check(!Owner.Registry().LifetimePermitsAccess(Header),
         "an invalidated handle rejects every later access");
@@ -248,8 +232,6 @@ void CheckBorrowedOwnership() {
   Check(DestroyCalls == 0 && DeallocateCalls == 0,
         "an invalidated borrowed value is never destroyed by Luna");
 
-  // A handle whose consumer object is gone still rejects access, because Luna
-  // retains the record it compares against.
   {
     UserdataHeader Second =
         Owner.HeaderFor(OwnershipModel::Borrowed, ConstAccess::Mutable);
@@ -295,8 +277,6 @@ void CheckBorrowedOwnership() {
         "every cleanup step ran with the metadata it needs");
 }
 
-// A Lua-owned value is destroyed exactly once and its storage is deallocated
-// exactly once, whichever cause ends it.
 void CheckLuaOwnedOwnership() {
   ResetStorageCounters();
   {
@@ -331,8 +311,6 @@ void CheckLuaOwnedOwnership() {
     Check(Owner.Registry().LifetimePermitsAccess(Header),
           "a published Lua-owned value permits access");
 
-    // A Lua-owned value never accepts a lifetime handle: its lifetime is
-    // Luna's.
     {
       Probe *Second = AllocateProbe();
       new (Second) Probe{};
@@ -367,7 +345,6 @@ void CheckLuaOwnedOwnership() {
           "cleanup kept its type, allocator, metatable, and dispatch metadata");
   }
 
-  // Construction failure deallocates the storage without destroying anything.
   ResetStorageCounters();
   {
     Fixture Owner;
@@ -388,8 +365,6 @@ void CheckLuaOwnedOwnership() {
           "a value that was never accessible needs no invalidation");
   }
 
-  // State destruction releases every remaining value exactly once, while its
-  // cleanup metadata is still valid.
   ResetStorageCounters();
   {
     Fixture Owner;
@@ -416,8 +391,6 @@ void CheckLuaOwnedOwnership() {
         "State destruction releases each userdata resource exactly once");
 }
 
-// A shared value holds and releases exactly one corresponding shared ownership
-// reference per stored object.
 void CheckSharedOwnership() {
   ResetStorageCounters();
   Fixture Owner;
@@ -430,7 +403,6 @@ void CheckSharedOwnership() {
   Staged.Storage = Object.get();
   Staged.Identity = IdentityFor(Object.get());
 
-  // Without a shared reference a shared value is refused.
   {
     UserdataHeader Refused =
         Owner.HeaderFor(OwnershipModel::Shared, ConstAccess::Mutable);
@@ -475,8 +447,6 @@ void CheckSharedOwnership() {
         "no second shared ownership reference is ever released");
 }
 
-// Nothing a consumer's destruction step throws may escape the gate, and the
-// remaining steps still run exactly once.
 void CheckContainedCleanupExceptions() {
   ResetStorageCounters();
   Fixture Owner;
@@ -506,8 +476,6 @@ void CheckContainedCleanupExceptions() {
         "a contained cleanup exception still releases the metadata");
 }
 
-// The identity-cache entry of a value is removed before its payload is
-// released, and the value is never reachable after that.
 void CheckCacheEntriesAreRemovedBeforeRelease() {
   ResetStorageCounters();
   Fixture Owner;
@@ -543,8 +511,6 @@ void CheckCacheEntriesAreRemovedBeforeRelease() {
         "a released value is never reachable again");
 }
 
-// One exposure through exactly the conversion write path a returned object
-// takes.
 [[nodiscard]] Luna::Detail::ClassValueWriteObservation
 ExposeValue(Luna::State &Host, const std::string &Path, void *Storage,
             OwnershipModel Ownership, const Luna::LifetimeHandle &Handle,
@@ -570,9 +536,6 @@ ReadValue(Luna::State &Host, const std::string &Path, const void *Expected) {
   return Hooks::AccessClassUserdata(Host, Request);
 }
 
-// The write half of a borrowed value: the explicit handle is required before
-// anything exists, one object is one value with one owner, and invalidation
-// stops every later access without releasing anything.
 void CheckBorrowedExposureThroughTheWritePath() {
   ResetStorageCounters();
   Fixture Owner;
@@ -614,8 +577,6 @@ void CheckBorrowedExposureThroughTheWritePath() {
         "a published borrowed value delivers exactly its object to native "
         "code");
 
-  // A conflicting re-exposure of the same object is refused by the cache before
-  // ownership is established, so no second owner of one object can exist.
   const auto Conflicting = ExposeValue(
       Host, "Other", &Borrowed, OwnershipModel::LuaOwned,
       Luna::LifetimeHandle::Undeclared(), nullptr, OwnedStorageProtocol());
@@ -661,9 +622,6 @@ void CheckBorrowedExposureThroughTheWritePath() {
         "every cleanup step ran with the metadata it needs");
 }
 
-// The write half of a Lua-owned and of a shared value: exactly one destruction
-// and one deallocation for the first, exactly one shared ownership reference
-// released for the second.
 void CheckOwnedAndSharedExposureThroughTheWritePath() {
   ResetStorageCounters();
   {
@@ -723,8 +681,6 @@ void CheckOwnedAndSharedExposureThroughTheWritePath() {
           "no storage step ever runs for a shared object");
   }
 
-  // A value the write path published and nothing released is still released
-  // exactly once by State destruction.
   ResetStorageCounters();
   {
     Fixture Owner;

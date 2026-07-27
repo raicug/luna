@@ -34,10 +34,6 @@ constexpr ClassOperatorDescriptor Supported[] = {
     {ClassOperator::Assign, "__LunaOperatorAssign", "", 2, false, false},
 };
 
-// The metamethods Luna itself owns on a class metatable, plus the two system
-// names its collection boundary and its lifetime marker occupy. Luau spells the
-// collection boundary as the destructor of Luna's own userdata tag rather than
-// as a metatable field, so it is reserved as a Luna-owned system name.
 constexpr ReservedMetamethod Reserved[] = {
     {"__type", ReservedMetamethodRole::Identity},
     {"__metatable", ReservedMetamethodRole::MetatableProtection},

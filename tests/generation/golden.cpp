@@ -1,23 +1,3 @@
-// Deterministic golden, structural, and lifecycle coverage for both
-// generators over one complete reflected surface: modules with dependencies and
-// exports, nested namespaces, constants of several canonical types, overloaded
-// callables with optional, defaulted, and variadic parameters and zero, scalar,
-// and multiple returns, a class hierarchy with construction, factories,
-// methods, static methods, properties, fields, and an operator, an enumeration
-// with an alias, and declared attributes, examples, and prose.
-//
-// The pinned artifacts under `generation/golden` are compared byte for byte, so
-// every drift in either generator is one visible diff. Structural parsing then
-// checks the shape those bytes must have - canonical section order, provenance
-// grouping, one Luau class declaration per reflected class, and a base declared
-// before the class that extends it - against the captured snapshot itself
-// rather than against a second copy of the expectation.
-//
-// Every artifact here is generated from one retained snapshot, including after
-// later registration, freeze, a State move, destruction of the originating
-// State, and from another thread, so generation demonstrably reads only the
-// captured generation and never the virtual machine.
-
 // clang-format off
 #include <luna/binding/argument_pack.hpp>
 #include <luna/binding/binding_registry.hpp>
@@ -59,7 +39,6 @@ namespace {
 
 int FailureCount = 0;
 
-// Set to true only while regenerating the pinned artifacts below.
 constexpr bool DumpGoldenArtifacts = false;
 
 constexpr std::string_view DocumentationGolden = "complete_surface.md";
@@ -76,10 +55,6 @@ void Check(bool Condition, std::string_view Description) {
   return Text.find(Needle) != std::string::npos;
 }
 
-// One reflected surface, stated in three different registration orders. Only
-// the order changes: the declarations, their metadata, and their prose are
-// identical, so every artifact generated from any of them must be identical
-// too.
 enum class Palette : int { Red = 1, Green = 2, Blue = 4 };
 
 struct Shape {
@@ -168,9 +143,6 @@ void ConfigureUnits(Luna::NamespaceBuilder &Builder, bool Reversed) {
                         .Attribute("Metre", "Unit", "m"));
 }
 
-// The declarations of one namespace, stated in the given order. Overload
-// candidates of one name are stated in both orders too, so the canonical
-// candidate order can never inherit registration order.
 void DeclarePhysics(Luna::NamespaceBuilder &Physics, bool Reversed) {
   if (Reversed) {
     static_cast<void>(Physics.RegisterFunction("Split", &Split));
@@ -234,9 +206,6 @@ void ConfigurePhysics(Luna::NamespaceBuilder &Builder, bool Reversed) {
   static_cast<void>(Solver.Documentation("The iterative solver."));
 }
 
-// The module group: one available dependency definition and one loaded graph
-// that names it, so every declaration either carries module provenance or
-// deliberately carries none.
 [[nodiscard]] bool RegisterModules(Luna::BindingRegistry &Registry,
                                    bool Reversed) {
   const bool Provided =
@@ -258,8 +227,6 @@ void ConfigurePhysics(Luna::NamespaceBuilder &Builder, bool Reversed) {
   return Provided && Loaded;
 }
 
-// The class group: one base class, one class that extends it, and one scoped
-// enumeration with an alias, all inside one namespace plan.
 [[nodiscard]] bool RegisterStudio(Luna::BindingRegistry &Registry,
                                   bool Reversed) {
   Luna::NamespaceBuilder Studio = Registry.RegisterNamespace("Studio");
@@ -324,7 +291,6 @@ void ConfigurePhysics(Luna::NamespaceBuilder &Builder, bool Reversed) {
   return Studio.Commit().IsSuccess();
 }
 
-// The root group: declarations no module and no namespace owns.
 [[nodiscard]] bool RegisterRoot(Luna::BindingRegistry &Registry,
                                 bool Reversed) {
   const auto Function = [&Registry] {
@@ -340,7 +306,6 @@ void ConfigurePhysics(Luna::NamespaceBuilder &Builder, bool Reversed) {
   return Function() && Constant();
 }
 
-// One complete reflected surface, stated in one of three registration orders.
 void RegisterCompleteSurface(Luna::BindingRegistry &Registry, unsigned Order) {
   const bool Reversed = Order != 0;
   switch (Order % 3) {
@@ -383,8 +348,6 @@ ReadBytes(const std::filesystem::path &Path) {
                      std::istreambuf_iterator<char>());
 }
 
-// One line and column of one byte offset, so a golden mismatch names exactly
-// where the artifact drifted.
 [[nodiscard]] std::string Position(const std::string &Text,
                                    std::size_t Offset) {
   std::size_t Line = 1;
@@ -410,7 +373,6 @@ ReadBytes(const std::filesystem::path &Path) {
   return Text.substr(Offset, 48);
 }
 
-// Compares one generated artifact with its pinned golden file byte for byte.
 [[nodiscard]] bool MatchesGolden(std::string_view Name,
                                  const std::string &Bytes) {
   const std::optional<std::string> Golden = ReadBytes(GoldenPath(Name));
@@ -436,8 +398,6 @@ ReadBytes(const std::filesystem::path &Path) {
   return false;
 }
 
-// Regenerates the pinned artifacts through the ordinary publication service, so
-// a golden file is only ever the exact bytes generation produced.
 [[nodiscard]] bool DumpEveryGoldenArtifact() {
   Luna::State Owner;
   const Luna::ReflectionSnapshot Snapshot = CompleteSurface(Owner, 0);
@@ -471,7 +431,6 @@ ReadBytes(const std::filesystem::path &Path) {
   return Found;
 }
 
-// Every line that opens with `Prefix`, in order, with the prefix removed.
 [[nodiscard]] std::vector<std::string> Entries(const std::string &Text,
                                                std::string_view Prefix) {
   std::vector<std::string> Found;
@@ -491,7 +450,6 @@ ReadBytes(const std::filesystem::path &Path) {
   return Values.size();
 }
 
-// The Luau type name one canonical class name flattens to.
 [[nodiscard]] std::string Flattened(std::string_view CanonicalName) {
   std::string Text(CanonicalName);
   for (char &Character : Text) {
@@ -508,7 +466,6 @@ ReadBytes(const std::filesystem::path &Path) {
   return Key;
 }
 
-// The canonical bytes rule every accepted artifact obeys.
 void CheckCanonicalBytes(const std::string &Bytes) {
   Check(!Bytes.empty(), "an accepted artifact carries bytes");
   Check(Bytes.find('\r') == std::string::npos,
@@ -520,8 +477,6 @@ void CheckCanonicalBytes(const std::string &Bytes) {
         "the last line of the artifact is LF terminated");
 }
 
-// One private directory per case, removed again when the case ends, so no
-// temporary file survives the suite.
 class ScratchDirectory final {
 public:
   explicit ScratchDirectory(std::string_view Name) {
@@ -562,9 +517,6 @@ private:
   std::filesystem::path PathValue;
 };
 
-// Requirements 16.2, 16.3, 19.10: the complete reflected surface generates
-// exactly its pinned documentation and declarations, repeatedly, and both
-// artifacts are canonical UTF-8 without a byte-order mark and with LF endings.
 void CheckGoldenArtifactsPinTheCompleteSurface() {
   Luna::State Owner;
   const Luna::ReflectionSnapshot Snapshot = CompleteSurface(Owner, 0);
@@ -601,8 +553,6 @@ void CheckGoldenArtifactsPinTheCompleteSurface() {
         "byte-identical");
 }
 
-// Requirement 16.4: canonical ordering follows names and declaration metadata,
-// so every registration order of one surface reproduces the pinned artifacts.
 void CheckEveryRegistrationOrderReproducesTheGolden() {
   for (unsigned Order = 0; Order < 3; ++Order) {
     Luna::State Owner;
@@ -621,10 +571,6 @@ void CheckEveryRegistrationOrderReproducesTheGolden() {
   }
 }
 
-// Requirements 16.4, 16.9, 19.10: the documentation artifact has exactly the
-// structure the captured snapshot describes - canonical sections, provenance
-// groups in module order, and one entry per reflected symbol in the canonical
-// order that snapshot enumerates.
 void CheckDocumentationStructureFollowsTheSnapshot() {
   Luna::State Owner;
   const Luna::ReflectionSnapshot Snapshot = CompleteSurface(Owner, 0);
@@ -643,8 +589,6 @@ void CheckDocumentationStructureFollowsTheSnapshot() {
             Symbols != std::string::npos && Modules < Types && Types < Symbols,
         "the canonical sections appear once each, in canonical order");
 
-  // The provenance groups are the declarations no module contributed, then one
-  // group per module in the canonical module order of this generation.
   std::vector<std::string> ExpectedGroups{"(no module)"};
   for (std::size_t Index = 0; Index < Snapshot.Modules().Size(); ++Index)
     ExpectedGroups.push_back(ModuleKey(Snapshot.Modules().At(Index)));
@@ -652,8 +596,6 @@ void CheckDocumentationStructureFollowsTheSnapshot() {
   Check(Groups == ExpectedGroups,
         "the symbol groups name every module provenance in canonical order");
 
-  // Every symbol of the generation is documented exactly once, grouped by
-  // provenance and otherwise in the canonical order the snapshot enumerates.
   std::vector<std::string> ExpectedSymbols;
   for (const std::string &Group : ExpectedGroups) {
     const bool WithoutModule = Group == "(no module)";
@@ -672,8 +614,6 @@ void CheckDocumentationStructureFollowsTheSnapshot() {
   Check(Documented.size() == Snapshot.Symbols().Size() && !Documented.empty(),
         "the documented symbol count is exactly the captured symbol count");
 
-  // Provenance, prose, attributes, and examples of the captured surface all
-  // reach the artifact.
   Check(Contains(Text, "### studio.physics@2.1.0\n") &&
             Contains(Text, "- studio.units@1.0.0 [>=1.0.0]\n") &&
             Contains(Text, "Module: studio.units@1.0.0\n"),
@@ -698,10 +638,6 @@ void CheckDocumentationStructureFollowsTheSnapshot() {
         "declared attributes, examples, and prose reach the artifact");
 }
 
-// Requirements 16.1, 16.4, 19.10: the declaration artifact has exactly the
-// structure Luau requires of the captured surface - one class type per
-// reflected class, each base declared before the class that extends it, and
-// balanced declaration blocks.
 void CheckDeclarationStructureFollowsTheSnapshot() {
   Luna::State Owner;
   const Luna::ReflectionSnapshot Snapshot = CompleteSurface(Owner, 0);
@@ -729,8 +665,6 @@ void CheckDeclarationStructureFollowsTheSnapshot() {
   Check(Balanced && Depth == 0 && Deepest != 0,
         "every declared table block opens and closes exactly once");
 
-  // Each reflected class declares exactly one Luau class type, and a base is
-  // declared before the class that extends it.
   std::vector<std::string> Declared;
   for (const std::string &Entry : Entries(Text, "declare class "))
     Declared.push_back(Entry.substr(0, Entry.find(' ')));
@@ -781,16 +715,11 @@ void CheckDeclarationStructureFollowsTheSnapshot() {
         "variadic parameters are declared");
 }
 
-// Requirements 3.6, 16.2: generation reads only the captured generation, so one
-// retained snapshot still generates exactly the pinned artifacts after later
-// registration, a freeze, a State move, destruction of the originating State,
-// and from a thread that never owned that State.
 void CheckRetainedSnapshotGeneratesTheGoldenAcrossEveryLifecycleEvent() {
   const Luna::DocumentationOptions Documentation;
   const Luna::DeclarationOptions Declarations;
   Luna::ReflectionSnapshot Retained;
 
-  // The whole matrix is one retained snapshot generating one pair of artifacts.
   const auto Matches = [&](std::string_view Stage) {
     const Luna::GeneratedArtifact Text =
         Luna::GenerateDocumentation(Retained, Documentation);
@@ -809,8 +738,6 @@ void CheckRetainedSnapshotGeneratesTheGoldenAcrossEveryLifecycleEvent() {
   const std::size_t Size = Retained.Size();
   Matches("the captured snapshot generates completely");
 
-  // Later registration publishes a new generation the retained snapshot never
-  // observes.
   {
     Luna::BindingRegistry Registry = Owner->Bindings();
     Check(Registry.Register("Later", [] { return 1; }).IsSuccess(),
@@ -826,16 +753,12 @@ void CheckRetainedSnapshotGeneratesTheGoldenAcrossEveryLifecycleEvent() {
   Matches("the retained snapshot generates the same artifacts after later "
           "registration");
 
-  // Freeze publishes caches and the frozen lifecycle transition, and changes no
-  // captured generation.
   {
     Luna::BindingRegistry Registry = Owner->Bindings();
     Check(Registry.Freeze().IsSuccess(), "the populated State freezes");
   }
   Matches("the retained snapshot generates the same artifacts after freeze");
 
-  // A moved State keeps the current generation; the retained snapshot is
-  // unaffected either way.
   Luna::State Moved = std::move(*Owner);
   Check(!Owner->IsReady() && Moved.IsReady(),
         "the destination State is ready and the moved-from State is not");
@@ -856,8 +779,6 @@ void CheckRetainedSnapshotGeneratesTheGoldenAcrossEveryLifecycleEvent() {
   Check(Retained.Generation() == Captured && Retained.Size() == Size,
         "the retained generation and its record count never changed");
 
-  // Nothing generation reads belongs to a virtual machine or to one owning
-  // thread, so another thread generates exactly the same artifacts.
   std::string CrossThreadText;
   std::string CrossThreadLua;
   std::thread Reader([&] {
@@ -870,9 +791,6 @@ void CheckRetainedSnapshotGeneratesTheGoldenAcrossEveryLifecycleEvent() {
   static_cast<void>(MatchesGolden(DeclarationGolden, CrossThreadLua));
 }
 
-// Requirement 16.5: unsupported and unencodable metadata each reject generation
-// deterministically, with no bytes and one repeatable diagnostic, and leave
-// every other generation in the process untouched.
 void CheckUnsupportedMetadataRejectsDeterministically() {
   const auto Reserved = [] {
     Luna::State Owner;
@@ -918,8 +836,6 @@ void CheckUnsupportedMetadataRejectsDeterministically() {
         "metadata that is not canonical UTF-8 rejects both generators with no "
         "bytes");
 
-  // A rejection is local to its own attempt: the pinned surface still generates
-  // exactly its pinned artifacts afterwards.
   Luna::State Owner;
   const Luna::ReflectionSnapshot Snapshot = CompleteSurface(Owner, 0);
   static_cast<void>(MatchesGolden(
@@ -932,9 +848,6 @@ void CheckUnsupportedMetadataRejectsDeterministically() {
           .Bytes()));
 }
 
-// Requirement 16.6: publishing the complete surface writes exactly the pinned
-// bytes, and every later refusal preserves that destination byte for byte and
-// leaves no other file behind.
 void CheckFailedGenerationPreservesThePriorDestination() {
   const ScratchDirectory Scratch("published");
   const std::filesystem::path DocumentationPath = Scratch.File("api.md");
@@ -960,8 +873,6 @@ void CheckFailedGenerationPreservesThePriorDestination() {
   static_cast<void>(MatchesGolden(DocumentationGolden, *PublishedText));
   static_cast<void>(MatchesGolden(DeclarationGolden, *PublishedLua));
 
-  // A generation rejection refuses publication before the destination is
-  // touched at all.
   Luna::State Reserved;
   Luna::BindingRegistry Registry = Reserved.Bindings();
   Check(Registry.RegisterFunction("end", [] { return 1; }).IsSuccess(),
@@ -984,8 +895,6 @@ void CheckFailedGenerationPreservesThePriorDestination() {
             RefusedLua.Status() == Luna::PublicationStatus::IncompleteArtifact,
         "a rejected generation refuses publication");
 
-  // Bytes that are complete but not canonical are refused by publication
-  // itself, under the same all-or-nothing rule.
   const Luna::ArtifactPublication NonCanonical = Luna::PublishArtifact(
       Luna::GeneratedArtifact::Complete("# Windows\r\nendings\r\n"),
       DocumentationPath.string());

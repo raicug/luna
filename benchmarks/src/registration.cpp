@@ -1,11 +1,3 @@
-// Registration benchmark scenario.
-//
-// One sample builds a whole State from nothing: it creates the State, registers
-// the corpus, and - in the frozen mode - validates the committed model and
-// publishes the freeze caches. Both modes are measured, because the cost of
-// preparing caches belongs to registration and the cost of using them belongs
-// to the lookup scenarios.
-
 // clang-format off
 #include <luna/luna.hpp>
 
@@ -24,9 +16,6 @@ namespace {
 using LunaBenchmark::CacheMode;
 using LunaBenchmark::DiagnosticText;
 
-// Registration and freeze are the measured operations here, so a refusal is a
-// functional failure of the sample rather than a blocked case. It is reported
-// with Luna's own diagnostic so the reason is visible.
 [[nodiscard]] bool Accepted(const Luna::RegistrationResult &Result,
                             std::string_view Step) {
   if (Result.IsSuccess())
@@ -39,15 +28,12 @@ using LunaBenchmark::DiagnosticText;
 [[nodiscard]] int Measure(int Value) { return Value + 1; }
 [[nodiscard]] int Measure(int Left, int Right) { return Left * Right; }
 
-// The common base of the measured class corpus.
 struct Surface {
   double Height = 1.0;
 
   [[nodiscard]] double Raised() const { return Height + 1.0; }
 };
 
-// One canonical class type per registered class, because one canonical type
-// owns exactly one class symbol and one cached metatable identity.
 template <std::size_t Ordinal> struct Widget final : Surface {
   double Width = 1.0;
 

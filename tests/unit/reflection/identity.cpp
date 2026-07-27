@@ -30,7 +30,6 @@ struct Widget {
 
 using KeyList = std::vector<Luna::StableTypeKey>;
 
-// Type and symbol identity remain distinct Luna-owned types.
 static_assert(!std::is_same_v<Luna::TypeId, Luna::SymbolId>);
 static_assert(Luna::TypeId::BitCount == 256);
 static_assert(Luna::TypeId::ByteCount == 32);
@@ -110,7 +109,6 @@ template <class Type>
     if (Text.substr(0, Luna::StableTypeKey::ReservedKeyPrefix.size()) !=
         Luna::StableTypeKey::ReservedKeyPrefix)
       return false;
-    // A reserved Luna key can never be claimed by a user-defined leaf.
     if (Luna::StableTypeKey::Classify(Text) !=
         Luna::StableTypeKeyStatus::ReservedPrefix)
       return false;
@@ -179,7 +177,6 @@ template <class Type>
   if (Integer.Qualification() != Luna::CvQualification::None)
     return false;
 
-  // References and top-level cv-qualification are normalized away.
   if (Canonical<const int>() != Integer ||
       Canonical<const int &>() != Integer || Canonical<int &&>() != Integer ||
       Canonical<volatile int>() != Integer)
@@ -203,7 +200,6 @@ template <class Type>
       Canonical<char *>().FixedKey() != Luna::FixedTypeKey::CString)
     return false;
 
-  // Unsupported leaves never receive an accidental identity.
   if (Canonical<long>().IsValid() || Canonical<unsigned int>().IsValid() ||
       Canonical<char>().IsValid())
     return false;
@@ -232,8 +228,6 @@ template <class Type>
     return false;
   if (Canonical<std::array<int, 4>>() != Fixed4)
     return false;
-  // An array's top-level cv-qualification is its element qualification, so it
-  // is normalized away; a pointer to a const array still retains it.
   if (Canonical<const int[4]>() != Fixed4)
     return false;
   const Luna::TypeDescriptor PointerToConstArray =
@@ -263,7 +257,6 @@ template <class Type>
     return false;
   if (Canonical<std::unordered_map<std::string, int>>() != Mapping)
     return false;
-  // Structural children stay ordered, so a swapped key and value differ.
   if (Canonical<std::map<int, std::string>>() == Mapping)
     return false;
 
@@ -320,7 +313,6 @@ template <class Type>
   if (Enumeration.Kind() != Luna::TypeKind::Enumeration ||
       !Enumeration.IsValid())
     return false;
-  // The same key with a different declared kind is a different canonical type.
   if (Canonical<Color>(WidgetKey) == Class)
     return false;
 
@@ -336,7 +328,6 @@ template <class Type>
   if (Canonical<std::map<Color, Widget>>(Swapped) == Mapping)
     return false;
 
-  // Missing, invalid, and surplus keys all refuse to produce an identity.
   if (Canonical<Widget>().IsValid())
     return false;
   if (Canonical<std::map<Color, Widget>>(ColorKey).IsValid())
@@ -355,7 +346,6 @@ template <class Type>
   if (Shared == Class)
     return false;
 
-  // Two independently constructed keys with equal text produce one identity.
   const KeyList RebuiltKey{
       Luna::StableTypeKey(std::string("studio.ui.") + "Widget")};
   return Canonical<Widget>(RebuiltKey) == Class &&
@@ -405,7 +395,6 @@ template <class Type>
           "valid")
     return false;
 
-  // Ordering is a strict weak ordering over canonical structure.
   const Luna::TypeDescriptor Integer = Canonical<int>();
   const Luna::TypeDescriptor Sequence = Canonical<std::vector<int>>();
   if (!(Integer < Sequence) || !(Sequence > Integer) || Integer == Sequence)

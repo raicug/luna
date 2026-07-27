@@ -91,8 +91,6 @@ void CheckNestedChainPublishesOneCanonicalHierarchy() {
   Check(Solver.QualifiedName() == "Studio.Physics.Solver",
         "nested builders join segments with the canonical separator");
 
-  // Nested builders share one plan, so committing any of them submits the whole
-  // hierarchy as one transaction.
   const auto Result = Solver.Commit();
   Check(Result.IsSuccess(), "one nested namespace plan commits as a unit");
   Check(PathKind(Owner, "Studio") == "table" &&
@@ -133,7 +131,6 @@ void CheckUncommittedBuilderHasNoEffect() {
   Check(StackDepth(Owner) == EntryDepth,
         "destroying an uncommitted builder leaves the stack depth unchanged");
 
-  // The State stays fully usable afterwards.
   Check(Registry.RegisterNamespace("Studio").Commit().IsSuccess(),
         "a State remains reusable after an abandoned builder");
 }
@@ -151,8 +148,6 @@ void CheckReopeningOwnedNamespacePreservesPriorSymbols() {
   const std::size_t FirstCount = First.Size();
   const Luna::SymbolId FirstIdentity = First.Find("Studio").Id();
 
-  // Reopening the same Luna-owned namespace is additive and contributes no
-  // second declaration of the same scope.
   Luna::NamespaceBuilder Studio = Registry.RegisterNamespace("Studio");
   Check(Studio.Commit().IsSuccess(),
         "reopening a matching Luna-owned namespace succeeds");
@@ -165,7 +160,6 @@ void CheckReopeningOwnedNamespacePreservesPriorSymbols() {
   Check(Second.Find("Studio.Physics").IsValid(),
         "reopening a namespace preserves the symbols it already held");
 
-  // A new child registered through the reopened scope still publishes.
   Check(Registry.RegisterNamespace("Studio")
             .RegisterNamespace("Render")
             .Commit()
@@ -198,8 +192,6 @@ void CheckForeignAndStaleTablesCollide() {
   Check(Registry.RegisterNamespace("Studio").Commit().IsSuccess(),
         "a namespace at a free path still publishes");
 
-  // A script that replaces a Luna namespace leaves a stale Luna symbol behind:
-  // reopening must reject it rather than adopt the script's table.
   Check(Owner.Execute("Studio = {}").IsSuccess(),
         "the script replaces the namespace table");
   const auto Stale = Registry.RegisterNamespace("Studio").Commit();
@@ -234,7 +226,6 @@ void CheckWrongCategoryAndInvalidSegmentsFail() {
   const auto Empty = Registry.RegisterNamespace("").Commit();
   Check(!Empty.IsSuccess(), "an empty segment is rejected");
 
-  // A failure inside a chain still fails the whole plan.
   Luna::NamespaceBuilder Studio = Registry.RegisterNamespace("Studio");
   Luna::NamespaceBuilder Invalid = Studio.RegisterNamespace("1Bad");
   Check(!Invalid.Commit().IsSuccess(),
@@ -249,8 +240,6 @@ void CheckFailedInstallationRemovesEveryCreatedTable() {
   const int EntryDepth = StackDepth(Owner);
   const std::uint64_t Generation = Hooks::GenerationsOf(Owner)->Generation();
 
-  // The second namespace of the plan fails to install, so the first one has to
-  // disappear again.
   Hooks::InjectFault(Owner, Luna::Detail::StateFaultPoint::BindingInstallation,
                      1);
   Luna::NamespaceBuilder Studio = Registry.RegisterNamespace("Studio");
@@ -271,7 +260,6 @@ void CheckFailedInstallationRemovesEveryCreatedTable() {
             Owner, Luna::Detail::StateFaultPoint::BindingInstallation) == 0,
         "the injected fault was consumed");
 
-  // The State is still usable, and the same plan now publishes.
   Check(Registry.RegisterNamespace("Studio")
             .RegisterNamespace("Physics")
             .Commit()
@@ -282,7 +270,6 @@ void CheckFailedInstallationRemovesEveryCreatedTable() {
 }
 
 void CheckStaleBuildersFailDeterministically() {
-  // Use after the State moves to another owner object.
   {
     Luna::State Owner;
     Luna::NamespaceBuilder Studio =
@@ -297,7 +284,6 @@ void CheckStaleBuildersFailDeterministically() {
           "a stale builder installs nothing into the new owner");
   }
 
-  // Use after the owner is destroyed.
   {
     auto Owner = std::make_unique<Luna::State>();
     std::optional<Luna::NamespaceBuilder> Ghost(
@@ -310,7 +296,6 @@ void CheckStaleBuildersFailDeterministically() {
           "a destroyed owner yields a deterministic stale-builder diagnostic");
   }
 
-  // Use after freeze.
   {
     Luna::State Owner;
     Luna::NamespaceBuilder Studio =
@@ -325,7 +310,6 @@ void CheckStaleBuildersFailDeterministically() {
           "a frozen commit installs nothing");
   }
 
-  // Use after the registered model is replaced by another generation.
   {
     Luna::State Owner;
     Luna::NamespaceBuilder Studio =
@@ -338,7 +322,6 @@ void CheckStaleBuildersFailDeterministically() {
           "a replaced-generation commit installs nothing");
   }
 
-  // A committed plan cannot be committed twice.
   {
     Luna::State Owner;
     Luna::NamespaceBuilder Studio =
@@ -347,7 +330,6 @@ void CheckStaleBuildersFailDeterministically() {
     Check(!Studio.Commit().IsSuccess(), "the same plan cannot commit twice");
   }
 
-  // A builder created from a moved-from State never touches a virtual machine.
   {
     Luna::State Owner;
     Luna::State Moved = std::move(Owner);
@@ -359,7 +341,6 @@ void CheckStaleBuildersFailDeterministically() {
           "a builder of a moved-from State installs nothing anywhere");
   }
 
-  // A stale scope: the parent namespace belongs to a replaced generation.
   {
     Luna::State Owner;
     Luna::BindingRegistry Registry = Owner.Bindings();

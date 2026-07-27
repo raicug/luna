@@ -1,44 +1,3 @@
-// Property 27: construction and allocator cleanup follow completed milestones
-// exactly once.
-//
-// Creating a native object on behalf of a script is a walk through four
-// milestones - storage exists, an object is constructed in it, ownership of
-// that object is established, the value is published - and the cleanup a
-// failure warrants is decided by the milestones that completed, never by which
-// step happened to fail. An allocation that produced nothing is cleaned up by
-// nothing at all. Storage nothing was constructed in is given back without
-// being destroyed. An object that exists but is not owned is destroyed, then
-// whatever ownership took is released, then its storage is given back, in that
-// order and once each. And a published value ends through exactly the same
-// gate, once.
-//
-// Two halves are generated together, and both are compared with an independent
-// milestone model written here rather than with Luna's own accounting.
-//
-// The first half drives the milestones directly, exactly the way a constructor
-// candidate drives them: the semantic allocation step, staging, the
-// construction step - either one the caller supplied or the protocol's own -
-// ownership establishment, and publication. It generates protocols that declare
-// every step and protocols that deliberately declare fewer, allocations and
-// constructions that succeed, decline, and throw, ownership statements that
-// agree with their model and statements that do not, a lifetime ended between
-// establishment and publication, destruction steps that throw, and one ending
-// per published value.
-//
-// The second half constructs values through exactly the conversion write path a
-// constructor or factory return takes, so what a refusal costs is observable
-// from the outside: nothing published at the path it named, nothing left on the
-// stack, no owner behind, no identity-cache entry, and no class metatable that
-// a refused construction created. It then ends those values by release, by
-// ending a borrowed lifetime, by collection, and by State destruction.
-//
-// Both halves check what cleanup must never do: no destruction of storage
-// nothing was constructed in, no step performed twice, no step performed that
-// its protocol never declared, no exception escaping into a collector or a
-// State destructor, and no cleanup step running without the metadata it
-// requires. And after every generated refusal the State still constructs,
-// executes, and publishes.
-
 // clang-format off
 #include <luna/binding/binding_registry.hpp>
 #include <luna/binding/class_allocator.hpp>
@@ -88,8 +47,6 @@ using Luna::Detail::StagedStorage;
 using Luna::Detail::StorageAllocationOutcome;
 using Luna::Detail::UserdataHeader;
 
-// Deterministic byte source. Equal bytes always drive the equal scenario, so a
-// shrunk counterexample replays exactly the same construction sequence.
 class ByteCursor final {
 public:
   explicit ByteCursor(const std::vector<std::uint8_t> &Bytes) noexcept
@@ -111,22 +68,12 @@ private:
   std::size_t IndexValue = 0;
 };
 
-// ---------------------------------------------------------------------------
-// One representative native object, and one per-value protocol whose steps
-// record exactly what they were asked to do.
-// ---------------------------------------------------------------------------
-
 struct Probe final {
   int Value = 0;
   bool IsLive = false;
 };
 
-// The state one generated protocol captures, and the observations its steps
-// leave behind. It belongs to exactly one generated value and is carried by the
-// steps themselves - which is how a consumer's arena travels with its protocol
-// - so recycled storage can never make one value inherit another's behaviour.
 struct StoragePolicy final {
-  // What the steps of this one value are asked to do.
   bool AllocationDeclines = false;
   bool AllocationThrows = false;
   bool ConstructionDeclines = false;
@@ -134,25 +81,17 @@ struct StoragePolicy final {
   bool DestructionThrows = false;
   int ConstructedValue = 0;
 
-  // Exactly how many times each declared step ran on this one value.
   unsigned AllocateCalls = 0;
   unsigned ConstructCalls = 0;
   unsigned DestroyCalls = 0;
   unsigned DeallocateCalls = 0;
 
-  // The storage this value's allocation step produced, and whether an object is
-  // constructed in it right now.
   void *Storage = nullptr;
   bool ObjectIsLive = false;
 
-  // Set if a destruction step was ever handed storage nothing was constructed
-  // in. It must stay false: that is the one thing the protocol promises never
-  // to do.
   bool DestroyedUnconstructed = false;
 };
 
-// The four steps of one generated protocol. Each one is an ordinary callable
-// over the per-value policy, exactly as a consumer would write it.
 [[nodiscard]] ClassAllocator::AllocateOperation
 AllocationStep(StoragePolicy *Policy) {
   return [Policy](const StorageRequest &Wanted) -> void * {
@@ -207,8 +146,6 @@ DeallocationStep(StoragePolicy *Policy) {
   };
 }
 
-// Storage the protocol produced and Luna never gave back, because the protocol
-// never declared a step that could. The test owns it, so the test frees it.
 void FreeUnreleasedStorage(StoragePolicy &Policy) {
   if (Policy.Storage == nullptr)
     return;
@@ -218,31 +155,16 @@ void FreeUnreleasedStorage(StoragePolicy &Policy) {
 
 std::uint64_t NextNonce = 0;
 
-// ---------------------------------------------------------------------------
-// One generated construction.
-// ---------------------------------------------------------------------------
-
-// Which steps the generated protocol declares at all. The declared steps are
-// the whole cleanup rule, so declaring fewer of them is a statement rather than
-// a defect.
 enum class ProtocolShape {
-  // Allocation, construction, destruction, and deallocation as generated.
   Complete,
 
-  // No allocation step: this protocol can only describe an object that already
-  // exists, so it can never create one.
   NoAllocationStep,
 
-  // No construction step of any kind, neither the protocol's own nor one the
-  // caller supplied, so no object can come into existence.
   NoConstructionStep
 };
 
-// What one generated step does when it runs.
 enum class StepOutcome { Performs, Declines, Throws };
 
-// How the ownership statement of one value relates to its ownership model, and
-// what happens to a declared lifetime between establishment and publication.
 enum class OwnershipStatement {
   Valid,
   MissingHandle,
@@ -250,16 +172,11 @@ enum class OwnershipStatement {
   UnexpectedHandle,
   MissingShared,
 
-  // Publication attempted without establishing ownership at all.
   SkippedEstablishment,
 
-  // Ownership established, then the declared lifetime ended before the value
-  // could be published. It is the one way a value reaches the `Owned` milestone
-  // and still never becomes visible.
   ExpiredAfterEstablishment
 };
 
-// What ends one published value.
 enum class Ending {
   Nothing,
   Release,
@@ -273,8 +190,6 @@ struct GeneratedConstruction final {
   OwnershipModel Ownership = OwnershipModel::LuaOwned;
   ProtocolShape Shape = ProtocolShape::Complete;
 
-  // Whether the caller supplies the one construction step, and whether the
-  // protocol declares one of its own. Only one of them ever runs.
   bool SuppliesConstruction = false;
   bool DeclaresConstruction = true;
 
@@ -289,8 +204,6 @@ struct GeneratedConstruction final {
   int ConstructedValue = 0;
 };
 
-// Whether one generated protocol can create an object at all: it needs a step
-// that produces storage and a step that constructs into it.
 [[nodiscard]] bool
 DeclaresCreation(const GeneratedConstruction &Value) noexcept {
   if (Value.Shape == ProtocolShape::NoAllocationStep)
@@ -327,8 +240,6 @@ HasConstructionStep(const GeneratedConstruction &Value) noexcept {
       std::move(Deallocate));
 }
 
-// The one construction step a caller supplies, when the generated value says it
-// does. It reports whether an object now exists, which is all the gate needs.
 [[nodiscard]] ObjectConstruction SuppliedConstruction(StoragePolicy *Policy) {
   return [Policy](void *Storage) {
     ++Policy->ConstructCalls;
@@ -361,12 +272,6 @@ PolicyFor(const GeneratedConstruction &Value) {
 
 namespace {
 
-// ---------------------------------------------------------------------------
-// The independent milestone model.
-// ---------------------------------------------------------------------------
-
-// Exactly how many times each build step must have run, mirroring what the
-// State reports.
 struct ModelBuildCounters final {
   std::uint64_t Allocate = 0;
   std::uint64_t AllocationFailure = 0;
@@ -375,7 +280,6 @@ struct ModelBuildCounters final {
   std::uint64_t ContainedException = 0;
 };
 
-// Exactly how many times each release step must have run.
 struct ModelReleaseCounters final {
   std::uint64_t Invalidate = 0;
   std::uint64_t CacheRemoval = 0;
@@ -386,25 +290,16 @@ struct ModelReleaseCounters final {
   std::uint64_t ContainedException = 0;
 };
 
-// Everything the milestone model predicts about one attempted construction,
-// derived from the generated value alone: how far it gets, which deterministic
-// refusal stops it, how many times each of its protocol's steps runs, and every
-// counter the attempt and its cleanup spend.
 struct MilestonePrediction final {
   ConstructionMilestone Reached = ConstructionMilestone::None;
   OwnershipFailure Refusal = OwnershipFailure::None;
 
-  // Whether the attempt was refused before its storage could even be requested,
-  // and whether the refusal was one a value's own owner caused by ending or
-  // never declaring the lifetime it would be exposed under.
   bool RefusedBeforeAllocation = false;
   bool RefusedLifetime = false;
 
-  // Whether a record ever described this value, and whether it was published.
   bool Staged = false;
   bool Published = false;
 
-  // Protocol step calls the attempt and its cleanup perform.
   unsigned AllocateCalls = 0;
   unsigned ConstructCalls = 0;
   unsigned DestroyCalls = 0;
@@ -414,8 +309,6 @@ struct MilestonePrediction final {
   ModelReleaseCounters Released;
 };
 
-// The deterministic refusal one ownership statement earns at establishment, and
-// `None` when the statement agrees with its model.
 [[nodiscard]] OwnershipFailure
 EstablishmentRefusal(const GeneratedConstruction &Value) noexcept {
   switch (Value.Ownership) {
@@ -439,10 +332,6 @@ EstablishmentRefusal(const GeneratedConstruction &Value) noexcept {
   return OwnershipFailure::None;
 }
 
-// The whole cleanup rule of one milestone, expressed once. A value that never
-// became accessible needs no invalidation; an object that exists is destroyed
-// only when Luna owns it; ownership releases exactly what it took; storage is
-// given back only by a protocol that declares how; and the metadata goes last.
 void PredictCleanup(const GeneratedConstruction &Value,
                     MilestonePrediction &Predicted, bool WasConstructed,
                     bool HoldsSharedReference, bool WasAccessible) {
@@ -470,11 +359,6 @@ void PredictCleanup(const GeneratedConstruction &Value,
   ++Predicted.Released.MetadataRelease;
 }
 
-// How far one generated construction gets, and what its failure costs. The
-// write path is told apart from the direct milestone walk in exactly two ways:
-// it refuses a protocol that could never create an object, and it refuses a
-// borrowed value whose lifetime is missing or already over, both before any
-// storage is requested.
 [[nodiscard]] MilestonePrediction Predict(const GeneratedConstruction &Value,
                                           bool WritePath) {
   MilestonePrediction Predicted;
@@ -494,9 +378,6 @@ void PredictCleanup(const GeneratedConstruction &Value,
     }
   }
 
-  // The semantic allocation step. A step the protocol never declared is never
-  // called, and an allocation that produced nothing is cleaned up by nothing at
-  // all.
   const bool DeclaresAllocation =
       Value.Shape != ProtocolShape::NoAllocationStep;
   if (DeclaresAllocation)
@@ -511,9 +392,6 @@ void PredictCleanup(const GeneratedConstruction &Value,
   ++Predicted.Built.Allocate;
   Predicted.Reached = ConstructionMilestone::Allocated;
 
-  // Luna never owns the storage of an object it only borrows, so staging
-  // refuses that before any record describes it. The storage is given straight
-  // back, which is the one deallocation that happens outside the release gate.
   if (Value.Ownership == OwnershipModel::Borrowed && Value.OwnsStorage) {
     Predicted.Refusal = OwnershipFailure::BorrowedStorageOwnership;
     ++Predicted.Released.Deallocate;
@@ -522,9 +400,6 @@ void PredictCleanup(const GeneratedConstruction &Value,
   }
   Predicted.Staged = true;
 
-  // The one construction step, whether the caller supplied it or the protocol
-  // declares its own. Either way, a step that declined or threw means no object
-  // exists.
   if (HasConstructionStep(Value))
     ++Predicted.ConstructCalls;
   if (!HasConstructionStep(Value) ||
@@ -554,9 +429,6 @@ void PredictCleanup(const GeneratedConstruction &Value,
   Predicted.Reached = ConstructionMilestone::Owned;
   const bool HoldsShared = Value.Ownership == OwnershipModel::Shared;
 
-  // A declared lifetime that ended between establishment and publication: the
-  // value is completely owned and still never becomes visible, so its cleanup
-  // releases everything ownership took.
   if (Value.Statement == OwnershipStatement::ExpiredAfterEstablishment) {
     Predicted.Refusal = OwnershipFailure::ExpiredLifetimeHandle;
     PredictCleanup(Value, Predicted, true, HoldsShared, true);
@@ -585,8 +457,6 @@ void Accumulate(ModelBuildCounters &Built, ModelReleaseCounters &Released,
   Released.ContainedException += Predicted.Released.ContainedException;
 }
 
-// One published value the model still tracks, together with the step calls its
-// protocol has performed so far.
 struct ModelValue final {
   OwnershipModel Ownership = OwnershipModel::LuaOwned;
   bool OwnsStorage = false;
@@ -604,10 +474,6 @@ struct ModelValue final {
   unsigned DeallocateSteps = 0;
 };
 
-// The one idempotent release gate, expressed once against the model. The order
-// is fixed: stop access, evict the cache entry, destroy an owned constructed
-// object, release the one shared ownership reference, give owned storage back,
-// and only then release the metadata. Calling it again does nothing.
 [[nodiscard]] bool ModelRelease(ModelValue &Record,
                                 ModelReleaseCounters &Counted,
                                 bool UpdatesHeader) {
@@ -652,9 +518,6 @@ struct ModelValue final {
   return true;
 }
 
-// Access is permitted only while the record and the value's own header both say
-// published, and a borrowed value only while its declared lifetime is still the
-// one it was published under.
 [[nodiscard]] bool ModelPermitsAccess(const ModelValue &Record) noexcept {
   if (!Record.IsRecorded || Record.Lifetime != LifetimeState::Published)
     return false;
@@ -663,13 +526,6 @@ struct ModelValue final {
   return Record.Ownership != OwnershipModel::Borrowed || Record.HandleIsLive;
 }
 
-// ---------------------------------------------------------------------------
-// Generation.
-// ---------------------------------------------------------------------------
-
-// Biased so most steps perform their work and every refusal still occurs often.
-// A sequence in which nothing is ever constructed would exercise no cleanup at
-// all.
 [[nodiscard]] StepOutcome GeneratedStepOutcome(std::size_t Choice) noexcept {
   switch (Choice % 10) {
   case 8:
@@ -735,10 +591,6 @@ struct ModelValue final {
 GenerateConstruction(ByteCursor &Cursor, bool WritePath, int Serial) {
   GeneratedConstruction Value;
 
-  // A constructed object is usually Lua's to own; the other two models are what
-  // a factory or a singleton accessor hands back. Shared ownership of a value
-  // Luna created is driven through the milestone walk, where the shared
-  // reference can name exactly the storage the protocol produced.
   const std::size_t OwnershipChoice = Cursor.Pick(8);
   if (WritePath) {
     Value.Ownership = OwnershipChoice < 6 ? OwnershipModel::LuaOwned
@@ -774,9 +626,6 @@ GenerateConstruction(ByteCursor &Cursor, bool WritePath, int Serial) {
 
   Value.OwnsStorage = Cursor.Pick(4) != 0;
 
-  // A Lua-owned object is only ownable while its destruction step is reachable,
-  // so Luna refuses to own one without it. Every other model may declare it or
-  // not.
   Value.DeclaresDestruction =
       Value.Ownership == OwnershipModel::LuaOwned || Cursor.Pick(2) == 0;
 
@@ -815,8 +664,6 @@ GenerateConstruction(ByteCursor &Cursor, bool WritePath, int Serial) {
   return Value;
 }
 
-// One State with one registered class, so every constructed value carries a
-// complete, real class identity.
 class Fixture final {
 public:
   Fixture() {
@@ -846,9 +693,6 @@ private:
   OwnershipRegistry *Gate = nullptr;
 };
 
-// Which milestone families one generated sequence exercised. It is the outcome
-// distribution of the property, so it names the interesting mix rather than one
-// value.
 [[nodiscard]] std::string_view
 MilestoneTag(const std::vector<MilestonePrediction> &Predicted) noexcept {
   bool AnyPublished = false;
@@ -881,11 +725,6 @@ MilestoneTag(const std::vector<MilestonePrediction> &Predicted) noexcept {
 
 namespace {
 
-// ---------------------------------------------------------------------------
-// The milestone walk: exactly the steps a constructor candidate performs,
-// compared with the model above at every milestone.
-// ---------------------------------------------------------------------------
-
 void VerifyMilestoneWalk(ByteCursor &Cursor) {
   Hooks::ResetUserdataCollections();
 
@@ -900,8 +739,6 @@ void VerifyMilestoneWalk(ByteCursor &Cursor) {
     Predicted.push_back(Predict(Generated[Index], false));
   }
 
-  // One stable policy per value, carried by that value's own steps, so recycled
-  // storage can never make one value's behaviour another value's.
   std::vector<std::unique_ptr<StoragePolicy>> Policies(Count);
   for (std::size_t Index = 0; Index < Count; ++Index)
     Policies[Index] = PolicyFor(Generated[Index]);
@@ -933,8 +770,6 @@ void VerifyMilestoneWalk(ByteCursor &Cursor) {
 
       const ClassAllocator Allocator = ProtocolFor(Value, &Policy);
 
-      // The protocol declares exactly the steps its consumer supplied, and
-      // those declarations are the whole cleanup rule.
       RC_ASSERT(Allocator.IsDeclared());
       RC_ASSERT(Allocator.DeclaresAllocation() ==
                 (Value.Shape != ProtocolShape::NoAllocationStep));
@@ -944,7 +779,6 @@ void VerifyMilestoneWalk(ByteCursor &Cursor) {
       RC_ASSERT(Allocator.Storage().ByteCount == sizeof(Probe));
       RC_ASSERT(!ConstructionMilestoneText(Wanted.Reached).empty());
 
-      // The first milestone: storage exists, or it does not.
       const StorageAllocationOutcome Allocated = Gate.Allocate(Allocator);
       RC_ASSERT(Allocated.ContainedException ==
                 (Value.Shape != ProtocolShape::NoAllocationStep &&
@@ -953,7 +787,6 @@ void VerifyMilestoneWalk(ByteCursor &Cursor) {
                 (Wanted.Reached != ConstructionMilestone::None));
       RC_ASSERT(Policy.AllocateCalls == Wanted.AllocateCalls);
       if (!Allocated.Succeeded()) {
-        // An allocation that produced nothing is cleaned up by nothing at all.
         RC_ASSERT(Policy.ConstructCalls == 0);
         RC_ASSERT(Policy.DestroyCalls == 0);
         RC_ASSERT(Policy.DeallocateCalls == 0);
@@ -979,8 +812,6 @@ void VerifyMilestoneWalk(ByteCursor &Cursor) {
       if (!Staging.Succeeded) {
         RC_ASSERT(Staging.Failure == Wanted.Refusal);
 
-        // Storage no record ever described is given straight back, and nothing
-        // was constructed in it, so nothing is destroyed.
         Gate.DiscardStorage(Allocator, Allocated.Storage);
         RC_ASSERT(Policy.ConstructCalls == 0);
         RC_ASSERT(Policy.DestroyCalls == 0);
@@ -988,14 +819,10 @@ void VerifyMilestoneWalk(ByteCursor &Cursor) {
         continue;
       }
 
-      // The staged value names the immutable protocol record its cleanup will
-      // use, and nothing is constructed in its storage yet.
       RC_ASSERT(Header.Allocator.IsDeclared());
       RC_ASSERT(Header.Lifetime == LifetimeState::Allocated);
       RC_ASSERT(!Policy.ObjectIsLive);
 
-      // The second milestone: one object is constructed in that storage, either
-      // by the step the caller supplied or by the protocol's own.
       const ObjectConstruction Build = Value.SuppliesConstruction
                                            ? SuppliedConstruction(&Policy)
                                            : ObjectConstruction();
@@ -1007,8 +834,6 @@ void VerifyMilestoneWalk(ByteCursor &Cursor) {
         RC_ASSERT(Constructed.Failure == OwnershipFailure::RefusedConstruction);
         RC_ASSERT(Wanted.Refusal == OwnershipFailure::RefusedConstruction);
 
-        // No object exists, so the storage is given back without destroying
-        // anything, and the value is already fully released.
         RC_ASSERT(Policy.DestroyCalls == 0);
         RC_ASSERT(Policy.DeallocateCalls == Wanted.DeallocateCalls);
         RC_ASSERT(Header.Lifetime == LifetimeState::Released);
@@ -1021,8 +846,6 @@ void VerifyMilestoneWalk(ByteCursor &Cursor) {
       RC_ASSERT(Policy.ObjectIsLive);
       Record.WasConstructed = true;
 
-      // The ownership statement of this value, exactly as its model requires it
-      // or exactly as it does not.
       OwnershipRequest Request;
       if (Value.Statement != OwnershipStatement::MissingHandle &&
           (Value.Ownership == OwnershipModel::Borrowed ||
@@ -1030,8 +853,6 @@ void VerifyMilestoneWalk(ByteCursor &Cursor) {
         Request.Handle = Handles[Index];
       if (Value.Ownership == OwnershipModel::Shared &&
           Value.Statement != OwnershipStatement::MissingShared) {
-        // Exactly one shared ownership reference, naming exactly the object the
-        // construction step built.
         SharedOwners[Index] =
             std::shared_ptr<void>(Allocated.Storage, [](void *) {});
         Request.SharedOwnership = SharedOwners[Index];
@@ -1039,8 +860,6 @@ void VerifyMilestoneWalk(ByteCursor &Cursor) {
       if (Value.Statement == OwnershipStatement::ExpiredHandle)
         Handles[Index].Invalidate();
 
-      // Every consequence of one release, predicted by the model rather than
-      // read back from Luna.
       const auto ApplyRelease = [&](bool UpdatesHeader) {
         return ModelRelease(Record, Expected, UpdatesHeader);
       };
@@ -1056,9 +875,6 @@ void VerifyMilestoneWalk(ByteCursor &Cursor) {
           RC_ASSERT(Wanted.Refusal == Refusal);
           RC_ASSERT(Wanted.Reached == ConstructionMilestone::Constructed);
 
-          // The third milestone was never completed, so cleanup destroys the
-          // object, releases nothing ownership never took, and gives owned
-          // storage back - in that order, once each.
           RC_ASSERT(Gate.Release(Header, ReleaseCause::PublicationFailure));
           RC_ASSERT(Policy.DestroyCalls == Wanted.DestroyCalls);
           RC_ASSERT(Policy.DeallocateCalls == Wanted.DeallocateCalls);
@@ -1070,7 +886,6 @@ void VerifyMilestoneWalk(ByteCursor &Cursor) {
           continue;
         }
 
-        // Ownership is established exactly once.
         RC_ASSERT(Gate.Establish(Header, Request).Failure ==
                   OwnershipFailure::OwnershipAlreadyEstablished);
       }
@@ -1078,7 +893,6 @@ void VerifyMilestoneWalk(ByteCursor &Cursor) {
       if (Value.Statement == OwnershipStatement::ExpiredAfterEstablishment)
         Handles[Index].Invalidate();
 
-      // The last milestone: the value becomes visible, and only then.
       const auto Published = Gate.Publish(Header);
       RC_ASSERT(Published.Succeeded == Wanted.Published);
       if (!Published.Succeeded) {
@@ -1099,13 +913,11 @@ void VerifyMilestoneWalk(ByteCursor &Cursor) {
       Record.HeaderLifetime = LifetimeState::Published;
       Record.HoldsSharedReference = Value.Ownership == OwnershipModel::Shared;
 
-      // The object the value carries is the object the construction step built.
       RC_ASSERT(static_cast<Probe *>(Allocated.Storage)->Value ==
                 Value.ConstructedValue);
       RC_ASSERT(Gate.LifetimePermitsAccess(Header) ==
                 ModelPermitsAccess(Record));
       if (SharedOwners[Index]) {
-        // One published shared value, one retained ownership reference.
         RC_ASSERT(SharedOwners[Index].use_count() ==
                   2 + (Request.SharedOwnership ? 1 : 0));
       }
@@ -1115,8 +927,6 @@ void VerifyMilestoneWalk(ByteCursor &Cursor) {
         break;
 
       case Ending::InvalidateHandle:
-        // Ending the declared lifetime releases nothing at all; it only makes
-        // every later access fail.
         Handles[Index].Invalidate();
         Record.HandleIsLive = false;
         break;
@@ -1139,8 +949,6 @@ void VerifyMilestoneWalk(ByteCursor &Cursor) {
         const unsigned Destroyed = Policy.DestroyCalls;
         const unsigned Given = Policy.DeallocateCalls;
 
-        // A second release performs no second destruction, no second shared
-        // release, and no second deallocation.
         RC_ASSERT(!Gate.Release(Header, ReleaseCause::GarbageCollection));
         RC_ASSERT(Policy.DestroyCalls == Destroyed);
         RC_ASSERT(Policy.DeallocateCalls == Given);
@@ -1148,8 +956,6 @@ void VerifyMilestoneWalk(ByteCursor &Cursor) {
       }
 
       case Ending::ReleaseByStorage:
-        // The native object knows itself, not the block that carries it, so
-        // this release never touches the header.
         RC_ASSERT(Gate.ReleaseByStorage(Allocated.Storage,
                                         ReleaseCause::ExplicitInvalidation));
         RC_ASSERT(ApplyRelease(false));
@@ -1165,9 +971,6 @@ void VerifyMilestoneWalk(ByteCursor &Cursor) {
       RC_ASSERT(Policy.DeallocateCalls == Record.DeallocateSteps);
       RC_ASSERT(!Policy.DestroyedUnconstructed);
 
-      // Luna retains exactly one shared ownership reference of a shared value
-      // and releases exactly that one. The references the test itself still
-      // holds - its own and the one in the statement it made - are counted out.
       if (SharedOwners[Index]) {
         const long Held = 1 + (Request.SharedOwnership ? 1 : 0);
         RC_ASSERT(SharedOwners[Index].use_count() ==
@@ -1175,8 +978,6 @@ void VerifyMilestoneWalk(ByteCursor &Cursor) {
       }
     }
 
-    // Exactly the values the model says exist, and exactly the ones it says are
-    // visible.
     std::size_t ExpectedRecords = 0;
     std::size_t ExpectedPublished = 0;
     for (const ModelValue &Record : Model) {
@@ -1195,8 +996,6 @@ void VerifyMilestoneWalk(ByteCursor &Cursor) {
     RC_ASSERT(Hooks::PublishedUserdataCount(Owner.StateObject()) ==
               ExpectedPublished);
 
-    // Every build and release counter, predicted from the generated milestones
-    // alone.
     const auto BuiltCounts =
         Hooks::UserdataConstructionCounters(Owner.StateObject());
     RC_ASSERT(BuiltCounts.Allocate == Built.Allocate);
@@ -1213,13 +1012,10 @@ void VerifyMilestoneWalk(ByteCursor &Cursor) {
     RC_ASSERT(Counted.Deallocate == Expected.Deallocate);
     RC_ASSERT(Counted.MetadataRelease == Expected.MetadataRelease);
 
-    // Nothing a step threw escaped the gate, and no cleanup step ran without
-    // the metadata it requires.
     RC_ASSERT(Counted.ContainedException == Expected.ContainedException);
     RC_ASSERT(Counted.IncompleteMetadata == 0);
     RC_ASSERT(Gate.RetainsCleanupMetadata());
 
-    // The State keeps working after every generated refusal.
     RC_ASSERT(Owner.StateObject().Execute("Recovered = 5").IsSuccess());
     RC_ASSERT(Hooks::ObserveIntegerGlobal(Owner.StateObject(), "Recovered") ==
               std::optional<int>(5));
@@ -1227,8 +1023,6 @@ void VerifyMilestoneWalk(ByteCursor &Cursor) {
     RC_TAG(MilestoneTag(Predicted));
   }
 
-  // State destruction releases everything left, exactly once each, while its
-  // cleanup metadata is still valid.
   for (ModelValue &Record : Model)
     static_cast<void>(ModelRelease(Record, Expected, false));
   for (std::size_t Index = 0; Index < Count; ++Index) {
@@ -1244,8 +1038,6 @@ void VerifyMilestoneWalk(ByteCursor &Cursor) {
   RC_ASSERT(Destroyed.RetainedCleanupMetadata);
   RC_ASSERT(Destroyed.IncompleteMetadata == 0);
 
-  // None of these values was ever a virtual-machine block, so the explicit
-  // final sweep released every one of them.
   RC_ASSERT(Destroyed.ReleasedDuringClose == 0);
   RC_ASSERT(Destroyed.ReleasedAfterClose == RemainingBeforeDestruction);
   RC_ASSERT(Hooks::ObserveUserdataCollections().ContainedException == 0);
@@ -1254,7 +1046,6 @@ void VerifyMilestoneWalk(ByteCursor &Cursor) {
     if (SharedOwners[Index])
       RC_ASSERT(SharedOwners[Index].use_count() == 1);
 
-    // Storage a protocol declared no way to give back is still the test's.
     FreeUnreleasedStorage(*Policies[Index]);
   }
 }
@@ -1263,15 +1054,6 @@ void VerifyMilestoneWalk(ByteCursor &Cursor) {
 
 namespace {
 
-// ---------------------------------------------------------------------------
-// The write-path half: the same milestones taken through exactly the conversion
-// write path a constructor or factory return takes, so what a refusal costs is
-// observable from outside Luna.
-// ---------------------------------------------------------------------------
-
-// The deterministic refusal token the write path reports. A lifetime its owner
-// ended or never declared is the one refusal a consumer causes; every other
-// milestone failure is Luna's own internal accounting.
 [[nodiscard]] std::string_view
 ExpectedWriteFailure(const MilestonePrediction &Wanted) noexcept {
   if (Wanted.Published)
@@ -1386,8 +1168,6 @@ void VerifyWritePathConstruction(ByteCursor &Cursor) {
       RC_ASSERT(Counted.IncompleteMetadata == 0);
     };
 
-    // One construction per generated value, each through exactly the write path
-    // a returned object takes.
     for (std::size_t Index = 0; Index < Count; ++Index) {
       const GeneratedConstruction &Value = Generated[Index];
       const MilestonePrediction &Wanted = Predicted[Index];
@@ -1418,11 +1198,8 @@ void VerifyWritePathConstruction(ByteCursor &Cursor) {
       RC_ASSERT(Written.Published == Wanted.Published);
       RC_ASSERT(Written.PublishedCount == (Wanted.Published ? 1 : 0));
 
-      // Every attempt, refused or not, leaves the stack exactly as it found it.
       RC_ASSERT(Written.FinalStackDepth == Written.EntryStackDepth);
 
-      // Exactly the steps the completed milestones warrant, and never a
-      // destruction of storage nothing was constructed in.
       RC_ASSERT(Policy.AllocateCalls == Wanted.AllocateCalls);
       RC_ASSERT(Policy.ConstructCalls == Wanted.ConstructCalls);
       RC_ASSERT(Policy.DestroyCalls == Wanted.DestroyCalls);
@@ -1449,23 +1226,17 @@ void VerifyWritePathConstruction(ByteCursor &Cursor) {
             Header->Payload.Storage == Policy.Storage;
         RC_ASSERT(CarriesItsOwnObject);
       } else {
-        // A refused construction publishes no partial value: nothing at the
-        // path it named, no owner, and no identity-cache entry of its own.
         RC_ASSERT(!Hooks::ObserveClassUserdata(Host, Paths[Index]).has_value());
       }
 
       VerifyCounts();
     }
 
-    // The class metatable is a consequence of publishing a value, never of
-    // registering a class or of refusing a construction.
     const bool AnyPublished = CountPublished() != 0;
     RC_ASSERT(Hooks::ClassMetatableIsCreated(Host, "Probe") == AnyPublished);
     RC_ASSERT(Hooks::ClassMetatableCreationCount(Host, "Probe") ==
               (AnyPublished ? 1U : 0U));
 
-    // Every published value reaches native code and delivers exactly its own
-    // object; nothing else does.
     for (std::size_t Index = 0; Index < Count; ++Index) {
       const auto Read =
           ReadThroughAccessPath(Host, Paths[Index], Policies[Index]->Storage);
@@ -1474,7 +1245,6 @@ void VerifyWritePathConstruction(ByteCursor &Cursor) {
       RC_ASSERT(Read.DeliveredExpectedObject == Permitted);
     }
 
-    // One generated ending per published value.
     for (std::size_t Index = 0; Index < Count; ++Index) {
       const GeneratedConstruction &Value = Generated[Index];
       ModelValue &Record = Model[Index];
@@ -1489,8 +1259,6 @@ void VerifyWritePathConstruction(ByteCursor &Cursor) {
 
       case Ending::InvalidateHandle:
         if (Value.Ownership == OwnershipModel::Borrowed) {
-          // Ending the declared lifetime releases nothing and destroys nothing;
-          // it only stops every later access, before any native code runs.
           const ModelReleaseCounters Before = Expected;
           Handles[Index].Invalidate();
           Record.HandleIsLive = false;
@@ -1505,14 +1273,9 @@ void VerifyWritePathConstruction(ByteCursor &Cursor) {
         RC_ASSERT(Hooks::ReleaseClassValue(Host, Storage,
                                            ReleaseCause::LifecycleAction));
 
-        // A release entered by the native object never touches the block that
-        // carries it, but the cache entry goes before the payload, so the value
-        // already refuses every access.
         RC_ASSERT(ModelRelease(Record, Expected, false));
         Record.HeaderLifetime = LifetimeState::Invalid;
 
-        // The gate is idempotent: no second destruction, no second
-        // deallocation.
         const unsigned Destroyed = Policy.DestroyCalls;
         RC_ASSERT(!Hooks::ReleaseClassValue(Host, Storage,
                                             ReleaseCause::LifecycleAction));
@@ -1534,8 +1297,6 @@ void VerifyWritePathConstruction(ByteCursor &Cursor) {
 
     VerifyCounts();
 
-    // Everything the script has dropped is collected, and every value the
-    // collector reaches ends through exactly the same gate.
     if (CollectsEverything) {
       for (const std::string &Path : Paths)
         RC_ASSERT(Host.Execute(Path + " = nil").IsSuccess());
@@ -1560,8 +1321,6 @@ void VerifyWritePathConstruction(ByteCursor &Cursor) {
     }
     RemainingBeforeDestruction = CountRecorded();
 
-    // The stack is exactly where it started, and the State still constructs,
-    // executes, and publishes after every generated refusal and release.
     RC_ASSERT(Hooks::ObserveRootStackDepth(Host) == EntryRootDepth);
     RC_ASSERT(Host.Execute("Recovered = 9").IsSuccess());
     RC_ASSERT(Hooks::ObserveIntegerGlobal(Host, "Recovered") ==
@@ -1595,7 +1354,6 @@ void VerifyWritePathConstruction(ByteCursor &Cursor) {
       RC_TAG("write path: values left for State destruction");
   }
 
-  // State destruction releases everything left, exactly once each.
   for (ModelValue &Record : Model)
     static_cast<void>(ModelRelease(Record, Expected, false));
   for (std::size_t Index = 0; Index < Count; ++Index) {
@@ -1622,7 +1380,6 @@ void VerifyWritePathConstruction(ByteCursor &Cursor) {
 
 int RunAllocatorConstructionCleanupProperties() {
   // clang-format off
-  // **Validates: Requirements 12.3, 12.4, 12.5, 12.6, 12.7, 12.8**
   // Feature: reflection-driven-binding-system, Property 27: Construction and allocator cleanup follow completed milestones exactly once
   const bool Passed = rc::check(
       // clang-format on

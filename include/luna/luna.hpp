@@ -1,10 +1,5 @@
 #pragma once
 
-// Single stable public entry point for Luna consumers. Every consumer-facing
-// type is reachable from this header, and this header contains only Luna and
-// standard-library declarations: no Luau type, header, pointer, constant,
-// stack operation, or registry reference is ever exposed here.
-
 // clang-format off
 #include <luna/binding/argument_pack.hpp>
 #include <luna/binding/binding_registry.hpp>

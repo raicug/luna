@@ -46,6 +46,8 @@ std::string_view InstallationScopeText(InstallationScope Scope) noexcept {
     return "identity_cache";
   case InstallationScope::LookupCache:
     return "lookup_cache";
+  case InstallationScope::Userdata:
+    return "userdata";
   }
   return "unknown";
 }
@@ -118,9 +120,6 @@ bool InstallationJournal::JournalVirtualMachinePath(std::string Path) {
   Entry.Scope = InstallationScope::VirtualMachinePath;
   Entry.Path = std::move(Path);
 
-  // Nothing is written before the exact prior value or absence is recorded. A
-  // nested namespace path records its prior field value the same way a
-  // root-scope global records its prior value.
   if (!Machine->CaptureVmPath(Entry.Path, Entry.Prior))
     return false;
 
@@ -162,8 +161,6 @@ void InstallationJournal::Undo() noexcept {
   RestoredOrder.clear();
   RestoredOrder.reserve(Entries.size());
 
-  // Reverse order: the newest effect of the attempt is undone first, so a path
-  // touched twice ends up holding the value it held before the attempt started.
   for (std::size_t Index = Entries.size(); Index > 0; --Index) {
     JournalEntry &Entry = Entries[Index - 1];
     switch (Entry.Scope) {
@@ -175,21 +172,16 @@ void InstallationJournal::Undo() noexcept {
       break;
     }
     case InstallationScope::Binding:
-      // Discarding the staged overlay is what makes the pending record
-      // unreachable; it was never committed, so nothing else has to change.
       Entry.IsRestored = Entry.Staged == nullptr ||
                          Bindings->Rollback(Entry.Path, Entry.Staged);
       break;
     default:
-      // The committed store of this category arrives with a later milestone.
-      // Its overlay was staged privately and is discarded with the attempt.
       Entry.IsRestored = true;
       break;
     }
     RestoredOrder.push_back(Entry.Path);
   }
 
-  // The root stack returns to the exact depth the attempt captured at entry.
   StackDepthRestored =
       !Machine->IsReady() || Machine->SetStackDepth(EntryDepth);
   UndoneFlag = true;
@@ -257,16 +249,11 @@ InstallPlannedDeclarations(const RegistrationTransaction &Transaction,
                            InstallationJournal &Journal) {
   InstallationOutcome Outcome;
 
-  // Canonical order, never submission order: an equivalent plan installs its
-  // declarations in one identical sequence.
   for (const std::size_t Index : Transaction.Plan().CanonicalOrder()) {
     const DescriptorPlanEntry *Entry = Transaction.Plan().At(Index);
     if (!Entry)
       continue;
 
-    // A declaration that installs one converted value or one Luna-owned
-    // immutable table: a constant, and the table of one enumeration. Both are
-    // journalled first and neither ever replaces a value Luna does not own.
     if (Entry->InstalledValue || Entry->InstalledTable) {
       if (Faults.Consume(StateFaultPoint::BindingPathJournal) ||
           !Journal.JournalVirtualMachinePath(Entry->VmPath)) {
@@ -299,11 +286,6 @@ InstallPlannedDeclarations(const RegistrationTransaction &Transaction,
       return Outcome;
     }
 
-    // A namespace owns one Luna table at its exact path, and so does a class:
-    // its constructors, factories, and static members declare themselves inside
-    // it. Canonical order visits a parent before its children, so nested tables
-    // are created from parent to child and restoration removes them in reverse
-    // order.
     if (Entry->Category == PlanEntryKind::Scope ||
         Entry->Category == PlanEntryKind::ClassSymbol) {
       if (Faults.Consume(StateFaultPoint::BindingPathJournal) ||
@@ -335,27 +317,16 @@ InstallPlannedDeclarations(const RegistrationTransaction &Transaction,
       return Outcome;
     }
 
-    // A loaded module publishes metadata only: its exported symbols install
-    // themselves as their own declarations. Its overlay is journalled in the
-    // module scope, so a failed load discards the module entry with the
-    // attempt.
     if (Entry->Category == PlanEntryKind::Module) {
       Journal.JournalOverlay(InstallationScope::Module, Entry->VmPath);
       continue;
     }
 
-    // The metatable identity of one class installs no virtual-machine value:
-    // the class metatable itself is created by the first exposure of a value.
-    // The staged identity is journalled in the metatable scope, so a failed
-    // attempt discards it with everything else.
     if (Entry->Category == PlanEntryKind::Metatable) {
       Journal.JournalOverlay(InstallationScope::Metatable, Entry->VmPath);
       continue;
     }
 
-    // Only function declarations own another virtual-machine value today. Every
-    // other category installs nothing until its milestone lands, so its overlay
-    // is journalled without a virtual-machine effect.
     if (Entry->Category != PlanEntryKind::Function) {
       Journal.JournalOverlay(InstallationScope::Reflection, Entry->VmPath);
       continue;
@@ -370,11 +341,6 @@ InstallPlannedDeclarations(const RegistrationTransaction &Transaction,
 
     Journal.JournalStagedBinding(Entry->VmPath, Record);
 
-    // A candidate joining an overload set whose closure is already installed -
-    // by an earlier generation or by an earlier declaration of this same
-    // attempt - installs no second virtual-machine value: the path already
-    // holds exactly this record's closure, and the new candidate becomes
-    // reachable through it at publication.
     if (Machine.ObserveInstalledBinding(Entry->VmPath) == Record)
       continue;
 
@@ -433,8 +399,6 @@ ConsistencyStatus CheckPublicationConsistency(
     return ConsistencyStatus::SymbolCountMismatch;
 
   for (const DescriptorPlanEntry &Entry : Plan.PlannedEntries()) {
-    // The candidate symbol is located by its identity, because one qualified
-    // name may own several overload candidates and each one is its own symbol.
     const CommittedSymbol *Symbol = Candidate.Symbols().Find(Entry.Identity);
     if (!Symbol)
       return ConsistencyStatus::MissingSymbol;
@@ -448,8 +412,6 @@ ConsistencyStatus CheckPublicationConsistency(
     if (Entry.Category != PlanEntryKind::Function)
       continue;
 
-    // The virtual machine and the canonical model must describe the same
-    // callable before either becomes visible.
     const BindingRecord *Record = Bindings.Find(Entry.VmPath);
     if (!Record)
       return ConsistencyStatus::MissingBinding;

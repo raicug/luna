@@ -1,16 +1,3 @@
-// Integration coverage of optional, defaulted, and variadic parameters through
-// the real Luau compiler and virtual machine.
-//
-// Every call here is driven from script source, so what is checked is the whole
-// path: the declared shape reaches registration, the trampoline binds one real
-// call to it, the selected native target receives exactly the arguments the
-// shape describes, and each refusal reports one deterministic diagnostic while
-// restoring the exact callback checkpoint and leaving the State reusable.
-//
-// The two ordering rules the shape owns are checked here as well: an omitted
-// default is materialized only after every supplied argument was accepted, and
-// the first failing variadic call position is the one the diagnostic names.
-
 // clang-format off
 #include <luna/luna.hpp>
 
@@ -50,26 +37,21 @@ void ResetCalls() {
   OptionalDefaultCalls = 0;
 }
 
-// A trailing optional parameter: omission and explicit nil are both empty.
 [[nodiscard]] int Scale(int Value, std::optional<int> Factor) {
   ++ScaleCalls;
   return Value * (Factor ? *Factor : 1);
 }
 
-// A defaulted parameter: the default applies only to omission.
 [[nodiscard]] int Offset(int Value, int Amount) {
   ++OffsetCalls;
   return Value + Amount;
 }
 
-// A defaulted optional parameter: omission materializes the default, while an
-// explicit nil stays the empty value the parameter's own conversion accepts.
 [[nodiscard]] int OptionalDefault(std::optional<int> Value) {
   ++OptionalDefaultCalls;
   return Value ? *Value : -1;
 }
 
-// The callback-lifetime variadic view.
 [[nodiscard]] int Sum(Luna::ArgumentView Arguments) {
   ++SumCalls;
   int Total = 0;
@@ -81,7 +63,6 @@ void ResetCalls() {
   return Total;
 }
 
-// The owning variadic pack, retained past the invocation that produced it.
 Luna::ArgumentPack LastJoined;
 
 [[nodiscard]] std::string Join(std::string Separator,
@@ -134,9 +115,6 @@ Luna::ArgumentPack LastJoined;
   return false;
 }
 
-// The callback checkpoint a refused call must restore exactly: the stack
-// returns to its entry depth and carries only the one error value the failure
-// reports.
 [[nodiscard]] bool RestoredCallbackCheckpoint(const Luna::State &Owner) {
   const auto Observation = Hooks::ObserveLastCallbackStackRestoration(Owner);
   return Observation.has_value() &&
@@ -228,9 +206,6 @@ void CheckRefusedCallsAndRecovery() {
         "a supplied argument keeps the foundation's type diagnostic");
   Check(ScaleCalls == 0, "a refused conversion never invokes the target");
 
-  // The default of an omitted parameter is materialized only after every
-  // supplied argument was accepted, so a refused call materializes nothing and
-  // never reaches the target.
   const std::string RefusedDefault =
       ExecutionFailure(Owner, "return Offset('x')");
   Check(RefusedDefault.find("argument 1") != std::string::npos,
@@ -254,7 +229,6 @@ void CheckRefusedCallsAndRecovery() {
   Check(Hooks::ObserveRootStackDepth(Owner) == EntryDepth,
         "every refused declared-shape call restores the root stack depth");
 
-  // The State keeps registering, converting, and executing afterwards.
   Check(Succeeds(Owner, "assert(Scale(2, 3) == 6)\n"
                         "assert(Offset(1) == 6)\n"
                         "assert(Sum(1, 2) == 3)\n"

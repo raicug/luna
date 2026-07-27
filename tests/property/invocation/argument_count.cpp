@@ -127,9 +127,7 @@ RegisterSignature(Luna::State &State, SignatureKind Signature, int &Calls) {
 } // namespace
 
 int RunWrongArgumentCountProperties() {
-  // **Validates: Requirements 5.1, 5.6, 5.8**
   // clang-format off
-  // Feature: luau-binding-foundation, Property 6: Wrong argument counts produce contextual failures
   const bool Passed = rc::check(
       // clang-format on
       "Wrong argument counts produce contextual failures",

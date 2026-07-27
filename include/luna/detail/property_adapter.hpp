@@ -1,23 +1,5 @@
 #pragma once
 
-// Properties and fields as generated getter and setter descriptors.
-//
-// A property is not a second access path and a field is never raw memory. Each
-// declared target - a const or non-const accessor, a mutator, or a plain data
-// member - is turned here into exactly two erased descriptors over an already
-// validated native object: one that produces a Luna-owned value and one that
-// consumes one. The receiver, the origin State, the lifetime, the dynamic type,
-// and const permission are all decided by the access gate before either
-// descriptor runs, so a descriptor never validates anything a gate already
-// decided and never observes a virtual-machine value.
-//
-// What the declaration states is what Luna enforces. A getter declared on a
-// const object reads through a const view; a getter declared on a mutable
-// object, a setter, and a writable field all require a mutable view and are
-// refused against a const one before the target runs. A member whose declared
-// value type Luna cannot copy across the boundary is refused transactionally
-// rather than exposed with an ownership Luna would have to keep alive.
-
 // clang-format off
 #include <luna/binding/class_member.hpp>
 #include <luna/binding/supported_callable.hpp>
@@ -35,10 +17,6 @@
 
 namespace Luna::Detail {
 
-// One staged member of one class: which category it is, which directions and
-// evaluation it declares, the canonical declared value type and receiver type,
-// the two generated descriptors, and the first deterministic refusal the
-// declaration itself recorded.
 struct MemberRequest final {
   SymbolKind Kind = SymbolKind::Property;
   MemberAccess Access = MemberAccess::ReadOnly;
@@ -48,8 +26,6 @@ struct MemberRequest final {
   TypeDescriptor ValueType;
   TypeDescriptor ReceiverType;
 
-  // The declared getter reaches the object through a mutable receiver, so a
-  // const view refuses even the read.
   bool ReadRequiresMutableReceiver = false;
 
   MemberReadOperation Read;
@@ -61,8 +37,6 @@ struct MemberRequest final {
   [[nodiscard]] bool HasWriter() const noexcept { return Write != nullptr; }
 };
 
-// The read shape of one declared target: a const accessor, a non-const
-// accessor, a plain data member, or any callable of shape `Value(Receiver)`.
 template <class Class, class Target, class = void> struct MemberReadShape {
   static constexpr bool IsSupported = false;
   static constexpr bool RequiresMutableReceiver = false;
@@ -112,9 +86,6 @@ struct MemberReadShape<Class, Held Class::*,
   }
 };
 
-// One callable of shape `Value(Receiver)`. The receiver decides whether the
-// read needs a mutable view: a non-const reference does, a const reference or a
-// by-value copy does not.
 template <class Class, class Signature> struct MemberReadCallableShape {
   static constexpr bool IsSupported = false;
   static constexpr bool RequiresMutableReceiver = false;
@@ -143,8 +114,6 @@ struct MemberReadShape<Class, Target,
     : MemberReadCallableShape<Class, typename CallableSignature<Target>::Type> {
 };
 
-// The write shape of one declared target: a mutator, a plain data member, or
-// any callable of shape `void(Class &, Value)`.
 template <class Class, class Target, class = void> struct MemberWriteShape {
   static constexpr bool IsSupported = false;
   using Declared = void;
@@ -204,8 +173,6 @@ struct MemberWriteShape<Class, Target,
     : MemberWriteCallableShape<Class,
                                typename CallableSignature<Target>::Type> {};
 
-// The canonical declared value type of one member, or the unsupported
-// descriptor when Luna cannot copy that type across the member boundary.
 template <class Declared>
 [[nodiscard]] inline TypeDescriptor MemberValueDescriptor() {
   if constexpr (SupportedValue<Declared>)
@@ -214,7 +181,6 @@ template <class Declared>
     return TypeDescriptor::Unsupported();
 }
 
-// One generated getter descriptor over an already validated native object.
 template <class Class, class Target>
 [[nodiscard]] MemberReadOperation MakeMemberReader(Target Accessor) {
   using Shape = MemberReadShape<Class, Target>;
@@ -234,7 +200,6 @@ template <class Class, class Target>
   };
 }
 
-// One generated setter descriptor over an already validated mutable object.
 template <class Class, class Target>
 [[nodiscard]] MemberWriteOperation MakeMemberWriter(Target Mutator) {
   using Shape = MemberWriteShape<Class, Target>;
@@ -260,8 +225,6 @@ template <class Class, class Target>
   };
 }
 
-// The refusal one property policy earns when it contradicts the accessors the
-// declaration supplied, or nothing when the two agree.
 [[nodiscard]] inline std::string
 ClassifyPropertyPolicy(const PropertyPolicy &Policy, bool HasReader,
                        bool HasWriter) {
@@ -279,8 +242,6 @@ ClassifyPropertyPolicy(const PropertyPolicy &Policy, bool HasReader,
   return std::string();
 }
 
-// The refusal one field policy earns when its ownership statement is one Luna
-// could not honor across the member boundary.
 [[nodiscard]] inline std::string
 ClassifyFieldPolicy(const FieldPolicy &Policy) {
   if (!Policy.IsCoherent())
@@ -291,7 +252,6 @@ ClassifyFieldPolicy(const FieldPolicy &Policy) {
   return std::string();
 }
 
-// One read-only or computed property over a single declared getter.
 template <class Class, class Getter>
 [[nodiscard]] MemberRequest
 MakeReadablePropertyRequest(const StableTypeKey &Key,
@@ -310,7 +270,6 @@ MakeReadablePropertyRequest(const StableTypeKey &Key,
   return Request;
 }
 
-// One write-only property over a single declared setter.
 template <class Class, class Setter>
 [[nodiscard]] MemberRequest
 MakeWritablePropertyRequest(const StableTypeKey &Key,
@@ -328,9 +287,6 @@ MakeWritablePropertyRequest(const StableTypeKey &Key,
   return Request;
 }
 
-// One read-write property over a declared getter and a declared setter. The two
-// must agree on the canonical value type they carry, or the declaration is
-// refused rather than reinterpreted.
 template <class Class, class Getter, class Setter>
 [[nodiscard]] MemberRequest
 MakePropertyRequest(const StableTypeKey &Key, const PropertyPolicy &Policy,
@@ -355,9 +311,6 @@ MakePropertyRequest(const StableTypeKey &Key, const PropertyPolicy &Policy,
   return Request;
 }
 
-// One field over a declared data member. A const-qualified data member is
-// read-only whatever the policy states, because Luna would otherwise have to
-// write through a declaration the class itself forbids.
 template <class Class, class Held>
 [[nodiscard]] MemberRequest MakeFieldRequest(const StableTypeKey &Key,
                                              const FieldPolicy &Policy,
@@ -385,9 +338,6 @@ template <class Class, class Held>
 
   Request.Refusal = ClassifyFieldPolicy(Policy);
 
-  // A const data member is read-only whatever else is stated, so the default
-  // policy is narrowed silently. Asking for writes explicitly is a description
-  // mistake and is refused instead.
   if (Request.Refusal.empty() && Policy.DeclaresDirection() &&
       Policy.PermitsWrite() && !IsWritable)
     Request.Refusal = "this field is declared const, so it can never be "

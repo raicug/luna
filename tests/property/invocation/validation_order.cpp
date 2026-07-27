@@ -307,9 +307,7 @@ ObserveTrace(const Scenario &Case, const std::vector<Input> &Inputs) {
 } // namespace
 
 int RunValidationShortCircuitingProperties() {
-  // **Validates: Requirements 5.6, 5.7, 5.10, 5.11**
   // clang-format off
-  // Feature: luau-binding-foundation, Property 9: Validation agrees with the short-circuit reference model
   const bool Passed = rc::check(
       // clang-format on
       "Validation agrees with the short-circuit reference model",

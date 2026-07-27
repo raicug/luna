@@ -53,8 +53,6 @@ private:
   return true;
 }
 
-// The canonical kind one published value carries, for a dynamic pack whose
-// element types the invocation decided.
 [[nodiscard]] ValueKind PublishedValueKind(lua_State *State, int StackIndex) {
   switch (lua_type(State, StackIndex)) {
   case LUA_TBOOLEAN:
@@ -128,8 +126,6 @@ ReturnWriteObservation InvocationPrimitiveTestHooks::Write(
       Observation.WrittenValue = std::move(*ReadBack.ConvertedValue);
   }
 
-  // A published pack left its ordered values in the result positions above the
-  // seeded depth, so they read back in return order.
   if (Observation.Result.Status == ReturnWriteStatus::PackPublished &&
       State.Get()) {
     const int First = static_cast<int>(InitialStackDepth) + 1;

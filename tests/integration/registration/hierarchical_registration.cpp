@@ -1,13 +1,3 @@
-// One coherent hierarchical registration scenario driven through the real
-// compiler and virtual machine: nested namespaces, constants at every depth, a
-// scoped enumeration with an alias, an opted-in unscoped enumeration, a bitflag
-// enumeration, an enumeration-typed constant, and a dependency module graph
-// that registers into its own nested scopes. Every published symbol is read and
-// invoked from real Luau source, reflection is checked against the same
-// hierarchy, and every failure family is exercised in the same State to prove
-// nothing is partially published, the entry stack depth is restored exactly,
-// and the State stays reusable afterwards.
-
 // clang-format off
 #include <luna/binding/binding_registry.hpp>
 #include <luna/binding/enum_builder.hpp>
@@ -95,10 +85,6 @@ Manifest(std::string Identity, std::string_view VersionText,
   return Created ? std::move(*Created) : Luna::ModuleManifest();
 }
 
-// One representative hierarchy staged as a single plan: three namespace levels,
-// constants of every canonical scalar type, one scoped enumeration with an
-// alias and metadata, one opted-in unscoped enumeration, and one bitflag
-// enumeration with an explicit supported mask.
 [[nodiscard]] Luna::RegistrationResult
 CommitRepresentativeHierarchy(Luna::BindingRegistry &Registry) {
   Luna::NamespaceBuilder Studio = Registry.RegisterNamespace("Studio");
@@ -143,9 +129,6 @@ CommitRepresentativeHierarchy(Luna::BindingRegistry &Registry) {
   return Studio.Commit();
 }
 
-// The dependency module: its own nested namespaces, one constant, and one
-// enumeration, all registered through the transaction-attached builder it
-// receives.
 void ConfigureUnits(Luna::NamespaceBuilder &Builder) {
   Luna::NamespaceBuilder Units = Builder.RegisterNamespace("Units");
   static_cast<void>(Units.RegisterConstant("Metre", 1));
@@ -184,8 +167,6 @@ void CheckRepresentativeHierarchyRunsThroughTheVirtualMachine() {
   Check(StackDepth(Owner) == EntryDepth,
         "publishing the hierarchy restores the exact entry stack depth");
 
-  // A second plan reopens the published namespaces and adds an
-  // enumeration-typed constant, which keeps the enumeration's identity.
   Luna::NamespaceBuilder Studio = Registry.RegisterNamespace("Studio");
   Luna::NamespaceBuilder Ui = Studio.RegisterNamespace("Ui");
   static_cast<void>(Ui.RegisterConstant("DefaultAlignment", Alignment::Center,
@@ -218,7 +199,6 @@ void CheckRepresentativeHierarchyRunsThroughTheVirtualMachine() {
   Check(StackDepth(Owner) == EntryDepth,
         "executing against the hierarchy leaves the stack exactly balanced");
 
-  // Every published enumeration table stays immutable to script writes.
   Check(!Owner.Execute("Studio.Ui.Alignment.Left = 5").IsSuccess() &&
             !Owner.Execute("Studio.Ui.Layout.Legacy.First = 5").IsSuccess(),
         "a script write to any published enumeration table fails");
@@ -255,7 +235,6 @@ void CheckRepresentativeHierarchyRunsThroughTheVirtualMachine() {
             Luna::SymbolKind::Enumeration,
         "the opted-in unscoped enumeration is reflected as an enumeration");
 
-  // The scope of one namespace enumerates its own members canonically.
   const Luna::ReflectionRecordRange Members =
       Snapshot.Symbols(Luna::ScopeId(Snapshot.Find("Studio.Ui").Id()));
   Check(Members.Size() == 6, "the namespace scope holds all six declarations");
@@ -317,8 +296,6 @@ void CheckModuleGraphRegistersIntoNestedScopes() {
   Check(StackDepth(Owner) == EntryDepth,
         "loading and executing a module graph restores the entry stack depth");
 
-  // Load-once idempotence: the identical definition succeeds and reruns
-  // nothing.
   const std::uint64_t Published = Registry.Reflection().Generation();
   Check(Registry
             .RegisterModule(Manifest("studio.physics", "1.4.2",
@@ -341,9 +318,6 @@ void CheckModuleGraphRegistersIntoNestedScopes() {
         "a module-registered enumerator is reflected under its module scope");
 }
 
-// Every failure family, in one State, one after another: each attempt is
-// refused, publishes nothing, restores the exact entry stack depth, and leaves
-// the State reusable.
 void CheckEveryFailureFamilyLeavesTheStateReusable() {
   Luna::State Owner;
   Luna::BindingRegistry Registry = Owner.Bindings();
@@ -384,7 +358,6 @@ void CheckEveryFailureFamilyLeavesTheStateReusable() {
           Description + " leaves no transaction open");
   };
 
-  // An ownership mismatch: a script-created table is never adopted.
   Check(Owner.Execute("Foreign = { Marker = 3 }").IsSuccess(),
         "the script creates its own table");
   Refuses("a namespace over a script-created table", {}, [&] {
@@ -394,7 +367,6 @@ void CheckEveryFailureFamilyLeavesTheStateReusable() {
   Check(Owner.Execute("assert(Foreign.Marker == 3)").IsSuccess(),
         "the script's table keeps its contents after the ownership mismatch");
 
-  // An invalid nested segment fails the whole nested plan.
   Refuses("an invalid nested namespace segment", {"Region"}, [&] {
     Luna::NamespaceBuilder Region = Registry.RegisterNamespace("Region");
     Luna::NamespaceBuilder Nested = Region.RegisterNamespace("Not Valid");
@@ -402,8 +374,6 @@ void CheckEveryFailureFamilyLeavesTheStateReusable() {
     return Region.Commit();
   });
 
-  // A nested rollback: one refused declaration discards a whole three-level
-  // plan.
   Refuses("one refused constant inside a deep plan",
           {"Zone", "Zone.Inner", "Zone.Inner.Leaf"}, [&] {
             Luna::NamespaceBuilder Zone = Registry.RegisterNamespace("Zone");
@@ -414,13 +384,10 @@ void CheckEveryFailureFamilyLeavesTheStateReusable() {
             Luna::EnumBuilder<Alignment> Alignments =
                 Inner.RegisterEnum<Alignment>("Alignment", AlignmentKey());
             static_cast<void>(Alignments.Value("Left", Alignment::Left));
-            // An enumeration constant without its stable key is refused, and it
-            // takes the whole plan with it.
             static_cast<void>(Leaf.RegisterConstant("Broken", Alignment::Left));
             return Zone.Commit();
           });
 
-  // An enumerator outside its declared underlying range.
   Refuses("an out-of-range enumerator inside a nested plan",
           {"Bounds", "Bounds.Narrow"}, [&] {
             Luna::NamespaceBuilder Bounds =
@@ -434,7 +401,6 @@ void CheckEveryFailureFamilyLeavesTheStateReusable() {
             return Bounds.Commit();
           });
 
-  // An unscoped enumeration without its explicit opt-in.
   Refuses("an unscoped enumeration without its opt-in", {"Legacy"}, [&] {
     Luna::EnumBuilder<Legacy> Legacies = Registry.RegisterEnum<Legacy>(
         "Legacy", Luna::StableTypeKey("Studio.Legacy"));
@@ -442,9 +408,6 @@ void CheckEveryFailureFamilyLeavesTheStateReusable() {
     return Staged.Commit();
   });
 
-  // A value carrying a bit outside the declared supported mask. This
-  // enumeration keeps its own stable key so the recovery check below can still
-  // register the representative hierarchy's own bitflag enumeration.
   const Luna::StableTypeKey FlagsKey("Studio.Flags");
   Luna::EnumBuilder<Access> Permissions =
       Registry.RegisterEnum<Access>("Flags", FlagsKey);
@@ -459,7 +422,6 @@ void CheckEveryFailureFamilyLeavesTheStateReusable() {
     return Registry.RegisterConstant("All", static_cast<Access>(7), FlagsKey);
   });
 
-  // A dependency cycle, reported instead of loaded.
   Check(
       Registry.ProvideModule(Manifest("studio.left", "1.0.0",
                                       {Dependency("studio.right", ">=1.0.0")}),
@@ -478,7 +440,6 @@ void CheckEveryFailureFamilyLeavesTheStateReusable() {
         ConfigurePhysics);
   });
 
-  // An unsatisfiable dependency constraint.
   Refuses("an unsatisfiable dependency constraint", {"Physics"}, [&] {
     return Registry.RegisterModule(
         Manifest("studio.physics", "1.0.0",
@@ -486,8 +447,6 @@ void CheckEveryFailureFamilyLeavesTheStateReusable() {
         ConfigurePhysics);
   });
 
-  // A throwing module callback: the exception is contained and the whole graph
-  // rolls back, dependency included.
   Refuses("a throwing module callback", {"Physics", "Units"}, [&] {
     return Registry.RegisterModule(
         Manifest("studio.physics", "1.0.0",
@@ -498,7 +457,6 @@ void CheckEveryFailureFamilyLeavesTheStateReusable() {
         });
   });
 
-  // A different version of a loaded identity is a conflict, not a replacement.
   Check(Registry
             .RegisterModule(Manifest("studio.physics", "1.0.0",
                                      {Dependency("studio.units", ">=1.0.0")}),
@@ -514,8 +472,6 @@ void CheckEveryFailureFamilyLeavesTheStateReusable() {
   Check(Hooks::LoadedModuleVersion(Owner, "studio.physics") == "1.0.0",
         "a refused replacement leaves the loaded version in place");
 
-  // After every failure family, the whole representative hierarchy still
-  // publishes and runs in this same State.
   Check(CommitRepresentativeHierarchy(Registry).IsSuccess(),
         "the State still commits the whole hierarchy after every failure");
   Check(Owner

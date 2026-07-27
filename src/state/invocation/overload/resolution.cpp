@@ -12,9 +12,6 @@
 namespace Luna::Detail {
 namespace {
 
-// Ordered rank position of one category. A smaller value is a better match, and
-// the order is exactly the required one: exact, then safe built-in, then
-// registered user conversion.
 [[nodiscard]] constexpr int RankOrder(ConversionRank Rank) noexcept {
   switch (Rank) {
   case ConversionRank::Exact:
@@ -39,7 +36,6 @@ namespace {
   return 3;
 }
 
-// Accumulates one compared dimension into the running Pareto relation.
 void Accumulate(int Left, int Right, bool &SawBetter, bool &SawWorse) {
   if (Left < Right)
     SawBetter = true;
@@ -89,9 +85,6 @@ std::string_view DominanceOrderingText(DominanceOrdering Ordering) noexcept {
 
 DominanceOrdering CompareRankSequences(const CandidateRankSequence &Left,
                                        const CandidateRankSequence &Right) {
-  // Two candidates ranked against one call always describe the same received
-  // arguments. A sequence of another length describes another call, so nothing
-  // about it can be compared.
   if (Left.Positions.size() != Right.Positions.size())
     return DominanceOrdering::Incomparable;
 
@@ -102,7 +95,6 @@ DominanceOrdering CompareRankSequences(const CandidateRankSequence &Left,
                RankOrder(Right.Positions[Index]), SawBetter, SawWorse);
   }
 
-  // The shape element is one more dimension, never a summed score.
   Accumulate(ShapeOrder(Left.Shape), ShapeOrder(Right.Shape), SawBetter,
              SawWorse);
 
@@ -140,7 +132,6 @@ OverloadSelection SelectByDominance(std::span<const ViableCandidate> Viable) {
     return Selection;
   }
 
-  // The frontier is every viable candidate no other viable candidate dominates.
   for (std::size_t Index = 0; Index < Viable.size(); ++Index) {
     bool IsDominated = false;
     for (std::size_t Other = 0; Other < Viable.size() && !IsDominated;
@@ -153,9 +144,6 @@ OverloadSelection SelectByDominance(std::span<const ViableCandidate> Viable) {
       Selection.Frontier.push_back(Viable[Index].Candidate);
   }
 
-  // Selection is stricter than being on the frontier: the candidate must be
-  // better than every other viable candidate, so an equivalent or incomparable
-  // rival prevents it.
   for (std::size_t Index = 0; Index < Viable.size(); ++Index) {
     bool DominatesEveryOther = true;
     for (std::size_t Other = 0; Other < Viable.size() && DominatesEveryOther;

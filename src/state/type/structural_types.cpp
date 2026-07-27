@@ -38,13 +38,9 @@
 namespace Luna::Detail {
 namespace {
 
-// Largest magnitude one single-precision value represents. It is a property of
-// the type, not a configured limit.
 constexpr double MaximumSinglePrecisionMagnitude =
     static_cast<double>(std::numeric_limits<float>::max());
 
-// The largest table element position the virtual machine addresses. It is the
-// VM's own index domain rather than a Luna-chosen container cap.
 constexpr std::size_t MaximumTableElementPosition =
     static_cast<std::size_t>(std::numeric_limits<int>::max());
 
@@ -91,8 +87,6 @@ constexpr std::size_t MaximumTableElementPosition =
   return Scope.Types().Find(Record.NestedTypes[Index]);
 }
 
-// The nested type one element position converts as. A pack or sequence with one
-// child is homogeneous, so every position uses that child.
 [[nodiscard]] const TypeRecord *ElementRecordOf(const ConversionScope &Scope,
                                                 const TypeRecord &Record,
                                                 std::size_t Position) {
@@ -101,9 +95,6 @@ constexpr std::size_t MaximumTableElementPosition =
   return ChildRecordOf(Scope, Record, Position);
 }
 
-// Complete shape of one Luau table read as an ordered element list: every key
-// must be a positive integral number and the keys must cover 1..N with no hole
-// and no foreign key.
 struct SequenceShape final {
   bool Accepted = false;
   std::size_t Count = 0;
@@ -140,8 +131,6 @@ struct SequenceShape final {
     ++Count;
   }
 
-  // Contiguity is what distinguishes an ordered list from a table that merely
-  // happens to have integer keys.
   if (HighestPosition != static_cast<double>(Count)) {
     Shape.Failure = StructuredFailure::ForeignTableKey;
     return Shape;
@@ -152,9 +141,6 @@ struct SequenceShape final {
   return Shape;
 }
 
-// One raw Luau map key, kept in a form that can be re-pushed and ordered
-// deterministically so the first nested failure never depends on table
-// iteration order.
 struct RawMapKey final {
   int Rank = 0;
   bool BooleanKey = false;
@@ -344,8 +330,6 @@ std::string StructuralPublicName(const TypeDescriptor &Type) {
 namespace Luna::Detail {
 namespace {
 
-// -- planned built-in scalars ------------------------------------------------
-
 [[nodiscard]] StructuredReadResult ReadSinglePrecision(ConversionScope &Scope,
                                                        const TypeRecord &Record,
                                                        int StackIndex) {
@@ -367,7 +351,6 @@ namespace {
     return StructuredReadResult::Reject(std::move(Diagnostic));
   }
 
-  // The staged value keeps single precision: narrowing happens once, here.
   const double Narrowed = static_cast<double>(static_cast<float>(Number));
   return StructuredReadResult::Accept(StructuredValue::Scalar(Value(Narrowed)));
 }
@@ -415,8 +398,6 @@ WriteSinglePrecision(ConversionScope &Scope, const TypeRecord &Record,
   if (!Bytes && Length != 0)
     return StructuredReadResult::Reject(Internal(Scope, Record));
 
-  // The inherited foundation policy is the only string bound, and it is an
-  // explicit property of the type rather than a literal spread across readers.
   const std::size_t Permitted =
       Record.MaximumByteCount.value_or(MaximumInvocationStringBytes);
   if (Length > Permitted) {
@@ -497,8 +478,6 @@ ReadNull(ConversionScope &Scope, const TypeRecord &Record, int StackIndex) {
   return StructuredWriteResult::Accept(1);
 }
 
-// -- optional ---------------------------------------------------------------
-
 [[nodiscard]] StructuredReadResult
 ReadOptional(ConversionScope &Scope, const TypeRecord &Record, int StackIndex) {
   lua_State *State = Scope.State();
@@ -537,11 +516,6 @@ WriteOptional(ConversionScope &Scope, const TypeRecord &Record,
   return WriteThroughRecord(Scope, *Inner, Source);
 }
 
-// -- ordered element lists: sequences, fixed arrays, pairs, tuples, packs ----
-
-// Element count the canonical type permits, when its shape fixes one. A
-// sequence and a homogeneous pack accept any count, which is a shape rule and
-// not a configured cap.
 [[nodiscard]] bool PermittedElementCount(const TypeRecord &Record,
                                          std::size_t &Permitted) {
   switch (Record.Descriptor.Kind()) {
@@ -634,7 +608,6 @@ WriteListAsTable(ConversionScope &Scope, const TypeRecord &Record,
   if (!State || Source.Kind() != StructuredKind::List)
     return StructuredWriteResult::Reject(Internal(Scope, Record));
 
-  // The whole aggregate is validated before one element is published.
   const std::size_t Count = Source.Size();
   std::size_t Permitted = 0;
   if (PermittedElementCount(Record, Permitted) && Count != Permitted)
@@ -667,7 +640,6 @@ WriteListAsTable(ConversionScope &Scope, const TypeRecord &Record,
       Written = WriteThroughRecord(Scope, *Element, *Staged);
     }
     if (!Written.IsSuccess() || Written.PublishedCount != 1) {
-      // The staging table is discarded, so no partial table is ever reachable.
       lua_settop(State, TableIndex - 1);
       return Written.IsSuccess()
                  ? StructuredWriteResult::Reject(Internal(Scope, Record))
@@ -678,8 +650,6 @@ WriteListAsTable(ConversionScope &Scope, const TypeRecord &Record,
 
   return StructuredWriteResult::Accept(1);
 }
-
-// -- associative maps -------------------------------------------------------
 
 [[nodiscard]] StructuredReadResult
 ReadMap(ConversionScope &Scope, const TypeRecord &Record, int StackIndex) {
@@ -701,8 +671,6 @@ ReadMap(ConversionScope &Scope, const TypeRecord &Record, int StackIndex) {
 
   const int TableIndex = AbsoluteIndex(State, StackIndex);
 
-  // Raw keys are collected first and then ordered canonically, so the first
-  // deterministic failure never depends on table traversal order.
   std::vector<RawMapKey> Keys;
   int Iterator = 0;
   while ((Iterator = lua_rawiter(State, TableIndex, Iterator)) >= 0) {
@@ -832,8 +800,6 @@ ReadMap(ConversionScope &Scope, const TypeRecord &Record, int StackIndex) {
                  : WrittenKey;
     }
 
-    // A nil or not-a-number key would make the virtual machine raise instead of
-    // storing an entry, so it is refused before the store is attempted.
     const int PublishedKeyType = lua_type(State, -1);
     const bool KeyIsStorable = PublishedKeyType != LUA_TNIL &&
                                PublishedKeyType != LUA_TNONE &&
@@ -865,15 +831,10 @@ ReadMap(ConversionScope &Scope, const TypeRecord &Record, int StackIndex) {
   return StructuredWriteResult::Accept(1);
 }
 
-// -- enumerations and registered classes ------------------------------------
-
 [[nodiscard]] const TypeRecord *IntegerRecordOf(const ConversionScope &Scope) {
   return Scope.Types().Find(TypeDescriptor::ForFixed(FixedTypeKey::Int32));
 }
 
-// The declared enumerator domain refuses one value. A non-bitflag enumeration
-// reports the undeclared enumerator; a bitflag enumeration reports the
-// unsupported bit, and neither ever masks or narrows the value it received.
 [[nodiscard]] StructuredDiagnostic
 RejectEnumerator(const ConversionScope &Scope, const TypeRecord &Record,
                  int Candidate) {
@@ -886,7 +847,6 @@ RejectEnumerator(const ConversionScope &Scope, const TypeRecord &Record,
   return Diagnostic;
 }
 
-// True when the record declares an enumerator domain that rejects `Candidate`.
 [[nodiscard]] bool RefusesEnumerator(const TypeRecord &Record,
                                      int Candidate) noexcept {
   return Record.Enumeration &&
@@ -904,8 +864,6 @@ RejectEnumerator(const ConversionScope &Scope, const TypeRecord &Record,
     return StructuredReadResult::Reject(
         Scope.Reject(StructuredFailure::UnavailableType, Record));
 
-  // The underlying domain is the foundation integer domain, so non-finite,
-  // out-of-range, and fractional numbers keep their exact classification.
   const ArgumentReadResult Read = Integer->Read(State, StackIndex);
   if (!Read.IsSuccess())
     return StructuredReadResult::Reject(
@@ -931,8 +889,6 @@ WriteEnumeration(ConversionScope &Scope, const TypeRecord &Record,
     return StructuredWriteResult::Reject(
         Scope.Reject(StructuredFailure::UnavailableType, Record));
 
-  // A value the enumeration never declared is refused before anything is
-  // published, in exactly the same way in both directions.
   const int Candidate = std::get<int>(*Scalar);
   if (RefusesEnumerator(Record, Candidate))
     return StructuredWriteResult::Reject(
@@ -944,9 +900,6 @@ WriteEnumeration(ConversionScope &Scope, const TypeRecord &Record,
   return StructuredWriteResult::Accept(1);
 }
 
-// The conversion failure one refused access reports. The access gate decides in
-// its own deterministic order; this only names the reason it stopped at, and
-// carries the precise lifetime reason as what was received.
 [[nodiscard]] StructuredDiagnostic RejectAccess(const ConversionScope &Scope,
                                                 const TypeRecord &Record,
                                                 UserdataAccessFailure Failure) {
@@ -970,9 +923,6 @@ WriteEnumeration(ConversionScope &Scope, const TypeRecord &Record,
     return StructuredReadResult::Reject(
         Scope.Reject(StructuredFailure::MissingElement, Record));
 
-  // A registered class is only reachable through the State that registered it,
-  // and only through that State's own metatable identity. Both come from the
-  // access context, never from the value being read.
   const UserdataAccessContext *Context = ObserveUserdataAccessContext(State);
   const RegisteredClass *Registered =
       Context && Context->Classes ? Context->Classes->Find(Record.Identity)
@@ -988,8 +938,6 @@ WriteEnumeration(ConversionScope &Scope, const TypeRecord &Record,
   Request.HandleProbe = Context->HandleProbe;
   Request.Relationships = &Context->Classes->Relationships();
 
-  // Anything that is not a userdata at all is refused before a header is read,
-  // and the diagnostic names what actually arrived.
   if (Received != LUA_TUSERDATA) {
     StructuredDiagnostic Diagnostic =
         Scope.Reject(StructuredFailure::ForeignUserdata, Record);
@@ -1010,9 +958,6 @@ WriteEnumeration(ConversionScope &Scope, const TypeRecord &Record,
       StructuredValue::Handle(Access.Storage, Access.PermitsMutation));
 }
 
-// One refused exposure, named by the deterministic status the write path
-// reported. Nothing was published, nothing was left on the stack, and no second
-// owner of the object exists.
 [[nodiscard]] StructuredDiagnostic
 RejectExposure(ConversionScope &Scope, const TypeRecord &Record,
                const ClassExposureResult &Exposed) {
@@ -1029,9 +974,6 @@ RejectExposure(ConversionScope &Scope, const TypeRecord &Record,
     Reported = StructuredFailure::StackUnavailable;
     break;
   case ClassExposureStatus::UnestablishedOwnership:
-    // An expired or missing lifetime is the one refusal a consumer can cause:
-    // the object's owner already ended the lifetime the value would be exposed
-    // under, so no value is created and no native code runs.
     Reported =
         Exposed.Ownership == OwnershipFailure::MissingLifetimeHandle ||
                 Exposed.Ownership == OwnershipFailure::ExpiredLifetimeHandle
@@ -1064,17 +1006,11 @@ WriteClassHandle(ConversionScope &Scope, const TypeRecord &Record,
   if (!State || Source.Kind() != StructuredKind::Handle)
     return StructuredWriteResult::Reject(Internal(Scope, Record));
 
-  // Exposing a native object establishes ownership, so the object arrives with
-  // the ownership statement that says how it will be owned and released. A
-  // handle that only names a validated object states nothing, and Luna never
-  // guesses an ownership model.
   const ClassExposureIntent *Intent = Source.HandleExposure();
   if (!Intent)
     return StructuredWriteResult::Reject(
         Scope.Reject(StructuredFailure::UnavailableConversion, Record));
 
-  // The class and the State are resolved from the exposure context of this
-  // virtual machine, never from the value being written.
   UserdataExposureContext *Context = ObserveUserdataExposureContext(State);
   RegisteredClass *Registered =
       Context && Context->Classes
@@ -1100,7 +1036,6 @@ WriteClassHandle(ConversionScope &Scope, const TypeRecord &Record,
 namespace Luna::Detail {
 namespace {
 
-// Everything one declaration needs beyond its canonical descriptor and name.
 struct DeclarationTraits final {
   StructuredReadFunction Read = nullptr;
   StructuredWriteFunction Write = nullptr;
@@ -1200,8 +1135,6 @@ FindStaged(const std::vector<TypeRecord> &Staged, const TypeDescriptor &Type) {
   return Traits;
 }
 
-// One declaration per canonical constructor. A leaf whose own milestone owns it
-// is refused here instead of guessed.
 [[nodiscard]] bool BuildRecord(const TypeGeneration &Known,
                                const std::vector<TypeRecord> &Staged,
                                const TypeDescriptor &Type, TypeRecord &Record) {
@@ -1224,8 +1157,6 @@ FindStaged(const std::vector<TypeRecord> &Staged, const TypeDescriptor &Type) {
     case FixedTypeKey::Int32:
     case FixedTypeKey::Double:
     case FixedTypeKey::String: {
-      // A cv-qualified foundation leaf is its own canonical type and converts
-      // exactly like its unqualified form.
       const TypeRecord *Base = FindKnown(
           Known, Staged, Type.WithQualification(CvQualification::None));
       if (!Base)
@@ -1237,8 +1168,6 @@ FindStaged(const std::vector<TypeRecord> &Staged, const TypeDescriptor &Type) {
     }
     case FixedTypeKey::Value:
     case FixedTypeKey::ValuePack:
-      // The owning public value and value pack belong to the custom conversion
-      // boundary rather than to the structural converters.
       return false;
     }
     return false;
@@ -1256,7 +1185,6 @@ FindStaged(const std::vector<TypeRecord> &Staged, const TypeDescriptor &Type) {
     DeclarationTraits Traits;
     Traits.Read = &ReadOptional;
     Traits.Write = &WriteOptional;
-    // An optional is represented exactly as its inner type or as nil.
     Traits.Representation = Inner->Representation;
     Traits.IsNullable = true;
     Traits.Rank = Inner->Rank;
@@ -1276,8 +1204,6 @@ FindStaged(const std::vector<TypeRecord> &Staged, const TypeDescriptor &Type) {
     return true;
   case TypeKind::Enumeration:
   case TypeKind::Class:
-    // An enumeration or class leaf is declared by the registration that owns
-    // its public name, never invented by an aggregate that nests it.
     return false;
   case TypeKind::Pointer:
   case TypeKind::SharedOwnership:
@@ -1299,8 +1225,6 @@ DeclareInto(const TypeGeneration &Known, const TypeDescriptor &Type,
   if (FindKnown(Known, Staged, Type))
     return StructuralDeclarationStatus::Declared;
 
-  // Children first: a converter can never recurse into a type the registry does
-  // not describe.
   for (const TypeDescriptor &Child : Type.Children()) {
     const StructuralDeclarationStatus Status =
         DeclareInto(Known, Child, Staged, Blocking);
@@ -1391,8 +1315,6 @@ StructuralDeclarationStatus
 DeclareStructuralTypes(const TypeGeneration &Known, const TypeDescriptor &Type,
                        std::vector<TypeRecord> &Declared,
                        TypeDescriptor &Blocking) {
-  // The declaration set is staged and only adopted once the whole closure is
-  // declarable, so a refusal leaves the caller's set untouched.
   std::vector<TypeRecord> Staged = Declared;
   const StructuralDeclarationStatus Status =
       DeclareInto(Known, Type, Staged, Blocking);
@@ -1411,8 +1333,6 @@ StructuredReadResult ReadThroughRecord(ConversionScope &Scope,
   if (!Record.Read || !State)
     return StructuredReadResult::Reject(Internal(Scope, Record));
 
-  // A position that holds no value at all is a shape failure rather than a
-  // representation mismatch.
   if (lua_type(State, StackIndex) == LUA_TNONE)
     return StructuredReadResult::Reject(
         Scope.Reject(StructuredFailure::MissingElement, Record));
@@ -1513,8 +1433,6 @@ StructuredReadResult ReadArgumentPack(const TypeGeneration &Types,
       StructuredReadResult Staged = ReadThroughRecord(
           Scope, *Element, FirstIndex + static_cast<int>(Offset));
       if (!Staged.IsSuccess()) {
-        // The failure names the one-based call position it happened at, plus
-        // whatever nested path the element itself reported.
         Staged.Diagnostic.Position = FirstArgumentPosition + Offset;
         return Staged;
       }
@@ -1554,7 +1472,6 @@ StructuredWriteResult PublishReturnShape(const TypeGeneration &Types,
                                          lua_State *State,
                                          const TypeDescriptor &Type,
                                          const StructuredValue &Source) {
-  // `void` publishes zero values; nothing else about it is a conversion.
   if (Type.FixedKey() == FixedTypeKey::Void)
     return StructuredWriteResult::Accept(0);
 
@@ -1575,8 +1492,6 @@ StructuredWriteResult PublishReturnShape(const TypeGeneration &Types,
     if (Source.Kind() != StructuredKind::List)
       return StructuredWriteResult::Reject(Internal(Scope, *Record));
 
-    // Shape, element availability, and stack capacity are all settled before
-    // the first value is published.
     const std::size_t Count = Source.Size();
     std::size_t Permitted = 0;
     if (PermittedElementCount(*Record, Permitted) && Count != Permitted)
@@ -1606,7 +1521,6 @@ StructuredWriteResult PublishReturnShape(const TypeGeneration &Types,
       StructuredWriteResult Written =
           WriteThroughRecord(Scope, *Element, *Staged);
       if (!Written.IsSuccess() || Written.PublishedCount != 1) {
-        // Nothing this pack pushed survives, so the call exposes zero returns.
         lua_settop(State, EntryDepth);
         if (Written.IsSuccess())
           return StructuredWriteResult::Reject(Internal(Scope, *Record));

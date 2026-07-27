@@ -38,9 +38,6 @@ void Check(bool Condition, std::string_view Description) {
   std::cerr << "class construction check failed: " << Description << '\n';
 }
 
-// One ordinary value type Luna can allocate, construct, and destroy, plus a
-// counter so a test can prove a constructor ran exactly once and its object was
-// destroyed exactly once.
 std::size_t LiveCount = 0;
 std::size_t ConstructedCount = 0;
 
@@ -76,7 +73,6 @@ struct Vector3 final {
   ~Vector3() { --LiveCount; }
 };
 
-// One engine-owned object a singleton accessor borrows.
 Vector3 *EngineOrigin() {
   static Vector3 Origin(0.0, 0.0, 0.0);
   return &Origin;
@@ -104,8 +100,6 @@ void ResetCounters() {
   ConstructedCount = 0;
 }
 
-// One registered class carrying every construction form this milestone
-// declares.
 [[nodiscard]] Luna::RegistrationResult
 RegisterVector3(Luna::BindingRegistry &Registry) {
   Luna::ClassBuilder<Vector3> Class =
@@ -141,8 +135,6 @@ void CheckConstructionCandidatesAreReflected() {
   Check(Class.IsValid() && Class.Kind() == Luna::SymbolKind::Class,
         "the class itself is still reflected as one class record");
 
-  // The two constructors share Luna's default constructor name, so they are one
-  // canonical overload set with two candidates.
   const Luna::ReflectionRecord Constructors = Snapshot.Find("Vector3.New");
   Check(Constructors.IsValid() &&
             Constructors.Kind() == Luna::SymbolKind::OverloadSet,
@@ -182,8 +174,6 @@ void CheckConstructionCandidatesAreReflected() {
   Check(SawDefault && SawComponents,
         "both declared constructor signatures are reflected");
 
-  // Factories and singleton accessors are reflected by name, with the ownership
-  // result their declared return type states.
   const Luna::ReflectionRecordRange Factories =
       Snapshot.Symbols(Luna::SymbolKind::Factory);
   Check(Factories.Size() == 3,
@@ -224,7 +214,6 @@ void CheckConstructionCandidatesAreReflected() {
   Check(SawScaled && SawBoxed && SawOrigin,
         "every declared factory and accessor is reflected by its own name");
 
-  // Nothing was constructed by registration itself.
   Check(ConstructedCount == 0,
         "registering construction candidates constructs no object");
   Check(Hooks::OwnedUserdataCount(Owner) == 0,
@@ -257,8 +246,6 @@ void CheckConstructorsPublishOwnedValues() {
   Check(Built.AllocationFailure == 0 && Built.ConstructionFailure == 0,
         "a successful construction refuses nothing");
 
-  // Collection releases the value exactly once, and the object it owned is
-  // destroyed and its storage deallocated.
   Check(Hooks::CollectGarbage(Owner), "the collector runs");
   const Luna::Detail::ReleaseCounters Released =
       Hooks::UserdataReleaseCounters(Owner);
@@ -310,8 +297,6 @@ void CheckFactoriesAndSingletonsPublishTheirOwnership() {
   Check(Hooks::PublishedUserdataCount(Owner) == 3,
         "a singleton accessor publishes exactly one borrowed value");
 
-  // Re-accessing the singleton reuses the one value that already describes the
-  // engine-owned object, so there is never a second owner of it.
   Check(Owner.Execute("local P = Vector3.Origin()").IsSuccess(),
         "the singleton accessor may be called again");
   Check(Hooks::PublishedUserdataCount(Owner) == 3,
@@ -330,7 +315,6 @@ void CheckFactoriesAndSingletonsPublishTheirOwnership() {
 
 void CheckConflictingConstructionNamesAreRefused() {
   {
-    // Two candidates of one name that no call could tell apart.
     ResetCounters();
     Luna::State Owner;
     Luna::BindingRegistry Registry = Owner.Bindings();
@@ -352,7 +336,6 @@ void CheckConflictingConstructionNamesAreRefused() {
   }
 
   {
-    // An explicit policy that contradicts the accessor's declared result.
     ResetCounters();
     Luna::State Owner;
     Luna::BindingRegistry Registry = Owner.Bindings();
@@ -373,7 +356,6 @@ void CheckConflictingConstructionNamesAreRefused() {
   }
 
   {
-    // A borrowed singleton whose explicit policy declares no lifetime at all.
     ResetCounters();
     Luna::State Owner;
     Luna::BindingRegistry Registry = Owner.Bindings();
@@ -389,7 +371,6 @@ void CheckConflictingConstructionNamesAreRefused() {
   }
 
   {
-    // Documentation names an already declared member.
     ResetCounters();
     Luna::State Owner;
     Luna::BindingRegistry Registry = Owner.Bindings();
@@ -409,7 +390,6 @@ void CheckRefusedConstructionLeavesNothingBehind() {
   Luna::BindingRegistry Registry = Owner.Bindings();
   Check(RegisterVector3(Registry).IsSuccess(), "the class publishes");
 
-  // A refused conversion of one argument stops before any object exists.
   const auto Refused = Owner.Execute("local V = Vector3.New('a', 'b', 'c')");
   Check(!Refused.IsSuccess(),
         "a call whose arguments cannot convert is refused");
@@ -452,11 +432,6 @@ void CheckConstructorExceptionsAreTranslated() {
   Check(Owner.IsReady(), "the State remains usable after a throwing factory");
 }
 
-// -- one class selecting its own storage protocol ----------------------------
-
-// One consumer arena the class's values are allocated from. It is ordinary
-// consumer state, held by the protocol's own operations, which is exactly how a
-// real allocator's state travels with it.
 class Arena final {
 public:
   [[nodiscard]] void *Reserve(std::size_t ByteCount, std::size_t Alignment) {
@@ -503,7 +478,6 @@ private:
       std::move(Deallocate));
 }
 
-// The reflected allocator policy identity of one construction candidate.
 [[nodiscard]] std::string ReflectedPolicy(const Luna::ReflectionSnapshot &Taken,
                                           Luna::SymbolKind Kind,
                                           std::string_view QualifiedName) {
@@ -516,9 +490,6 @@ private:
   return std::string();
 }
 
-// A class states its storage protocol once, and every value Luna creates of it
-// comes from that protocol - whether the statement came before or after the
-// candidates that use it.
 void CheckSelectedAllocatorAppliesInEitherOrder() {
   for (int Order = 0; Order < 2; ++Order) {
     ResetCounters();
@@ -531,7 +502,6 @@ void CheckSelectedAllocatorAppliesInEitherOrder() {
 
       Luna::RegistrationResult Published = Luna::RegistrationResult::Success();
       if (Order == 0) {
-        // Stated first, then the candidates that use it.
         Luna::ClassBuilder<Vector3> &WithStorage =
             Class.Allocator(ArenaProtocol(Storage));
         Luna::ClassBuilder<Vector3> &WithDefault = WithStorage.Constructor<>();
@@ -543,7 +513,6 @@ void CheckSelectedAllocatorAppliesInEitherOrder() {
             WithFactory.Factory("Boxed", &MakeShared);
         Published = WithShared.Commit();
       } else {
-        // The candidates first, and the statement afterwards.
         Luna::ClassBuilder<Vector3> &WithDefault = Class.Constructor<>();
         Luna::ClassBuilder<Vector3> &WithComponents =
             WithDefault.Constructor<double, double, double>();
@@ -558,9 +527,6 @@ void CheckSelectedAllocatorAppliesInEitherOrder() {
       Check(Published.IsSuccess(),
             "a class that selects its own storage protocol publishes");
 
-      // Every candidate Luna creates a value for reflects the selected policy;
-      // a candidate whose object Luna never allocated still reflects that it
-      // adopted one.
       const Luna::ReflectionSnapshot Snapshot = Registry.Reflection();
       const Luna::ReflectionRecordRange Constructors =
           Snapshot.Symbols(Luna::SymbolKind::Constructor);
@@ -581,8 +547,6 @@ void CheckSelectedAllocatorAppliesInEitherOrder() {
                             "Vector3.Boxed") == "Luna.AdoptedStorage",
             "a shared factory still reflects the object it adopted");
 
-      // The real Luau calls allocate from the consumer's arena and nowhere
-      // else.
       Check(Owner.Execute("A = Vector3.New()").IsSuccess() &&
                 Owner.Execute("B = Vector3.New(1, 2, 3)").IsSuccess() &&
                 Owner.Execute("C = Vector3.Scaled(2)").IsSuccess(),
@@ -597,7 +561,6 @@ void CheckSelectedAllocatorAppliesInEitherOrder() {
       Check(Storage->ReservationCount() == 3,
             "an adopted object takes no reservation from the arena");
 
-      // Collection gives every reservation back to the arena it came from.
       Check(Owner.Execute("A = nil\nB = nil\nC = nil\nD = nil").IsSuccess(),
             "the script drops its references");
       Check(Hooks::CollectGarbage(Owner), "the collector runs to completion");
@@ -611,8 +574,6 @@ void CheckSelectedAllocatorAppliesInEitherOrder() {
   }
 }
 
-// A protocol Luna could not create or release a value through is refused
-// transactionally, wherever in the declaration it was stated.
 void CheckIncompatibleSelectedAllocatorsAreRefused() {
   const Luna::StorageRequest Requested =
       Luna::StorageRequest::ForClass<Vector3>();
@@ -636,8 +597,6 @@ void CheckIncompatibleSelectedAllocatorsAreRefused() {
     std::string_view Description;
   };
 
-  // One storage request too small for the class: the protocol is complete, but
-  // the storage it hands out could never hold a value of this class.
   Luna::StorageRequest Undersized = Requested;
   Undersized.ByteCount = 1;
 
@@ -712,17 +671,12 @@ void CheckIncompatibleSelectedAllocatorsAreRefused() {
   }
 }
 
-// Luna retains the selected protocol, and whatever state its operations
-// captured, until the last value created through it has completed cleanup -
-// long after the declaration that named it is gone.
 void CheckAllocatorMetadataOutlivesItsDeclaration() {
   ResetCounters();
   std::weak_ptr<Arena> Observed;
   {
     Luna::State Owner;
     {
-      // Everything the consumer held is gone by the end of this scope: the
-      // arena's own shared owner and the allocator value that named it.
       const std::shared_ptr<Arena> Storage = std::make_shared<Arena>();
       Observed = Storage;
       Luna::BindingRegistry Registry = Owner.Bindings();
@@ -757,9 +711,6 @@ void CheckAllocatorMetadataOutlivesItsDeclaration() {
         "the protocol and its state are released once no value needs them");
 }
 
-// -- ambiguity among construction candidates --------------------------------
-
-// One class whose two constructors no ranking can order for the same call.
 struct Span final {
   double First = 0.0;
   double Second = 0.0;
@@ -775,8 +726,6 @@ struct Span final {
   }
 };
 
-// Two distinguishable constructor signatures both register, and a call neither
-// of them dominates is refused as ambiguous instead of guessed at.
 void CheckAmbiguousConstructionCandidatesAreRefused() {
   ResetCounters();
   Luna::State Owner;
@@ -816,12 +765,6 @@ void CheckAmbiguousConstructionCandidatesAreRefused() {
         "exactly the unambiguous call constructed and published a value");
 }
 
-// -- the singleton default policy through real calls ------------------------
-
-// A singleton accessor defaults to borrowed ownership, and the whole
-// consequence of that default is observable end to end: Luna allocates nothing,
-// publishes one value per object, never destroys the engine's object, and hands
-// the same value back on every later access.
 void CheckSingletonDefaultPolicyThroughRealCalls() {
   ResetCounters();
   const double Before = EngineOrigin()->X;
@@ -843,8 +786,6 @@ void CheckSingletonDefaultPolicyThroughRealCalls() {
               ConstructedCount == 0,
           "a borrowed object is neither allocated nor constructed by Luna");
 
-    // One object is one value: every later access is the value the script
-    // already holds, and `==` in script agrees.
     Check(Owner.Execute("Again = Vector3.Origin()").IsSuccess(),
           "the accessor may be called again");
     Check(Hooks::PublishedUserdataCount(Owner) == 1 &&
@@ -859,8 +800,6 @@ void CheckSingletonDefaultPolicyThroughRealCalls() {
     Check(Observed && *Observed == 1,
           "both accesses are exactly one script value of the class");
 
-    // A Lua-owned value in the same State is destroyed by collection; the
-    // borrowed object is not touched by it at all.
     Check(Owner.Execute("Owned = Vector3.New(4, 5, 6)").IsSuccess(),
           "a constructed value is published alongside the borrowed one");
     Check(Owner.Execute("Owned = nil\nOrigin = nil\nAgain = nil").IsSuccess(),

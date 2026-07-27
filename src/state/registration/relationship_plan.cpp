@@ -35,7 +35,6 @@ namespace {
   return Key.Text().empty() ? std::string("<unnamed>") : Key.Text();
 }
 
-// The first deterministic refusal, plus what it needs to be worded.
 struct RelationshipRefusal final {
   RelationshipFailure Failure = RelationshipFailure::None;
   std::string Subject;

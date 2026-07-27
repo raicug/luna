@@ -1,11 +1,3 @@
-// Integration coverage for stable dispatch indirection through the real Luau
-// compiler and virtual machine. Focused tests own the exhaustive slot, entry,
-// and retention matrix; this case proves the three behaviors a script can
-// actually observe: a call begun before a publication finishes on the target it
-// entered under, every later call resolves the target the publication
-// installed, and a removed symbol refuses deterministically - each with exact
-// stack restoration, no partial publication, and continued State reuse.
-
 // clang-format off
 #include <luna/luna.hpp>
 
@@ -45,9 +37,6 @@ void Check(bool Condition, std::string_view Description) {
              : std::string(Result.Diagnostic()->Message());
 }
 
-// One script drives everything: the call that publishes is a call the virtual
-// machine started, and the call that observes the new target is a later call
-// through the same installed closure.
 void CheckInFlightCallKeepsItsTargetWhileLaterCallsUseTheNewOne() {
   Luna::State Owner;
   Check(Owner.IsReady(), "the host State is ready");
@@ -60,9 +49,6 @@ void CheckInFlightCallKeepsItsTargetWhileLaterCallsUseTheNewOne() {
   Check(Owner.Bindings()
             .Register("Compatible",
                       [&Owner, &Published, &RetainersDuringCall]() {
-                        // Exactly one publication, taken while this call is
-                        // running: the slot being replaced is the slot this
-                        // call was entered through.
                         if (!Published)
                           Published = Hooks::RetargetDispatchSlot(
                               Owner, "Compatible", "Successor");
@@ -104,8 +90,6 @@ void CheckInFlightCallKeepsItsTargetWhileLaterCallsUseTheNewOne() {
   Check(StackDepth(Owner) == EntryDepth,
         "the script restores the root stack exactly");
 
-  // Nothing the publication replaced is still needed, and nothing it replaced
-  // was ever mutated: both records are exactly where the store left them.
   Check(Hooks::DispatchInvocationRetainerCount(Owner) == 0,
         "no invocation retains a generation between calls");
   Check(Hooks::SupersededDispatchGenerationCount(Owner) == 1,
@@ -120,8 +104,6 @@ void CheckInFlightCallKeepsItsTargetWhileLaterCallsUseTheNewOne() {
   Check(Hooks::InstalledDispatchSlotOf(Owner, "Compatible") == Slot,
         "the installed closure still carries exactly its permanent slot");
 
-  // Publishing the original target again restores exactly the pairing the store
-  // began with, which is what proves no pointer anywhere went stale.
   Check(Hooks::RetargetDispatchSlot(Owner, "Compatible", "Compatible"),
         "the original target is published again");
   Check(Hooks::InstalledBindingRecordAddress(Owner, "Compatible") ==
@@ -135,8 +117,6 @@ void CheckInFlightCallKeepsItsTargetWhileLaterCallsUseTheNewOne() {
         "every publication leaves the root stack exactly balanced");
 }
 
-// A removed symbol refuses inside the machine, the script recovers from the
-// refusal, and the State keeps working afterwards.
 void CheckRemovedSymbolRefusesInsideTheMachine() {
   Luna::State Owner;
   Check(Owner.IsReady(), "the host State is ready");
@@ -182,8 +162,6 @@ void CheckRemovedSymbolRefusesInsideTheMachine() {
         "reuse after a refusal leaves the root stack exactly balanced");
 }
 
-// Every callable category the migration covers dispatches through its own slot
-// in one script, and one publication reaches exactly one of them.
 void CheckEveryCallableCategoryResolvesThroughItsSlot() {
   struct Gauge final {
     int Charge = 4;
@@ -246,8 +224,6 @@ void CheckEveryCallableCategoryResolvesThroughItsSlot() {
   Check(Hooks::ExposeClassUserdata(Owner, Request).Status == "created",
         "the class value is exposed exactly once");
 
-  // Every installed closure carries exactly the permanent slot of its own
-  // canonical path, whatever category declared it.
   for (const std::string_view Path :
        {std::string_view("Root"), std::string_view("Space.Inner"),
         std::string_view("Gauge.Read"), std::string_view("Gauge.Zero"),
@@ -278,7 +254,6 @@ void CheckEveryCallableCategoryResolvesThroughItsSlot() {
   Check(StackDepth(Owner) == EntryDepth,
         "exercising every category restores the root stack exactly");
 
-  // One publication reaches exactly the slot it names and nothing else.
   const std::uint64_t Before = Hooks::DispatchGenerationOf(Owner);
   Check(Hooks::RetargetDispatchSlot(Owner, "Gauge.Zero", "Successor"),
         "the static member's slot is retargeted");

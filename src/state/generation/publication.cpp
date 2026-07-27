@@ -23,15 +23,10 @@
 namespace Luna::Detail {
 namespace {
 
-// One thread's pending injected failure. Publication is a free function with no
-// owning object, so the injection has to live beside it rather than inside a
-// State.
 thread_local ArtifactPublicationFault PendingFaultValue =
     ArtifactPublicationFault::None;
 thread_local bool ConsumedFaultValue = false;
 
-// Whether the stated stage must fail now. The injection is consumed on the
-// first match, so one scope never fails the same stage twice.
 [[nodiscard]] bool ConsumePublicationFault(ArtifactPublicationFault Fault) {
   if (Fault == ArtifactPublicationFault::None || PendingFaultValue != Fault)
     return false;
@@ -85,9 +80,6 @@ using Luna::Detail::ArtifactPublicationFault;
       Status, RefusalMessage(Destination, Status, Reason));
 }
 
-// One unused name beside the destination. The unpublished file always shares
-// the destination's directory, so replacing the destination stays one move
-// within one file system rather than a copy that could be observed half done.
 [[nodiscard]] std::filesystem::path
 UnpublishedPathFor(const std::filesystem::path &Destination) {
   static std::atomic<std::uint64_t> Ticket{0};
@@ -110,8 +102,6 @@ UnpublishedPathFor(const std::filesystem::path &Destination) {
 
 ArtifactPublication PublishArtifact(const GeneratedArtifact &Artifact,
                                     std::string_view DestinationPath) {
-  // A rejected generation carries no bytes at all, so there is nothing that
-  // could be published and the destination is never opened.
   if (!Artifact.IsComplete())
     return Refuse(
         DestinationPath, PublicationStatus::IncompleteArtifact,
@@ -153,8 +143,6 @@ ArtifactPublication PublishArtifact(const GeneratedArtifact &Artifact,
     return Refuse(DestinationPath, PublicationStatus::DestinationUnavailable,
                   "no unpublished file name was available");
 
-  // Every failure from here on removes the unpublished file and leaves the
-  // destination exactly as it was.
   const auto Abandon = [&](std::string_view Reason) {
     std::error_code Ignored;
     static_cast<void>(std::filesystem::remove(Unpublished, Ignored));
@@ -192,8 +180,6 @@ ArtifactPublication PublishArtifact(const GeneratedArtifact &Artifact,
   if (!Failure.empty())
     return Abandon(Failure);
 
-  // The unpublished file is compared with the artifact byte for byte, so a
-  // short or altered write can never reach the destination.
   {
     std::ifstream Reader(Unpublished, std::ios::binary);
     if (!Reader.is_open()) {
@@ -210,9 +196,6 @@ ArtifactPublication PublishArtifact(const GeneratedArtifact &Artifact,
       }
     }
   }
-  // The reader is closed before anything is removed, so abandoning the attempt
-  // never leaves the unpublished file behind on a host that refuses to remove
-  // an open file.
   if (!Failure.empty())
     return Abandon(Failure);
 

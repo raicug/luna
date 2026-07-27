@@ -34,10 +34,6 @@
 namespace Luna::Detail {
 namespace {
 
-// The exact-integer domain Luna converts an enumerator through. It is the
-// intersection of the exact-integer range of the Luau number representation and
-// the canonical signed 32-bit integer type every enumeration reads and writes
-// as.
 constexpr std::int64_t CanonicalIntegerLowest =
     static_cast<std::int64_t>(std::numeric_limits<int>::min());
 constexpr std::int64_t CanonicalIntegerHighest =
@@ -58,7 +54,6 @@ EnumeratorSubject(const StagedEnumeration &Declaration,
       JoinQualifiedName(Declaration.QualifiedName, Enumerator.Segment));
 }
 
-// Canonical descriptor of one staged enumeration.
 [[nodiscard]] TypeDescriptor
 EnumerationTypeOf(const StagedEnumeration &Declaration) {
   return TypeDescriptor::ForEnumeration(Declaration.Key);
@@ -85,8 +80,6 @@ std::string CanonicalValueText(const Value &Staged) {
   if (const int *Integer = std::get_if<int>(&Staged))
     return std::to_string(*Integer);
   if (const double *Number = std::get_if<double>(&Staged)) {
-    // The same locale-independent formatting every conversion diagnostic uses,
-    // so one value never has two canonical spellings.
     std::ostringstream Stream;
     Stream << std::setprecision(std::numeric_limits<double>::max_digits10)
            << *Number;
@@ -102,7 +95,6 @@ DescriptorPlanEntry MakeConstantPlanEntry(const StagedConstant &Declaration,
   DescriptorPlanEntry Entry;
   Entry.Category = PlanEntryKind::Value;
 
-  // A constant installs its value at exactly the path its qualified name names.
   Entry.VmPath = Declaration.QualifiedName;
 
   SymbolDescriptor Symbol =
@@ -148,8 +140,6 @@ EnumerationDomain MakeEnumerationDomain(const StagedEnumeration &Declaration) {
   Domain.Values.erase(std::unique(Domain.Values.begin(), Domain.Values.end()),
                       Domain.Values.end());
 
-  // An explicit mask replaces the mask the declared enumerators imply; without
-  // one the supported bits are exactly the declared enumerators' bits.
   if (Declaration.HasDeclaredMask)
     Domain.SupportedBits = Declaration.SupportedBits;
   if (!Declaration.IsBitflags)
@@ -162,8 +152,6 @@ MakeEnumerationPlanEntry(const StagedEnumeration &Declaration,
                          SymbolId Parent) {
   DescriptorPlanEntry Entry;
 
-  // An enumeration is a reflected scope that owns one Luna table at exactly the
-  // path its qualified name names, so it plans as a scope declaration.
   Entry.Category = PlanEntryKind::Scope;
   Entry.VmPath = Declaration.QualifiedName;
   Entry.Symbol = MakeEnumerationSymbol(Declaration, Parent);
@@ -196,8 +184,6 @@ MakeEnumerationPlanEntry(const StagedEnumeration &Declaration,
   Record.Attributes = Declaration.Attributes;
   Record.Examples = Declaration.Examples;
 
-  // Bitflag behavior is part of what the enumeration reflects, because a
-  // consumer and a generator both need to know a combination is representable.
   if (Declaration.IsBitflags) {
     ReflectionAttributeFields Flags;
     Flags.Name = "Bitflags";
@@ -207,8 +193,6 @@ MakeEnumerationPlanEntry(const StagedEnumeration &Declaration,
   }
   Entry.Record = std::move(Record);
 
-  // Every enumerator and alias is a field of the one immutable table the
-  // enumeration installs, converted through the enumeration's own writer.
   PlannedValueTable Table;
   Table.Type = Type;
   for (const StagedEnumerator &Enumerator : Declaration.Enumerators) {
@@ -235,8 +219,6 @@ MakeEnumeratorPlanEntry(const StagedEnumeration &Declaration,
                         const SymbolId &CanonicalEnumerator) {
   DescriptorPlanEntry Entry;
 
-  // An enumerator installs no value of its own: it is one field of the
-  // enumeration's immutable table, which the enumeration installs as a unit.
   Entry.Category = PlanEntryKind::ReflectionRecord;
 
   const std::string QualifiedName =
@@ -267,8 +249,6 @@ MakeEnumeratorPlanEntry(const StagedEnumeration &Declaration,
   Record.QualifiedName = QualifiedName;
   Record.Scope = ScopeId(Enumeration);
 
-  // An alias keeps the canonical enumerator as its declaration, so reflection
-  // and generation always resolve back to the one canonical name.
   Record.Declaration = Enumerator.IsAlias && CanonicalEnumerator.IsValid()
                            ? CanonicalEnumerator
                            : Entry.Identity;
@@ -299,8 +279,6 @@ std::optional<ErrorDiagnostic>
 ValidateStagedEnumeration(const StagedEnumeration &Declaration) {
   const std::string Subject = EnumerationSubject(Declaration);
 
-  // Scoped behavior is the default: an unscoped enumeration is exposed only
-  // through its own explicit opt-in.
   if (!Declaration.Policy.IsScoped && !Declaration.UnscopedIsAllowed)
     return MissingOptInDiagnostic(
         Subject, "the enumeration is unscoped; exposing an unscoped "
@@ -321,7 +299,6 @@ ValidateStagedEnumeration(const StagedEnumeration &Declaration) {
     const StagedEnumerator &Enumerator = Declaration.Enumerators[Index];
     const std::string Member = EnumeratorSubject(Declaration, Enumerator);
 
-    // A duplicate name is always a collision, whatever the two names declare.
     for (std::size_t Earlier = 0; Earlier < Index; ++Earlier) {
       if (Declaration.Enumerators[Earlier].Segment == Enumerator.Segment)
         return DuplicateNameDiagnostic(Member);
@@ -335,9 +312,6 @@ ValidateStagedEnumeration(const StagedEnumeration &Declaration) {
       continue;
     }
 
-    // The declared C++ underlying type ranks before Luna's own representation
-    // policy, so a value that its own enumeration cannot hold is reported as
-    // such.
     if (Enumerator.Numeric < Declaration.Policy.Minimum ||
         Enumerator.Numeric > Declaration.Policy.Maximum)
       return ValueOutOfRangeDiagnostic(
@@ -356,7 +330,6 @@ ValidateStagedEnumeration(const StagedEnumeration &Declaration) {
           static_cast<long long>(CanonicalIntegerLowest),
           static_cast<long long>(CanonicalIntegerHighest));
 
-    // A duplicate numeric value is accepted only as an explicit alias.
     for (std::size_t Earlier = 0; Earlier < Index; ++Earlier) {
       const StagedEnumerator &Other = Declaration.Enumerators[Earlier];
       if (Other.IsAlias || Other.Numeric != Enumerator.Numeric)
@@ -365,7 +338,6 @@ ValidateStagedEnumeration(const StagedEnumeration &Declaration) {
           Member, Other.Segment, static_cast<long long>(Enumerator.Numeric));
     }
 
-    // Every declared bitflag value is a subset of the declared supported mask.
     if (Declaration.IsBitflags && Declaration.HasDeclaredMask &&
         (Enumerator.Numeric & ~Declaration.SupportedBits) != 0)
       return UnsupportedFlagBitsDiagnostic(

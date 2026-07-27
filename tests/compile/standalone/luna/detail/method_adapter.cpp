@@ -6,9 +6,6 @@
 
 namespace {
 
-// The declared shape of every accepted and rejected method target is decided
-// from this header alone: no other Luna header, no Luau include path, and
-// nothing but the standard library.
 struct StandaloneBase {
   virtual ~StandaloneBase() = default;
 
@@ -33,8 +30,6 @@ void StandaloneWrite(StandaloneCrate &Target, int Amount) {
 template <class Target>
 using Shape = Luna::Detail::MethodTargetShape<StandaloneCrate, Target>;
 
-// A member function pointer states its receiver through its own class and const
-// qualification, including when it was declared on a base.
 static_assert(Shape<int (StandaloneCrate::*)(int) const>::IsSupported &&
                   Shape<int (StandaloneCrate::*)(int) const>::ReceiverIsConst,
               "A const member function pointer declares a const receiver.");
@@ -50,7 +45,6 @@ static_assert(Shape<int (StandaloneCrate::*)(int) noexcept>::IsSupported,
 static_assert(Shape<int (StandaloneCrate::*)(int) const noexcept>::IsSupported,
               "A const noexcept member pointer is a method target.");
 
-// An explicit wrapper states its receiver through its first parameter.
 static_assert(Shape<decltype(&StandaloneRead)>::IsSupported &&
                   Shape<decltype(&StandaloneRead)>::ReceiverIsConst,
               "A wrapper taking a const reference declares a const receiver.");
@@ -63,7 +57,6 @@ static_assert(Shape<int (*)(StandaloneCrate *)>::IsSupported,
 static_assert(Shape<int (*)(const StandaloneCrate *)>::IsSupported,
               "A wrapper taking a const pointer is a method target.");
 
-// Every other form is rejected by the shape a registration is constrained on.
 static_assert(!Shape<int (*)(int)>::IsSupported,
               "A callable whose first parameter is not the class declares no "
               "receiver.");
@@ -76,7 +69,6 @@ static_assert(std::is_same_v<typename Shape<int>::Declared,
                              Luna::Detail::UnsupportedMemberShape>,
               "A rejected target declares the unsupported member shape.");
 
-// One instance member and one static member are two different staged requests.
 static_assert(!std::is_copy_constructible_v<Luna::Detail::MethodRequest> &&
                   std::is_move_constructible_v<Luna::Detail::MethodRequest>,
               "A staged member request is a move-only value.");

@@ -35,9 +35,6 @@ struct InvocationResult final {
   [[nodiscard]] bool IsSuccess() const noexcept { return ReturnCount >= 0; }
 };
 
-// The subject one dispatch names inside a sentence. Until the record's own
-// candidates are known it is the foundation's wording; an instance member names
-// its class and member as soon as its metadata says so.
 [[nodiscard]] std::string CallableContext(std::string_view GlobalName) {
   return DescribeConversionSubjectContext(
       SubjectForCallable(GlobalName, false));
@@ -55,12 +52,6 @@ struct InvocationResult final {
   return {.ReturnCount = -1, .Diagnostic = std::move(Message)};
 }
 
-// Selects the candidate of one overload set this call resolves to. A set with a
-// single committed candidate resolves to exactly that declaration without
-// probing anything, so one-candidate invocation keeps the foundation's arity
-// and type diagnostics unchanged. A set with several candidates resolves
-// through side-effect-free probing and Pareto dominance, and a refused
-// resolution reports one canonical no-match or ambiguity diagnostic.
 struct SelectedOverload final {
   OverloadCandidate *Candidate = nullptr;
   std::string Diagnostic;
@@ -84,15 +75,6 @@ SelectOverload(lua_State *State, BindingRecord &Record,
   return Selected;
 }
 
-// The instance-member half of one overload set: the class its candidates
-// operate on, and - when the set published exactly one candidate - whether that
-// candidate mutates its object.
-//
-// A set of several candidates is validated without any mutation requirement and
-// then ranks const access per candidate, so a const value of the class still
-// reaches the const sibling of a non-const member. A set of exactly one
-// candidate is validated with that candidate's own requirement, so its refusal
-// comes straight from the access gate in the gate's own fixed order.
 struct MemberDispatch final {
   const TypeDescriptor *Class = nullptr;
   bool RequiresMutation = false;
@@ -126,11 +108,6 @@ struct MemberDispatch final {
                                                FaultInjector &Faults) {
   const std::string_view GlobalName = Record.GlobalName();
   try {
-    // An instance member validates the object it operates on first. Presence,
-    // origin State, layout, metatable identity, lifetime, dynamic type, and
-    // const access are all decided before one ordinary argument is inspected,
-    // which is what makes a dot call without a receiver fail as a receiver
-    // refusal rather than as a shifted argument diagnostic.
     const MemberDispatch Member = DescribeMember(Record);
     ValidatedReceiver Receiver;
     const InstanceReceiver *Bound = nullptr;
@@ -142,8 +119,6 @@ struct MemberDispatch final {
       Bound = &Receiver.Bound;
     }
 
-    // Resolution happens before anything commits: nothing is converted, no
-    // native target runs, and no state is mutated while candidates are ranked.
     SelectedOverload Selected = SelectOverload(State, Record, Types, Bound);
     if (!Selected.Candidate)
       return Failure(Selected.Diagnostic.empty()
@@ -153,12 +128,6 @@ struct MemberDispatch final {
                          : Selected.Diagnostic);
     ErasedCallableDescriptor &Descriptor = Selected.Candidate->Descriptor;
 
-    // A callable that declares optional, defaulted, or variadic parameters
-    // binds, invokes, and publishes through its own declared shape. Exception
-    // translation stays exactly the foundation's.
-    // The subject every later diagnostic of this call names. One instance
-    // member names its class and member here exactly as its receiver refusal,
-    // its getter, and its setter already do.
     const bool IsMember = Descriptor.Metadata().HasReceiver();
     const std::string Named = MemberContext(GlobalName, IsMember);
 
@@ -238,15 +207,6 @@ int NativeTrampoline(lua_State *State) {
     try {
       InvocationResult Result;
 
-      // The closure carries one thing: the permanent dispatch slot of its
-      // canonical path. One accounted retention at invocation entry holds the
-      // immutable dispatch generation that resolves it, so the target and every
-      // piece of metadata this call needs stay valid for the whole call even if
-      // a later publication replaces the generation meanwhile - and that
-      // superseded generation cannot be reclaimed while this call still holds
-      // it. A call that began under one generation therefore finishes under it;
-      // the next call through the same closure resolves whatever is current
-      // then.
       const DispatchSlotId Slot = ClosureDispatchSlot(State);
       const DispatchTable *Dispatch = ObserveDispatchTable(State);
       const DispatchRetention Retained =
@@ -255,15 +215,9 @@ int NativeTrampoline(lua_State *State) {
       const DispatchEntry *Entry = Retained.Find(Slot);
       BindingRecord *Record = Entry ? Entry->Target : nullptr;
       if (!Entry) {
-        // The slot names nothing this State ever issued, so there is no symbol
-        // to name in the refusal.
         Result = Failure("Unavailable binding: this State no longer resolves "
                          "the callable this closure was installed for.");
       } else if (!Record || !Record->IsCommitted()) {
-        // The slot is still the permanent identity of its canonical path, and
-        // the entry still names that path; only the target is gone. A stale
-        // closure of a removed symbol therefore refuses deterministically under
-        // the name it was installed for instead of following released storage.
         Result = Failure(
             "Unavailable binding: " + CallableContext(Entry->QualifiedName) +
             " is no longer available in this State.");
@@ -275,8 +229,6 @@ int NativeTrampoline(lua_State *State) {
         Faults = Entry->Faults;
         Faults->ClearCallbackStackRestoration();
 
-        // One capture at invocation entry: every conversion and diagnostic of
-        // this call reads the same immutable type generation.
         const std::shared_ptr<const TypeGeneration> Types =
             Entry->Types ? Entry->Types->Capture() : nullptr;
         if (!Types)
@@ -320,7 +272,6 @@ int NativeTrampoline(lua_State *State) {
     std::memcpy(PreparedDiagnostic, Fallback, DiagnosticLength);
   }
 
-  // Only trivially destructible locals remain in this minimal error tail.
   lua_settop(State, EntryDepth);
   const int RestoredDepth = lua_gettop(State);
   lua_pushlstring(State, PreparedDiagnostic, DiagnosticLength);

@@ -37,8 +37,6 @@ using Luna::Detail::DispatchTable;
 
 int FailureCount = 0;
 
-// The explicit lifetime every borrowed value this file exposes is published
-// under. It stays live for the whole file: nothing here tests invalidation.
 std::uint64_t ExposedLifetime = 1;
 
 void Check(bool Condition, std::string_view Description) {
@@ -48,9 +46,6 @@ void Check(bool Condition, std::string_view Description) {
   std::cerr << "dispatch slot check failed: " << Description << '\n';
 }
 
-// One target address a generation entry may name. The migration keeps the
-// foundation's callable record as the target, and this test only needs to prove
-// which target one slot resolves to, so a distinct address per name is enough.
 [[nodiscard]] Luna::Detail::BindingRecord *FakeTarget(std::uintptr_t Value) {
   return reinterpret_cast<Luna::Detail::BindingRecord *>(Value);
 }
@@ -64,8 +59,6 @@ void Check(bool Condition, std::string_view Description) {
   return Entry;
 }
 
-// One slot per canonical path, permanent for the life of the table, and issued
-// independently of the order the paths arrive in.
 void TestPermanentSlotIdentity() {
   DispatchTable Table;
   Check(!Table.FindSlot("First").has_value(),
@@ -84,8 +77,6 @@ void TestPermanentSlotIdentity() {
   Check(!DispatchSlotId{}.IsValid(), "the zero slot is never a valid identity");
 }
 
-// Binding, resolution, and retirement of one slot, and the immutability that
-// lets an invocation retain its generation.
 void TestGenerationRetentionAndRetirement() {
   DispatchTable Table;
   const DispatchSlotId Slot = Table.SlotFor("Callable");
@@ -112,8 +103,6 @@ void TestGenerationRetentionAndRetirement() {
             First->Find(Slot)->Target == FakeTarget(0x1000),
         "the retained generation keeps its own target");
 
-  // Exactly the retention Requirement 17.6 asks for: retiring a slot never
-  // reaches the generation an invocation already captured.
   Table.Retire(Slot);
   const auto Third = Table.Capture();
   Check(Third->Generation() == 3, "retirement publishes a new generation");
@@ -131,7 +120,6 @@ void TestGenerationRetentionAndRetirement() {
             *Table.FindSlot("Callable") == Slot,
         "retirement never releases the permanent slot identity");
 
-  // Rebinding the same permanent slot replaces only its entry.
   Table.Bind(Slot, "Callable", FakeTarget(0x3000), nullptr, nullptr);
   Check(Table.Resolve(Slot) == FakeTarget(0x3000),
         "a rebound slot resolves to the new target");
@@ -140,8 +128,6 @@ void TestGenerationRetentionAndRetirement() {
         "the retired generation stays retired");
 }
 
-// Entries are ordered by slot identity, so resolution never depends on the
-// order the slots were bound in.
 void TestCanonicalEntryOrder() {
   DispatchTable Forward;
   DispatchTable Backward;
@@ -170,8 +156,6 @@ void TestCanonicalEntryOrder() {
   Check(Ordered, "entry order follows slot identity, not bind order");
 }
 
-// The installed closure of one root-scope callable carries exactly its path's
-// permanent slot, and that slot resolves to the callable the store owns.
 void TestInstalledRootClosureCarriesItsSlot() {
   Luna::State Host;
   Check(Host.IsReady(), "the host State is ready");
@@ -193,8 +177,6 @@ void TestInstalledRootClosureCarriesItsSlot() {
   Check(Hooks::DispatchGenerationOf(Host) >= 1,
         "registration published a dispatch generation");
 
-  // The slot resolves to exactly the record the callable store owns, which is
-  // what every consistency check compares.
   Check(Hooks::InstalledBindingRecordAddress(Host, "Add") ==
             Hooks::BindingRecordAddress(Host, "Add"),
         "the slot resolves to the store's own record");
@@ -208,8 +190,6 @@ void TestInstalledRootClosureCarriesItsSlot() {
         "invocation restores the stack exactly");
 }
 
-// A path keeps its permanent slot across a failed attempt, and while nothing is
-// registered at it the slot is unavailable rather than stale.
 void TestSlotSurvivesFailedRegistration() {
   Luna::State Host;
   Check(Host.IsReady(), "the host State is ready");
@@ -241,7 +221,6 @@ void TestSlotSurvivesFailedRegistration() {
         "the reused slot dispatches to the new callable");
 }
 
-// Scoped and class-member callables install through the same indirection.
 void TestScopedAndMemberClosuresCarrySlots() {
   struct Counter final {
     int Value = 0;
@@ -279,16 +258,12 @@ void TestScopedAndMemberClosuresCarrySlots() {
           "the slot resolves to the store's own record");
   }
 
-  // The scoped path is invoked the way a script reaches it, because its closure
-  // lives in its namespace table rather than at a global name.
   const Luna::ExecutionResult Executed = Host.Execute("Result = Space.Inner()");
   Check(Executed.IsSuccess(), "the scoped callable runs through its slot");
   Check(Hooks::ObserveIntegerGlobal(Host, "Result") == 5,
         "the scoped callable produced its declared result");
 }
 
-// Slots belong to their State: two States name the same path independently and
-// resolve it through their own generation.
 void TestSlotsAreStateLocal() {
   Luna::State First;
   Luna::State Second;
@@ -318,9 +293,6 @@ void TestSlotsAreStateLocal() {
         "each State resolves its own target");
 }
 
-// A superseded generation lives exactly as long as something retains it, and
-// each of the three retainers Requirement 17.6 names is enough on its own to
-// keep it from being reclaimed.
 void TestSupersededGenerationsAwaitTheirRetainers() {
   DispatchTable Table;
   const DispatchSlotId Slot = Table.SlotFor("Callable");
@@ -343,8 +315,6 @@ void TestSupersededGenerationsAwaitTheirRetainers() {
             "the retention is accounted under its own retainer");
       Check(Table.TotalRetainerCount() == 1, "exactly one claim is live");
 
-      // The publication happens under the retention, exactly as a replacement
-      // happens under a call, a cleanup, or a journal entry.
       Table.Bind(Slot, "Callable", FakeTarget(0x2000), nullptr, nullptr);
       Check(Table.Resolve(Slot) == FakeTarget(0x2000),
             "the published generation resolves the new target");
@@ -372,13 +342,10 @@ void TestSupersededGenerationsAwaitTheirRetainers() {
     Check(Table.SupersededGenerationCount() == 0,
           "the journal is empty after reclamation");
 
-    // Restores the target the next round supersedes, so every retainer runs the
-    // same publication.
     Table.Bind(Slot, "Callable", FakeTarget(0x1000), nullptr, nullptr);
     Check(Table.ReclaimUnretained() == 1, "the restoring publication reclaims");
   }
 
-  // A retention given back early releases both its claim and its generation.
   DispatchRetention Early = Table.Retain(DispatchRetainer::LifecycleJournal);
   Table.Bind(Slot, "Callable", FakeTarget(0x3000), nullptr, nullptr);
   Check(Table.RetainedGenerationCount() == 1, "the early claim still retains");
@@ -393,8 +360,6 @@ void TestSupersededGenerationsAwaitTheirRetainers() {
         "releasing twice changes nothing");
 }
 
-// Removal is always an immutable unavailable entry that still names its symbol,
-// and it is never a mutation of a generation someone already retained.
 void TestRemovalPublishesImmutableUnavailableEntries() {
   DispatchTable Table;
   const DispatchSlotId First = Table.SlotFor("First");
@@ -416,13 +381,10 @@ void TestRemovalPublishesImmutableUnavailableEntries() {
             Retained.Find(First)->Target == FakeTarget(0x10),
         "retirement never reaches a generation someone retains");
 
-  // Retiring an already unavailable slot is not a second publication.
   Table.Retire(First);
   Check(Table.Generation() == Published + 1,
         "retiring an unavailable slot publishes nothing");
 
-  // A slot that was issued but never bound is retired into an entry too, so its
-  // canonical name is available to the refusal a stale closure receives.
   const DispatchSlotId Unbound = Table.SlotFor("Unbound");
   Table.Retire(Unbound);
   const DispatchEntry *Named = Table.Capture()->Find(Unbound);
@@ -430,13 +392,10 @@ void TestRemovalPublishesImmutableUnavailableEntries() {
             Named->QualifiedName == "Unbound",
         "an issued slot retires into a named unavailable entry");
 
-  // A slot this table never issued is not its own to retire.
   const std::uint64_t Before = Table.Generation();
   Table.Retire(DispatchSlotId{9999});
   Check(Table.Generation() == Before, "a foreign slot retires nothing");
 
-  // Retiring everything keeps every issued slot's identity and name and leaves
-  // no reachable target at all.
   Table.RetireEverything();
   const auto Retired = Table.Capture();
   Check(Retired->AvailableCount() == 0, "no slot is reachable any more");
@@ -452,10 +411,6 @@ void TestRemovalPublishesImmutableUnavailableEntries() {
         "the retained generation is still exactly what it was published as");
 }
 
-// The three behaviors Requirements 17.6 and 17.7 ask for, through the real
-// virtual machine: a call in progress is never retargeted, the generation it
-// entered under cannot be reclaimed while it runs, and the next call through
-// the same retained closure resolves whatever is current then.
 void TestRetainedClosureResolvesTheCurrentTarget() {
   Luna::State Host;
   Check(Host.IsReady(), "the host State is ready");
@@ -477,8 +432,6 @@ void TestRetainedClosureResolvesTheCurrentTarget() {
   Check(Host.Bindings()
             .Register("Successor",
                       [&Host, &Observed]() {
-                        // Every call retains its own generation, so a call that
-                        // runs inside another one is accounted alongside it.
                         const std::size_t Live =
                             Hooks::DispatchInvocationRetainerCount(Host);
                         if (Live > Observed.NestedRetainers)
@@ -490,9 +443,6 @@ void TestRetainedClosureResolvesTheCurrentTarget() {
   Check(Host.Bindings()
             .Register("Reentrant",
                       [&Host, &Observed]() {
-                        // One publication from inside a running call: the call
-                        // holds its own generation, so this must neither
-                        // deadlock nor retarget the call that is running.
                         Observed.Published = Hooks::RetargetDispatchSlot(
                             Host, "Replaced", "Successor");
                         Observed.Retainers =
@@ -504,10 +454,6 @@ void TestRetainedClosureResolvesTheCurrentTarget() {
                         Observed.Reclaimed =
                             Hooks::ReclaimDispatchGenerations(Host);
 
-                        // A nested call through the just-retargeted path,
-                        // started while this one is still running: it resolves
-                        // the current target without disturbing the generation
-                        // this call is finishing under.
                         const auto Nested =
                             Hooks::InvokeBinding(Host, "Replaced", {});
                         Observed.NestedSucceeded =
@@ -551,7 +497,6 @@ void TestRetainedClosureResolvesTheCurrentTarget() {
   Check(Hooks::DispatchGenerationOf(Host) == Before + 1,
         "the publication advanced the generation exactly once");
 
-  // The call is over, so nothing retains the superseded generation any more.
   Check(Hooks::DispatchInvocationRetainerCount(Host) == 0,
         "no invocation retains a generation between calls");
   Check(Hooks::RetainedDispatchGenerationCount(Host) == 0,
@@ -559,8 +504,6 @@ void TestRetainedClosureResolvesTheCurrentTarget() {
   Check(Hooks::ReclaimDispatchGenerations(Host) == 1,
         "the superseded generation is reclaimed after the call completed");
 
-  // The closure installed at the original path never changed: it carries the
-  // same permanent slot, and that slot now resolves to the new target.
   const auto Second = Hooks::InvokeBinding(Host, "Replaced", {});
   Check(Second.Succeeded && Second.ReturnedValue &&
             std::get<int>(*Second.ReturnedValue) == 2,
@@ -574,8 +517,6 @@ void TestRetainedClosureResolvesTheCurrentTarget() {
         "the script observed the current target's result");
 }
 
-// A closure of a removed symbol refuses deterministically under the name it was
-// installed for, and the refusal restores the stack exactly.
 void TestRemovedSymbolRefusesDeterministically() {
   Luna::State Host;
   Check(Host.IsReady(), "the host State is ready");
@@ -616,8 +557,6 @@ void TestRemovedSymbolRefusesDeterministically() {
         "the State still registers after the refusal");
 }
 
-// The cleanup and capture metadata one invocation needs belongs to the entry it
-// entered under, so a later publication can never take it away mid-call.
 void TestRetainedGenerationKeepsItsCleanupMetadata() {
   DispatchTable Table;
   Luna::Detail::FaultInjector EnteredFaults;
@@ -636,8 +575,6 @@ void TestRetainedGenerationKeepsItsCleanupMetadata() {
         "an entry carries the fault context and canonical type source one "
         "invocation of it needs");
 
-  // Exactly the replacement Requirement 17.6 describes, published while the
-  // call that entered under the old entry is still running.
   Table.Bind(Slot, "Callable", FakeTarget(0x2000), &PublishedFaults,
              &PublishedTypes);
   Check(Entered->Faults == &EnteredFaults && Entered->Types == &EnteredTypes,
@@ -647,9 +584,6 @@ void TestRetainedGenerationKeepsItsCleanupMetadata() {
             Published->Types == &PublishedTypes,
         "the published entry names its own metadata");
 
-  // The metadata is not merely still addressable: it is still the metadata this
-  // call records its restoration through and captures its types from, which is
-  // what makes the whole call completable under the retained generation.
   Entered->Faults->RecordCallbackStackRestoration(3, 3, 4);
   const auto Observed = Entered->Faults->LastCallbackStackRestoration();
   Check(Observed && Observed->EntryDepth == 3 && Observed->RestoredDepth == 3 &&
@@ -665,9 +599,6 @@ void TestRetainedGenerationKeepsItsCleanupMetadata() {
         "the superseded generation is reclaimed once its call is over");
 }
 
-// A call that publishes and then fails still completes under its own entry: the
-// fault context of the generation it entered under is what records its exact
-// restoration, and the next call resolves the target the publication installed.
 void TestFailingCallCompletesUnderTheGenerationItEntered() {
   Luna::State Host;
   Check(Host.IsReady(), "the host State is ready");
@@ -708,8 +639,6 @@ void TestFailingCallCompletesUnderTheGenerationItEntered() {
         "the next call through the same closure resolves the new target");
 }
 
-// One borrowed value of one registered class, published at a canonical path so
-// a script can reach it.
 void ExposeBorrowed(Luna::State &Host, std::string QualifiedName,
                     std::string Path, void *Storage) {
   Luna::Detail::ClassExposureRequest Request;
@@ -723,9 +652,6 @@ void ExposeBorrowed(Luna::State &Host, std::string QualifiedName,
         "the borrowed value is exposed exactly once");
 }
 
-// An operator candidate is an ordinary callable behind a Luna-owned segment, so
-// it dispatches through the same indirection: its metamethod holds no record,
-// its slot is permanent, and removing it refuses under its own canonical name.
 void TestOperatorClosuresResolveThroughTheirSlots() {
   struct Operand final {
     int Value = 4;
@@ -768,8 +694,6 @@ void TestOperatorClosuresResolveThroughTheirSlots() {
                    "assert(-OperandObject == -4)\n");
   Check(Both.IsSuccess(), "both operators dispatch through their slots");
 
-  // Removing exactly one operator leaves its sibling untouched, and the refusal
-  // names the Luna-owned segment the closure was installed for.
   Check(Hooks::RetireDispatchSlot(Host, AddPath), "the operator slot retired");
   Check(!Hooks::DispatchSlotIsAvailable(Host, AddPath),
         "the retired operator slot resolves to nothing");
@@ -796,9 +720,6 @@ void TestOperatorClosuresResolveThroughTheirSlots() {
   Check(Host.IsReady(), "the State remains usable after the operator refusal");
 }
 
-// A callable a module load contributed dispatches through the same indirection:
-// its permanent slot outlives the load, and a later publication retargets it
-// without touching the closure the module installed.
 void TestModuleContributedClosuresResolveThroughTheirSlots() {
   Luna::State Host;
   Check(Host.IsReady(), "the host State is ready");
@@ -852,10 +773,6 @@ void TestModuleContributedClosuresResolveThroughTheirSlots() {
         "the module callable's closure resolves the current target");
 }
 
-// A retained generation owns everything it describes, so it stays readable
-// after the State, its machine, and every closure it installed are gone - and
-// giving the claim back afterwards is safe rather than a write through dead
-// storage.
 void TestRetainedGenerationOutlivesTheClosuresItNamed() {
   DispatchRetention Journal;
   std::uint64_t Number = 0;
@@ -891,8 +808,6 @@ void TestRetainedGenerationOutlivesTheClosuresItNamed() {
           "the retained generation resolves the callable it was taken over");
   }
 
-  // The machine closed while every piece of cleanup metadata was still valid,
-  // and no cleanup step ran without the metadata it requires.
   const auto Destroyed = Hooks::ObserveLastStateDestruction();
   Check(Destroyed.Observed && Destroyed.RefusedNewInvocations,
         "destruction refused every new invocation before the machine closed");

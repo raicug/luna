@@ -1,25 +1,3 @@
-// Focused coverage of the two promises one member access makes when it fails.
-//
-// Requirement 13.9 asks that every getter, setter, field-read, and field-write
-// failure restore the Luau stack and identify the class and member qualified
-// name. Requirement 13.10 asks something sharper: a validation or conversion
-// failure taken before the consumer's own code starts leaves the native object
-// unchanged, and once that code has started Luna promises only virtual-machine
-// rollback and exception translation - never that it reversed a native side
-// effect.
-//
-// Those are two different guarantees, so everything here is written to tell
-// them apart. Each case drives one member access through the real virtual
-// machine, then asks four questions of it: which step refused, which half of
-// the boundary that step belongs to, what the native object looks like
-// afterwards, and whether the callback checkpoint came back to exactly the
-// depth it was entered at with nothing published.
-//
-// The asymmetry is proved directly: a setter that mutates its object and then
-// throws leaves the mutation in place - Luna says so and the test asserts it -
-// while still publishing nothing and still restoring the stack exactly. A
-// refused conversion of the same write leaves the object untouched.
-
 // clang-format off
 #include <luna/binding/binding_registry.hpp>
 #include <luna/binding/class_builder.hpp>
@@ -61,9 +39,6 @@ void Check(bool Condition, std::string_view Description) {
   std::cerr << "member boundary check failed: " << Description << '\n';
 }
 
-// How often each declared target ran, and what it did to the object before it
-// refused. A setter that mutates and then throws is the whole point of the
-// after-user-code half, so its mutation is counted separately from its refusal.
 std::size_t GetterRuns = 0;
 std::size_t SetterRuns = 0;
 std::size_t ThrowingGetterRuns = 0;
@@ -97,9 +72,6 @@ struct Gadget final {
     throw std::runtime_error("the fragile getter refused");
   }
 
-  // The declared setter that makes the boundary observable: it changes the
-  // object first and only then refuses, so Luna cannot claim the object is
-  // unchanged afterwards - and does not.
   void SetMarked(int Value) {
     ++MutatingSetterRuns;
     Trace = Value;
@@ -173,9 +145,6 @@ RegisterGadget(Luna::BindingRegistry &Registry) {
   return Observed ? *Observed : -1;
 }
 
-// The callback checkpoint one refused member access restores exactly. It is the
-// foundation's own pinned invariant, read through the foundation's own
-// observation.
 [[nodiscard]] bool RestoredCheckpoint(const Luna::State &Owner) {
   const auto Observation = Hooks::ObserveLastCallbackStackRestoration(Owner);
   return Observation.has_value() &&
@@ -183,8 +152,6 @@ RegisterGadget(Luna::BindingRegistry &Registry) {
          Observation->ErrorDepth == Observation->RestoredDepth + 1;
 }
 
-// One refused dispatch, described by the step that refused and the half of the
-// boundary that step belongs to.
 [[nodiscard]] bool RefusedAt(const Luna::State &Owner,
                              MemberDispatchStage Stage,
                              std::string_view Boundary) {
@@ -198,14 +165,10 @@ RegisterGadget(Luna::BindingRegistry &Registry) {
       Boundary)
     return false;
 
-  // Nothing published, and the metamethod returned to exactly the depth it was
-  // entered at.
   return Observed->PublishedCount == 0 &&
          Observed->EntryDepth == Observed->RestoredDepth;
 }
 
-// A member read and a member write reach the object through the class
-// metatable, so a script uses them exactly the way it uses any other field.
 void CheckMembersAreReachableThroughTheVirtualMachine() {
   ResetCounters();
   Luna::State Owner;
@@ -230,8 +193,6 @@ void CheckMembersAreReachableThroughTheVirtualMachine() {
             Object.Charge == 5,
         "a property write reaches the declared setter");
 
-  // A method of the class is still one function value reached through the class
-  // scope, so member lookup never shadows it.
   Check(ScriptResult(Owner, "Result = Value:Grow(2)") == 7,
         "a declared method is still reached through the class table");
 
@@ -239,9 +200,6 @@ void CheckMembersAreReachableThroughTheVirtualMachine() {
         "every member access returns the root stack to its entry depth");
 }
 
-// Everything Luna decides itself is on the near side of the boundary: the
-// object is untouched, nothing is published, and the diagnostic names the class
-// and the member.
 void CheckRefusalsBeforeUserCodeLeaveTheObjectUnchanged() {
   ResetCounters();
   Luna::State Owner;
@@ -256,8 +214,6 @@ void CheckRefusalsBeforeUserCodeLeaveTheObjectUnchanged() {
   Check(ExposeGadget(Owner, "Frozen", Frozen, &Generation, ConstAccess::Const),
         "one const value of the class is exposed");
 
-  // A value the declared type does not accept is refused at the value step,
-  // before the setter runs at all.
   const int Before = Object.Charge;
   const std::string Mistyped = Refusal(Owner, "Value.Charge = 'nine'");
   Check(Contains(Mistyped, "Member 'Gadget.Charge' value"),
@@ -273,7 +229,6 @@ void CheckRefusalsBeforeUserCodeLeaveTheObjectUnchanged() {
   Check(RestoredCheckpoint(Owner),
         "a refused conversion restores the callback checkpoint exactly");
 
-  // A const receiver is refused ahead of the direction and the value alike.
   const std::string Const = Refusal(Owner, "Frozen.Charge = 1");
   Check(Contains(Const, "Member 'Gadget.Charge' receiver") &&
             Contains(Const, "const view"),
@@ -284,8 +239,6 @@ void CheckRefusalsBeforeUserCodeLeaveTheObjectUnchanged() {
         "a refused receiver is reported before user code");
   Check(RestoredCheckpoint(Owner), "a refused receiver restores the stack");
 
-  // A direction the member does not permit, and a name the class never
-  // declared, are both Luna's own decisions.
   const std::string ReadOnly = Refusal(Owner, "Value.Serial = 1");
   Check(Contains(ReadOnly, "Member 'Gadget.Serial' permits no write."),
         "a const field permits no write and says which member refused");
@@ -316,9 +269,6 @@ void CheckRefusalsBeforeUserCodeLeaveTheObjectUnchanged() {
         "the State keeps reading members after every refusal");
 }
 
-// Once the declared target has started, Luna restores the virtual machine and
-// translates the exception - and states plainly that the native object may have
-// changed.
 void CheckRefusalsAfterUserCodeOnlyRollBackTheVirtualMachine() {
   ResetCounters();
   Luna::State Owner;
@@ -332,7 +282,6 @@ void CheckRefusalsAfterUserCodeOnlyRollBackTheVirtualMachine() {
 
   const int EntryDepth = Hooks::ObserveRootStackDepth(Owner).value_or(-1);
 
-  // A getter that throws: contained, translated, and named.
   const std::string Thrown = Refusal(Owner, "Result = Value.Fragile");
   Check(Contains(Thrown, "Runtime error:") &&
             Contains(Thrown, "member 'Gadget.Fragile' getter threw:") &&
@@ -348,8 +297,6 @@ void CheckRefusalsAfterUserCodeOnlyRollBackTheVirtualMachine() {
                             "end") == 1,
         "the refused read left no script-visible partial result behind");
 
-  // A setter that mutates and then throws: the mutation stays, because Luna
-  // never claimed it would not.
   Check(Object.Trace == 0, "the object starts unmarked");
   const std::string Marked = Refusal(Owner, "Value.Marked = 7");
   Check(Contains(Marked, "member 'Gadget.Marked' setter threw:"),
@@ -363,9 +310,6 @@ void CheckRefusalsAfterUserCodeOnlyRollBackTheVirtualMachine() {
   Check(RestoredCheckpoint(Owner),
         "a throwing setter still restores the callback checkpoint exactly");
 
-  // A produced value the virtual machine cannot publish: the getter already
-  // ran, so this is the far side of the boundary too - and still nothing
-  // becomes script-visible.
   Hooks::InjectFault(Owner, StateFaultPoint::MemberValuePublication, 1);
   const std::string Unpublished = Refusal(Owner, "Result = Value.Level");
   Check(Contains(Unpublished, "member 'Gadget.Level'") &&
@@ -387,9 +331,6 @@ void CheckRefusalsAfterUserCodeOnlyRollBackTheVirtualMachine() {
         "the State keeps reading the same member afterwards");
 }
 
-// The same wording for the same subject: an ordinary argument of an instance
-// member names the member, exactly as its receiver, its getter, and its setter
-// already do.
 void CheckMemberDiagnosticsNameOneSubject() {
   ResetCounters();
   Luna::State Owner;

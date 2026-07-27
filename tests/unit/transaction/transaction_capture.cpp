@@ -158,8 +158,6 @@ void CheckEntryCapture() {
   Check(Capture->Generations == Hooks::GenerationsOf(Owner),
         "the capture shares the current committed generation set");
 
-  // A capture read from another thread reports that thread as foreign, and the
-  // owner affinity survives a move instead of following the moving thread.
   bool ForeignThreadRejected = false;
   std::thread Reader([&Owner, &ForeignThreadRejected] {
     const auto Foreign = Hooks::CaptureTransactionEntryOf(Owner);
@@ -177,7 +175,6 @@ void CheckEntryCapture() {
   Check(MovedCapture.has_value() && MovedCapture->OwnerEpoch == 2,
         "a move advances the captured owner-object epoch");
 
-  // Freeze is modeled here until the explicit freeze operation exists.
   Check(Hooks::MarkFrozen(Moved) && Hooks::IsFrozen(Moved),
         "the frozen phase is observable");
   const auto FrozenCapture = Hooks::CaptureTransactionEntryOf(Moved);
@@ -190,8 +187,6 @@ void CheckFoundationPrecedence() {
   Luna::State Owner;
   int (*NullTarget)() = nullptr;
 
-  // An invalid identifier still dominates every other failure, including a
-  // wrong thread and a frozen lifecycle.
   Luna::RegistrationResult ForeignInvalid = Luna::RegistrationResult::Success();
   Luna::RegistrationResult ForeignValid = Luna::RegistrationResult::Success();
   std::thread Foreign([&Owner, &ForeignInvalid, &ForeignValid] {
@@ -216,8 +211,6 @@ void CheckFoundationPrecedence() {
   Check(Accepted.IsSuccess(),
         "the owner thread still registers after a foreign attempt");
 
-  // A frozen lifecycle is rejected after the identifier and the thread, and
-  // before a null target.
   Check(Hooks::MarkFrozen(Owner), "the State can enter the frozen phase");
   const auto FrozenNullTarget =
       Owner.Bindings().Register("FrozenCandidate", NullTarget);
@@ -264,7 +257,6 @@ void CheckVmBackedOperationsRequireOwnerThread() {
     ForeignConstant = Registry.RegisterConstant("ForeignValue", 7);
     ForeignBuilder.emplace(Registry.RegisterNamespace("ForeignScope"));
 
-    // The acquired snapshot owns immutable storage and remains unrestricted.
     const Luna::ReflectionRecord Reflected = Snapshot.Find("Counted");
     SnapshotWasReadable = Reflected.IsValid() && Reflected.Name() == "Counted";
   });
@@ -303,8 +295,6 @@ void CheckVmBackedOperationsRequireOwnerThread() {
 }
 
 void CheckMovesPreserveConstructionThreadAffinity() {
-  // Move construction performed by another thread transfers the original
-  // implementation and therefore the original construction-thread identity.
   Luna::State ConstructionSource;
   int ConstructionCalls = 0;
   Check(ConstructionSource.Bindings()
@@ -334,9 +324,6 @@ void CheckMovesPreserveConstructionThreadAffinity() {
         "the original construction thread remains the owner after move "
         "construction");
 
-  // Move assignment is exercised on a worker-owned destination so replacing
-  // that destination also closes its previous VM on its own construction
-  // thread. The transferred source still belongs to this thread.
   Luna::State AssignmentSource;
   int AssignmentCalls = 0;
   Check(
@@ -371,7 +358,6 @@ void CheckMovesPreserveConstructionThreadAffinity() {
 }
 
 void CheckCanonicalCollisionDetection() {
-  // The committed half of the model: one function and one scope.
   std::vector<CommittedSymbol> Committed;
   Committed.push_back(
       MakeCommittedSymbol(MakeFunctionPlanEntry("Committed", IntegerAdder())));
@@ -379,7 +365,6 @@ void CheckCanonicalCollisionDetection() {
   const std::shared_ptr<const CommittedSymbolTable> Table =
       CommittedSymbolTable::Build(std::move(Committed));
 
-  // The pending half: one function planned inside the transaction.
   DescriptorPlan Plan;
   static_cast<void>(
       Plan.Append(MakeFunctionPlanEntry("Pending", IntegerAdder())));
@@ -427,8 +412,6 @@ void CheckCanonicalCollisionDetection() {
                       Luna::ErrorCategory::DuplicateGlobalName, "scope"),
         "a symbol of another category is an incompatible-category collision");
 
-  // The raw root-scope store answers the same question for symbols the
-  // committed table does not describe yet.
   RegistrationValidationRequest Occupied = FunctionRequest(
       "Fresh", &Fresh, RegistrationPrecedence::FoundationRootFunction);
   Occupied.VmPathIsOccupied = true;
@@ -511,7 +494,6 @@ void CheckTypeAndMetadataValidation() {
   const SymbolView View(*Table, Plan);
   const TransactionCapture Capture = ReadyCapture();
 
-  // An unavailable canonical type is rejected before descriptor completeness.
   DescriptorPlanEntry Unavailable =
       MakeFunctionPlanEntry("Unavailable", IntegerAdder());
   Check(Unavailable.Symbol.Signature.has_value(),
@@ -527,7 +509,6 @@ void CheckTypeAndMetadataValidation() {
             Luna::ErrorCategory::Internal, "parameter 2"),
         "an unavailable canonical type names its position");
 
-  // Metadata that disagrees with the canonical signature fails as malformed.
   DescriptorPlanEntry Malformed =
       MakeFunctionPlanEntry("Malformed", IntegerAdder());
   if (Malformed.Symbol.Signature) {
@@ -542,7 +523,6 @@ void CheckTypeAndMetadataValidation() {
             Luna::ErrorCategory::Internal, "parameter count"),
         "callable metadata and the canonical signature must agree");
 
-  // A missing canonical descriptor is the last failure family of validation.
   const auto Missing = ValidateRegistration(
       FunctionRequest("Missing", nullptr,
                       RegistrationPrecedence::GeneralOperation),
@@ -591,15 +571,12 @@ void CheckPreparationStopsShortOfPublication() {
           "the candidate committed table is canonical");
   }
 
-  // Preparation publishes nothing: every ordinary query still observes the
-  // pre-transaction model.
   Check(Hooks::GenerationsOf(Owner) == Entry &&
             Hooks::GenerationsOf(Owner)->Symbols().IsEmpty(),
         "preparation leaves the committed generation set untouched");
   Check(Hooks::ReflectionGeneration(Owner) == 0,
         "preparation leaves the committed reflection generation untouched");
 
-  // An incomplete canonical identity is rejected instead of prepared.
   RegistrationTransaction Incomplete(GenerationSet::Initial());
   DescriptorPlanEntry Broken = ScopeEntry("Broken");
   Broken.Symbol.QualifiedName.clear();
@@ -659,8 +636,6 @@ void CheckNestedSubmissionsJoinTheOuterTransaction() {
             Report.CandidateGeneration == 1 && Report.CandidateSymbols == 3,
         "one group prepares one candidate generation for every symbol");
 
-  // Pending data stays invisible to ordinary virtual-machine, reflection, and
-  // dispatch queries for the whole transaction.
   Check(Report.PublishedGenerationWhileOpen == 0 &&
             Report.PublishedSymbolsWhileOpen == 0,
         "an ordinary query sees no pending symbol");
@@ -682,7 +657,6 @@ void CheckNestedSubmissionsJoinTheOuterTransaction() {
   Check(!Hooks::HasActiveTransaction(Owner),
         "a completed group leaves no active transaction");
 
-  // Nothing leaked: the same names register normally afterwards.
   const auto Registered = Owner.Bindings().Register("Alpha", &AddIntegers);
   const auto Execution = Owner.Execute("ObservedAlpha = Alpha(6, 7)");
   Check(Registered.IsSuccess() && Execution.IsSuccess() &&
@@ -698,7 +672,6 @@ void CheckIgnoredNestedFailurePoisonsTheOuterTransaction() {
   Group.emplace_back("Alpha", IntegerAdder());
   Group.emplace_back("Zulu", IntegerAdder());
 
-  // The callback ignores the nested result and keeps declaring.
   const auto Report =
       Hooks::SubmitJoinedFunctions(Owner, std::move(Group), true);
   Check(Report.JoinedSubmissions == 3 && Report.Planned == 2,

@@ -103,7 +103,6 @@ CanonicalDigest::Compute(std::span<const std::uint8_t> Bytes) noexcept {
   for (std::size_t Block = 0; Block < FullBlockCount; ++Block)
     CompressBlock(Accumulator, Bytes.data() + Block * 64);
 
-  // Length padding always fits in one or two trailing blocks.
   const std::size_t RemainingCount = Bytes.size() % 64;
   std::array<std::uint8_t, 128> Tail{};
   for (std::size_t Index = 0; Index < RemainingCount; ++Index)

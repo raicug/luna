@@ -12,9 +12,6 @@
 namespace Luna::Detail {
 namespace {
 
-// The lifetime half of the gate, in the documented order: a null payload, then
-// the explicit handle a borrowed value requires, then the handle's generation,
-// then the release state itself.
 [[nodiscard]] UserdataAccessFailure
 CheckLifetime(const UserdataHeader &Header,
               const UserdataAccessRequest &Request) noexcept {
@@ -23,8 +20,6 @@ CheckLifetime(const UserdataHeader &Header,
   if (!Header.HasRequiredLifetimeHandle())
     return UserdataAccessFailure::MissingLifetimeHandle;
 
-  // A handle whose generation moved on was invalidated, so every access taken
-  // against the recorded generation is expired.
   if (Header.Handle.IsDeclared() && Request.HandleProbe != nullptr &&
       Request.HandleProbe(Header.Handle.Record) != Header.Handle.Generation)
     return UserdataAccessFailure::ExpiredLifetimeHandle;
@@ -46,10 +41,6 @@ CheckLifetime(const UserdataHeader &Header,
   return UserdataAccessFailure::Invalidated;
 }
 
-// How the value reaches the requested view: its own dynamic type, one
-// registered accessible base path from it, one registered safe downcast policy
-// to it, or the declared view it was exposed as. A view Luna never recorded a
-// path for is a mismatch rather than a guess.
 [[nodiscard]] ClassConversion
 ResolveRequestedType(const UserdataHeader &Header,
                      const UserdataAccessRequest &Request) noexcept {
@@ -69,10 +60,6 @@ ResolveRequestedType(const UserdataHeader &Header,
   return Resolved;
 }
 
-// The value carries the metatable identity of the requested class, or the
-// identity the relationship graph records for the class the value actually is.
-// Metatable equality alone is never proof of type, so the type question is
-// still asked separately.
 [[nodiscard]] bool
 CarriesKnownMetatable(const UserdataHeader &Header,
                       const UserdataAccessRequest &Request) noexcept {
@@ -141,15 +128,11 @@ ValidateUserdataAccess(const UserdataHeader &Header,
   if (!Request.IsComplete())
     return Refuse(UserdataAccessFailure::UnavailableRequest, nullptr);
 
-  // The layout question is asked before any other field of the block is
-  // trusted.
   if (!Header.HasCanonicalLayout())
     return Refuse(UserdataAccessFailure::ForeignLayout, nullptr);
   if (!Header.BelongsTo(Request.Origin))
     return Refuse(UserdataAccessFailure::ForeignState, &Header);
 
-  // A value that names no complete class identity cannot carry the requested
-  // metatable, which is exactly what the metatable check reports.
   if (!Header.IdentifiesClass() || !CarriesKnownMetatable(Header, Request))
     return Refuse(UserdataAccessFailure::MetatableMismatch, &Header);
 
@@ -161,8 +144,6 @@ ValidateUserdataAccess(const UserdataHeader &Header,
   if (!Resolved.IsViable())
     return Refuse(UserdataAccessFailure::TypeMismatch, &Header);
 
-  // A downcast decides compatibility before anything is adjusted, converted, or
-  // invoked, and the decision never mutates the object.
   if (ProbeClassConversion(Resolved, Header.Payload.Storage) == nullptr)
     return Refuse(UserdataAccessFailure::IncompatibleObject, &Header);
 

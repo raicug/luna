@@ -42,18 +42,12 @@ namespace {
   return false;
 }
 
-// Two canonical shapes the type registry deliberately never describes: the
-// owning public value and value pack belong to the custom conversion boundary,
-// so a variadic tail or a dynamic return pack reflects them without ever
-// declaring a convertible type for them.
 [[nodiscard]] bool IsBoundaryOwnedShape(const TypeDescriptor &Type) noexcept {
   const std::optional<FixedTypeKey> Fixed = Type.FixedKey();
   return Fixed &&
          (*Fixed == FixedTypeKey::Value || *Fixed == FixedTypeKey::ValuePack);
 }
 
-// An ordered pack publishes one value per element rather than one aggregate,
-// which is exactly what registration validates availability for.
 [[nodiscard]] bool IsOrderedPackShape(const TypeDescriptor &Type) noexcept {
   switch (Type.Kind()) {
   case TypeKind::Pair:
@@ -66,11 +60,6 @@ namespace {
   }
 }
 
-// Whether one reflected descriptor resolves against the exact type generation
-// frozen with it. A descriptor the registry describes must agree with its
-// record; a descriptor the canonical model keeps outside the registry resolves
-// through the types it publishes instead, so freeze applies the same rule
-// registration applied when it accepted the declaration.
 [[nodiscard]] bool ResolvesShape(const TypeGeneration &Types,
                                  const TypeDescriptor &Type) {
   if (!Type.IsValid())
@@ -96,9 +85,6 @@ namespace {
   if (const TypeRecord *Record = Types.Find(Identity))
     return !Described || Record->Descriptor == *Descriptor;
 
-  // No registry entry: the reference may still name one shape outside the
-  // registry, but only when it carries the descriptor that produced its
-  // identity and every type that shape publishes resolves.
   if (!Described)
     return false;
   const std::optional<TypeId> Computed =
@@ -212,8 +198,6 @@ FreezePreparationStatus FreezeCacheStorage::Prepare(
     Cache->CacheKey.TypeGeneration = Types->Generation();
     Cache->CacheKey.LifecycleGeneration = LifecycleGeneration;
 
-    // The committed table is already canonical. Copying its order gives the
-    // frozen lookup array stable indices owned entirely by this cache.
     for (std::size_t Index = 0; Index < Generations.Symbols().Size(); ++Index) {
       const CommittedSymbol *Symbol = Generations.Symbols().At(Index);
       if (Symbol == nullptr || !Symbol->IsValid())
@@ -226,16 +210,12 @@ FreezePreparationStatus FreezeCacheStorage::Prepare(
             Record->QualifiedName != Symbol->Symbol.QualifiedName)
           return FreezePreparationStatus::InconsistentReflection;
       } else if (Record != nullptr) {
-        // A private identity cannot silently alias a public reflected record.
         return FreezePreparationStatus::InconsistentReflection;
       }
       Cache->Lookups.push_back(FrozenLookupEntry{
           Symbol->Symbol.QualifiedName, Symbol->Category, Symbol->Symbol.Kind,
           Symbol->Identity, RecordIndex});
     }
-    // Reflection may contain synthetic overload-set records in addition to the
-    // committed candidates. Every type reference still has to resolve against
-    // the exact type generation frozen with it.
     for (std::size_t Index = 0; Index < Reflection->RecordCount(); ++Index) {
       const ReflectionRecordFields *Record = Reflection->RecordAt(Index);
       if (Record == nullptr || !ValidateRecordTypes(*Record, *Types))
@@ -269,9 +249,6 @@ FreezePreparationStatus FreezeCacheStorage::Prepare(
           FrozenConversionEntry{Record->Identity, *Record});
     }
 
-    // One immutable overload index per callable path. Candidate order is the
-    // canonical order already used by dispatch, and every index points into the
-    // cache-owned lookup array above.
     std::vector<std::string> CallablePaths;
     for (const FrozenLookupEntry &Lookup : Cache->Lookups) {
       if (Lookup.Category == PlanEntryKind::Function)

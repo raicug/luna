@@ -1,28 +1,3 @@
-// Focused coverage of what happens when exposing a class value fails partway
-// through, and of the exact release accounting each failure produces.
-//
-// Luna's exposure path has no injectable fault point of its own: the write path
-// is not the return writer, so none of the transaction or return-writer fault
-// points reach it. What it does have is a fixed set of refusals that fail after
-// real work has already been done, which is exactly the situation an injected
-// publication fault would model:
-//
-//   * A refusal that fails during staging, before anything was staged at all.
-//   * A refusal that fails during ownership establishment, after the value was
-//     staged and recorded as constructed, so the release gate has to undo
-//     precisely what the earlier steps established.
-//
-// Each case asserts the same three things a publication fault must guarantee -
-// nothing is published, no owner is left behind, and the stack is restored
-// exactly - plus the exact number of times each release step ran, that the
-// identity cache recorded nothing, and that the State keeps exposing and
-// reading values afterwards.
-//
-// An ownership statement Luna could never honor is Luna's own mistake rather
-// than a consumer's, so its deterministic reason is reported through the
-// refusal token the write path returns; the rendered message stays an internal
-// error, exactly as every other internal conversion failure does.
-
 // clang-format off
 #include <luna/binding/binding_registry.hpp>
 #include <luna/binding/class_allocator.hpp>
@@ -97,8 +72,6 @@ void ResetStorageCounters() {
   };
 }
 
-// The whole protocol of storage Luna owns: it destroys the object and gives the
-// storage back.
 [[nodiscard]] ClassAllocator OwnedStorageProtocol() {
   return ClassAllocator::FromOperations(
       "Studio.ProbeStorage", StorageRequest::ForClass<Probe>(),
@@ -106,8 +79,6 @@ void ResetStorageCounters() {
       ProbeDestruction(), ProbeDeallocation());
 }
 
-// Owned storage Luna could never destroy: the deallocation step is declared, so
-// staging accepts it, and only ownership establishment can refuse it.
 [[nodiscard]] ClassAllocator UndestroyableStorageProtocol() {
   return ClassAllocator::FromOperations(
       "Studio.UndestroyableProbeStorage", StorageRequest::ForClass<Probe>(),
@@ -115,8 +86,6 @@ void ResetStorageCounters() {
       ClassAllocator::DestroyOperation(), ProbeDeallocation());
 }
 
-// One State with one registered class, so every attempted exposure carries a
-// complete, real class identity.
 class Fixture final {
 public:
   Fixture() {
@@ -166,8 +135,6 @@ ReadValue(Luna::State &Host, const std::string &Path, const void *Expected) {
   return Text.find(Needle) != std::string::npos;
 }
 
-// Nothing exists at the path a refused exposure named, and nothing about the
-// State's own accounting moved.
 void CheckNothingWasPublished(
     Luna::State &Host, const std::string &Path,
     const Luna::Detail::ClassValueWriteObservation &Observed,
@@ -187,8 +154,6 @@ void CheckNothingWasPublished(
         "a refused exposure installs no value at the path it named");
 }
 
-// A refusal that happens while the value is still only being staged: no record
-// exists yet, so no release step may run at all.
 void CheckStagingRefusalsReleaseNothing() {
   ResetStorageCounters();
   Fixture Owner;
@@ -196,8 +161,6 @@ void CheckStagingRefusalsReleaseNothing() {
   const auto Before = Owner.Counters();
   const auto EntryDepth = Hooks::ObserveRootStackDepth(Host);
 
-  // Luna never owns the storage of an object it only borrows, and staging is
-  // where that is decided - before any ownership record exists.
   Probe Borrowed;
   const Luna::LifetimeHandle Handle;
   const auto Refused =
@@ -219,10 +182,6 @@ void CheckStagingRefusalsReleaseNothing() {
         "a refusal during staging destroys and deallocates nothing");
   Check(Borrowed.Value == 5, "the borrowed object is left exactly as it was");
 
-  // The same is true of the two lifetime refusals a borrowed exposure can
-  // reach: both are decided before the identity cache is even consulted, and
-  // both do name their exact reason, because an ended lifetime is the one
-  // exposure refusal a consumer can cause.
   Luna::LifetimeHandle Invalidated;
   Invalidated.Invalidate();
   const auto Expired =
@@ -250,7 +209,6 @@ void CheckStagingRefusalsReleaseNothing() {
   Check(Hooks::ObserveRootStackDepth(Host) == EntryDepth,
         "every refused exposure restores the exact root stack depth");
 
-  // The State keeps exposing and reading values afterwards.
   const auto Published =
       ExposeValue(Host, "Borrowed", &Borrowed, OwnershipModel::Borrowed, Handle,
                   nullptr, ClassAllocator());
@@ -262,10 +220,6 @@ void CheckStagingRefusalsReleaseNothing() {
         "the recovered exposure and access restore the root stack depth");
 }
 
-// One ownership statement carries exactly the payload its model needs, and the
-// write path chooses which payload that is from the model alone. A stray
-// lifetime handle on an owning model is therefore neither honored nor a second
-// owner: it is simply not part of that model's statement.
 void CheckOwnershipPayloadIsChosenByModel() {
   ResetStorageCounters();
   {
@@ -289,8 +243,6 @@ void CheckOwnershipPayloadIsChosenByModel() {
               !Header->Handle.IsDeclared(),
           "an owning model records no borrowed lifetime at all");
 
-    // Invalidating the stray handle changes nothing, because the value never
-    // declared it.
     Stray.Invalidate();
     Check(ReadValue(Host, "Owned", Storage).DeliveredExpectedObject,
           "a Lua-owned value is unaffected by a handle it never declared");
@@ -304,12 +256,7 @@ void CheckOwnershipPayloadIsChosenByModel() {
         "State destruction performs no second release");
 }
 
-// A refusal that happens after staging and construction succeeded: the release
-// gate has to undo exactly what those steps established, and exactly once.
 void CheckEstablishmentRefusalsReleaseExactlyWhatWasStaged() {
-  // A Lua-owned exposure Luna could never destroy is refused during
-  // establishment, and the storage it already took is still deallocated exactly
-  // once.
   ResetStorageCounters();
   {
     Fixture Owner;
@@ -341,8 +288,6 @@ void CheckEstablishmentRefusalsReleaseExactlyWhatWasStaged() {
     Check(Host.Execute("return 1").IsSuccess(),
           "the State stays usable after a refused publication");
 
-    // The same path publishes as soon as the ownership statement is complete,
-    // because the refusal left no owner, no record, and no cache entry behind.
     Probe *Second = AllocateProbe();
     const auto Published = ExposeValue(
         Host, "Undestroyable", Second, OwnershipModel::LuaOwned,
@@ -357,9 +302,6 @@ void CheckEstablishmentRefusalsReleaseExactlyWhatWasStaged() {
   Check(DestroyCalls == 1 && DeallocateCalls == 2,
         "State destruction releases only the value it still owns");
 
-  // A shared exposure without its one shared ownership reference is refused
-  // during establishment; Luna never destroys or deallocates a shared object,
-  // so the only steps that run are its own.
   ResetStorageCounters();
   {
     Fixture Owner;
@@ -385,7 +327,6 @@ void CheckEstablishmentRefusalsReleaseExactlyWhatWasStaged() {
     Check(Object.use_count() == 1,
           "the consumer is left holding exactly its own reference");
 
-    // With exactly one shared ownership reference the same object publishes.
     const auto Published = ExposeValue(
         Host, "Shared", Object.get(), OwnershipModel::Shared,
         Luna::LifetimeHandle::Undeclared(), Object, ClassAllocator());

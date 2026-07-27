@@ -1,28 +1,3 @@
-// Property 24: overload resolution agrees with Pareto dominance.
-//
-// Two halves are generated together. The first drives the pure selection model
-// with generated rank matrices - arities, incomparable frontiers, and per
-// candidate rejection reasons - and compares viability, unique selection, and
-// the reported frontier with an independent Pareto reference model written
-// here. The second registers one generated overload set through the real
-// compiler and virtual machine in two different registration orders and
-// compares the resolved call, the canonical no-match diagnostic, and the
-// canonical ambiguity listing with the same reference model.
-//
-// The instrumentation is what makes the side-effect rules observable. Luna
-// counts every side-effect-free argument probe and every committing argument
-// conversion privately; each candidate counts its own invocations, records the
-// converted values it received, and constructs one counted native object. So a
-// refused resolution must report probes and no committing conversion, no target
-// invocation, and no native construction, while a resolved call must report
-// exactly one committing conversion per supplied argument of the selected
-// candidate, exactly one invocation of that candidate, and none of any other.
-//
-// Lua-owned native objects arrive with userdata, so "ranking constructs no
-// Lua-owned native object" is measured here as the counted native construction
-// plus an unchanged virtual machine: the same globals, no published result, and
-// the exact entry stack depth.
-
 // clang-format off
 #include <luna/binding/binding_registry.hpp>
 #include <luna/binding/conversion.hpp>
@@ -62,8 +37,6 @@ using Luna::Detail::SelectByDominance;
 using Luna::Detail::SignatureShapeRank;
 using Luna::Detail::ViableCandidate;
 
-// Deterministic byte source. Equal bytes always drive the equal scenario, so a
-// shrunk counterexample rebuilds the exact same overload set and call.
 class ByteCursor final {
 public:
   explicit ByteCursor(const std::vector<std::uint8_t> &Bytes) noexcept
@@ -84,10 +57,6 @@ private:
   const std::vector<std::uint8_t> *BytesValue;
   std::size_t IndexValue = 0;
 };
-
-// ---------------------------------------------------------------------------
-// The independent Pareto reference model.
-// ---------------------------------------------------------------------------
 
 enum class ReferenceOrdering { Better, Worse, Equivalent, Incomparable };
 
@@ -115,8 +84,6 @@ enum class ReferenceOrdering { Better, Worse, Equivalent, Incomparable };
   return 3;
 }
 
-// Pareto comparison, written independently of Luna: every position and the
-// shape element are their own dimension and nothing is ever summed.
 [[nodiscard]] ReferenceOrdering
 ReferenceCompare(const CandidateRankSequence &Left,
                  const CandidateRankSequence &Right) {
@@ -156,9 +123,6 @@ struct ReferenceSelection final {
   std::vector<std::size_t> Frontier;
 };
 
-// The reference resolver. A candidate is selected only when it is better than
-// every other viable candidate; anything else is the non-dominated frontier in
-// the order the candidates were supplied.
 [[nodiscard]] ReferenceSelection
 ReferenceSelect(const std::vector<ViableCandidate> &Viable) {
   ReferenceSelection Selection;
@@ -233,19 +197,13 @@ FindRanks(const std::vector<ViableCandidate> &Viable, std::size_t Candidate) {
   }
 }
 
-// One generated rank matrix: candidates that were rejected before ranking, and
-// the ordered rank sequence of every candidate that survived.
 void VerifyDominanceModel(ByteCursor &Cursor) {
-  // No candidate-count limit exists, so the generated set is deliberately
-  // allowed to be larger than any signature a call would realistically have.
   const std::size_t CandidateCount = 1U + Cursor.Pick(12);
   const std::size_t PositionCount = Cursor.Pick(4);
 
   std::vector<ViableCandidate> Viable;
   std::vector<std::string> Rejections;
   for (std::size_t Index = 0; Index < CandidateCount; ++Index) {
-    // A rejected candidate contributes its first deterministic reason and no
-    // rank sequence at all.
     if (Cursor.Pick(4) == 0) {
       Rejections.push_back("candidate " + std::to_string(Index) +
                            " rejected argument " +
@@ -262,8 +220,6 @@ void VerifyDominanceModel(ByteCursor &Cursor) {
 
   RC_ASSERT(Viable.size() + Rejections.size() == CandidateCount);
 
-  // Every pairwise comparison agrees with the reference relation, and the
-  // relation is antisymmetric.
   for (const ViableCandidate &Left : Viable) {
     for (const ViableCandidate &Right : Viable) {
       const DominanceOrdering Observed =
@@ -303,8 +259,6 @@ void VerifyDominanceModel(ByteCursor &Cursor) {
     RC_ASSERT(Selected.Frontier.size() == 1);
     RC_ASSERT(Selected.Frontier.front() == Selected.SelectedCandidate);
 
-    // The selected candidate really is better than every other viable one, so
-    // no equivalent or incomparable rival was tie-broken away.
     const CandidateRankSequence *Winner =
         FindRanks(Viable, Selected.SelectedCandidate);
     RC_ASSERT(Winner != nullptr);
@@ -318,7 +272,6 @@ void VerifyDominanceModel(ByteCursor &Cursor) {
   if (Selected.Status == OverloadSelectionStatus::Ambiguous) {
     RC_ASSERT(!Selected.Frontier.empty());
 
-    // Nothing on the reported frontier is dominated by any viable candidate.
     for (const std::size_t Reported : Selected.Frontier) {
       const CandidateRankSequence *Ranks = FindRanks(Viable, Reported);
       RC_ASSERT(Ranks != nullptr);
@@ -329,8 +282,6 @@ void VerifyDominanceModel(ByteCursor &Cursor) {
       }
     }
 
-    // And no viable candidate is better than every other one, which is exactly
-    // why the call is ambiguous rather than resolved.
     for (const ViableCandidate &Candidate : Viable) {
       bool BetterThanEveryOther = true;
       for (const ViableCandidate &Other : Viable) {
@@ -345,8 +296,6 @@ void VerifyDominanceModel(ByteCursor &Cursor) {
     }
   }
 
-  // Selection never depends on the order candidates are supplied in, and the
-  // reported frontier follows exactly that order.
   std::vector<ViableCandidate> Permuted = Viable;
   for (std::size_t Index = Permuted.size(); Index > 1; --Index) {
     const std::size_t Position = Cursor.Pick(Index);
@@ -369,10 +318,6 @@ void VerifyDominanceModel(ByteCursor &Cursor) {
 
 namespace {
 
-// ---------------------------------------------------------------------------
-// One generated overload set through the real compiler and virtual machine.
-// ---------------------------------------------------------------------------
-
 enum class ParameterKind { Integer, Number, Text, Flag };
 
 constexpr std::size_t CandidatePoolSize = 11;
@@ -392,8 +337,6 @@ constexpr std::string_view CallableName = "Resolve";
   return "unknown";
 }
 
-// Pairwise distinguishable candidate shapes: every entry differs from every
-// other in arity or in a parameter type, so all of them join one overload set.
 [[nodiscard]] const std::vector<std::vector<ParameterKind>> &CandidatePool() {
   static const std::vector<std::vector<ParameterKind>> Pool{
       {ParameterKind::Integer},
@@ -451,9 +394,6 @@ struct ArgumentSample final {
   return Pool;
 }
 
-// What every candidate of one State observed: how often its target ran, which
-// converted values that target received, and how many counted native objects
-// were constructed. Ranking must leave all of it untouched.
 struct CallObservation final {
   std::vector<std::size_t> TargetCalls =
       std::vector<std::size_t>(CandidatePoolSize, 0);
@@ -468,7 +408,6 @@ struct CallObservation final {
   }
 };
 
-// One native object only an invoked target constructs.
 struct CountedNativeObject final {
   explicit CountedNativeObject(std::size_t &Counter) noexcept
       : CountValue(Counter) {
@@ -617,8 +556,6 @@ struct CountedNativeObject final {
 
 namespace {
 
-// The independent signature-shape model of one candidate against one call.
-
 struct ModelPositionProbe final {
   bool IsViable = false;
   ConversionRank Rank = ConversionRank::Exact;
@@ -626,10 +563,6 @@ struct ModelPositionProbe final {
   std::string Delivered;
 };
 
-// The canonical rank of one supplied argument against one declared parameter:
-// the canonical type of the received value is an exact match, an integral
-// number read as a `double` is a safe built-in conversion, and anything else is
-// the first deterministic rejection of that candidate.
 [[nodiscard]] ModelPositionProbe ModelProbe(ParameterKind Declared,
                                             const ArgumentSample &Argument) {
   ModelPositionProbe Probe;
@@ -702,12 +635,8 @@ struct ModelCandidate final {
   bool IsViable = false;
   CandidateRankSequence Ranks;
 
-  // The exact arity rejection, or the modeled prefix of a type rejection.
   std::string Rejection;
 
-  // How many side-effect-free probes this candidate costs: none when its arity
-  // already refused the call, otherwise one per position up to and including
-  // its first rejection.
   std::size_t Probes = 0;
 
   std::vector<std::string> Delivered;
@@ -742,8 +671,6 @@ ModelOne(std::size_t Pool, const std::vector<ArgumentSample> &Arguments) {
     Modeled.Delivered.push_back(Probe.Delivered);
   }
 
-  // Every pooled candidate declares fixed required parameters only, so an
-  // accepted call always matches its arity exactly.
   Modeled.Ranks.Shape = SignatureShapeRank::ExactArity;
   Modeled.IsViable = true;
   return Modeled;
@@ -800,10 +727,6 @@ struct CallOutcome final {
   std::vector<std::string> CanonicalSignatures;
 };
 
-// Everything one generated call must report when it is resolved through the
-// real virtual machine: the outcome, the diagnostic, the counted probes and
-// committing conversions, the counted target invocations and native
-// constructions, and the untouched virtual machine of a refused resolution.
 [[nodiscard]] CallOutcome VerifyResolvedCall(Luna::State &Owner,
                                              const CallObservation &Observed,
                                              const GeneratedCall &Call,
@@ -812,8 +735,6 @@ struct CallOutcome final {
   const std::string MarkerName = "Marker";
   const std::string CanaryName = "Canary";
 
-  // One qualified name owns one overload set holding every candidate, in
-  // canonical order.
   RC_ASSERT(Hooks::OverloadCandidateCount(Owner, CallableName) ==
             Call.Chosen.size());
   RC_ASSERT(Hooks::StagedOverloadCandidateCount(Owner, CallableName) == 0);
@@ -848,7 +769,6 @@ struct CallOutcome final {
   if (const Luna::ErrorDiagnostic *Diagnostic = Result.Diagnostic())
     Outcome.Message = Diagnostic->Message();
 
-  // Ranking probed exactly the modeled positions and violated nothing.
   RC_ASSERT(Counts.ArgumentProbes == Model.Probes);
   RC_ASSERT(Luna::Detail::ProbeViolationCount() == 0);
   RC_ASSERT(Hooks::ObserveRootStackDepth(Owner) == EntryDepth);
@@ -861,8 +781,6 @@ struct CallOutcome final {
     RC_ASSERT(Hooks::ObserveIntegerGlobal(Owner, MarkerName) ==
               std::optional<int>(static_cast<int>(1000U + Model.SelectedPool)));
 
-    // Exactly one committing conversion per supplied argument, all of them for
-    // the selected candidate and none for any other.
     RC_ASSERT(Counts.CommittingArgumentReads == Call.Arguments.size());
     RC_ASSERT(Observed.NativeConstructions == 1);
     for (const std::size_t Pool : Call.Chosen) {
@@ -877,8 +795,6 @@ struct CallOutcome final {
     return Outcome;
   }
 
-  // A refused resolution converts nothing, invokes nothing, constructs nothing,
-  // publishes nothing, and leaves every other value exactly as it was.
   RC_ASSERT(!Result.IsSuccess());
   RC_ASSERT(!Outcome.Message.empty());
   RC_ASSERT(Counts.CommittingArgumentReads == 0);
@@ -896,8 +812,6 @@ struct CallOutcome final {
             std::string::npos);
 
   if (Model.Status == OverloadSelectionStatus::NoViableCandidate) {
-    // Every available signature is listed with its first deterministic
-    // rejection.
     RC_ASSERT(Outcome.Message.find("no overload accepts those arguments") !=
               std::string::npos);
     for (const ModelCandidate &Candidate : Model.Candidates) {
@@ -907,8 +821,6 @@ struct CallOutcome final {
     return Outcome;
   }
 
-  // The ambiguity lists exactly the non-dominated signatures, in canonical
-  // order, and nothing else.
   RC_ASSERT(Outcome.Message.find("ambiguous") != std::string::npos);
   const std::size_t Listing = Outcome.Message.find("equally viable candidates");
   RC_ASSERT(Listing != std::string::npos);
@@ -937,8 +849,6 @@ struct CallOutcome final {
   return Outcome;
 }
 
-// One argument that a declared parameter accepts, so generated calls resolve
-// often instead of always refusing.
 [[nodiscard]] ArgumentSample MatchingSample(ParameterKind Kind,
                                             ByteCursor &Cursor) {
   const std::vector<ArgumentSample> &Pool = ArgumentPool();
@@ -958,15 +868,8 @@ struct CallOutcome final {
 [[nodiscard]] GeneratedCall GenerateCall(ByteCursor &Cursor) {
   GeneratedCall Call;
 
-  // Three generation modes: a deliberately incomparable frontier, arguments
-  // shaped like one chosen candidate, and freely generated arguments, which is
-  // what drives arity rejections and no-match diagnostics.
   const std::size_t Mode = Cursor.Pick(3);
   if (Mode == 0) {
-    // The two candidates that cannot dominate each other for an integral
-    // two-argument call: each is exact in one position and a safe built-in
-    // conversion in the other. Every optional extra is either refused by arity
-    // or dominated, so none of them can resolve the call either.
     Call.Chosen = {5, 6};
     std::vector<std::size_t> Extras{0, 2, 3, 8, 9, 10};
     const std::size_t ExtraCount = Cursor.Pick(3);
@@ -982,8 +885,6 @@ struct CallOutcome final {
     for (std::size_t Index = 0; Index < CandidatePoolSize; ++Index)
       Available.push_back(Index);
 
-    // Two to five candidates. Nothing caps a candidate count; this only keeps
-    // one generated case small enough to shrink usefully.
     const std::size_t CandidateCount = 2U + Cursor.Pick(4);
     for (std::size_t Index = 0; Index < CandidateCount; ++Index) {
       const std::size_t Position = Cursor.Pick(Available.size());
@@ -1018,15 +919,10 @@ struct CallOutcome final {
   return Call;
 }
 
-// The same overload set registered in two different orders resolves the same
-// call identically, down to the byte-for-byte diagnostic, because candidate
-// order is canonical and never registration order.
 void VerifyRegistrationOrderInvariance(ByteCursor &Cursor) {
   const GeneratedCall Call = GenerateCall(Cursor);
   const ModelResolution Model = ModelResolve(Call);
 
-  // The reported distribution shows that generated calls really do reach
-  // selection, no match, and the ambiguous frontier.
   RC_TAG(std::string(Luna::Detail::OverloadSelectionStatusText(Model.Status)));
 
   std::vector<std::size_t> SecondOrder = Call.Chosen;
@@ -1069,7 +965,6 @@ void VerifyRegistrationOrderInvariance(ByteCursor &Cursor) {
 } // namespace
 
 int RunParetoOverloadResolutionProperties() {
-  // **Validates: Requirements 6.3, 6.4, 6.5, 6.6, 6.7, 6.8, 6.9, 6.10, 6.11**
   // clang-format off
   // Feature: reflection-driven-binding-system, Property 24: Overload resolution agrees with Pareto dominance
   const bool Passed = rc::check(

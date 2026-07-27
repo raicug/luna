@@ -1,43 +1,3 @@
-// Focused coverage of failure at every stage of constructing one class value,
-// driven through real Luau calls wherever a stage can be reached that way.
-//
-// Constructing a value has six stages, and each one is a milestone whose
-// completion decides the cleanup a failure warrants: obtain storage, construct
-// the object in it, establish its ownership, record it in the native identity
-// cache, associate the class metatable, and publish exactly one value. This
-// file fails each stage and asserts the same four things every time - nothing
-// published, exactly the cleanup the completed milestones warrant, the stack
-// restored to its entry depth, and one deterministic diagnostic - plus that the
-// State keeps constructing afterwards.
-//
-// Which stages have an injection site, and which are reached through a real
-// refusal instead:
-//
-//   * Allocation: no injection site is needed. A class selects a storage
-//     protocol whose allocation step produces nothing, so a real Luau
-//     constructor call reaches the refusal itself.
-//   * Construction: no injection site is needed either. A constructor that
-//     throws, and one whose class refuses to be built, both mean no object
-//     exists.
-//   * Ownership: no injection site exists, and no consumer declaration can
-//     reach one, because a construction candidate always states an ownership
-//     payload its own model accepts. It is covered through the same write path
-//     the candidate uses, with a protocol whose statement Luna cannot honor.
-//   * Cache insertion: no injection site exists. It is reached through a real
-//     refusal: one native object exposed twice under two different ownership
-//     models is the conflict the cache is there to catch.
-//   * Metatable association: no injection site exists, and the only failure is
-//   a
-//     virtual machine that cannot create the table at all. What is asserted
-//     instead is the invariant around it - exactly one metatable per class,
-//     created once and reused by every later construction.
-//   * Publication: the return writer's two fault points reach it, both before
-//   it
-//     begins and after it completed, so an injected failure after a complete
-//     publication has to release the value it already published.
-//   * Final release: reached through collection, an explicit lifecycle action,
-//     and State destruction, including a destruction step that throws.
-
 // clang-format off
 #include <luna/binding/binding_registry.hpp>
 #include <luna/binding/class_allocator.hpp>
@@ -82,11 +42,6 @@ void Check(bool Condition, std::string_view Description) {
   std::cerr << "class construction fault check failed: " << Description << '\n';
 }
 
-// -- the model under test ---------------------------------------------------
-
-// What the generated storage protocol and the class's own constructor are asked
-// to do. Every flag models one stage failing, and nothing else about the model
-// changes with it.
 struct StagePolicy final {
   bool AllocationProducesNothing = false;
   bool ConstructionThrows = false;
@@ -134,8 +89,6 @@ struct Widget final {
   ~Widget() { --LiveCount; }
 };
 
-// One engine-owned widget a singleton accessor borrows and a shared factory
-// hands out through a non-owning reference, so both name exactly one object.
 [[nodiscard]] Widget *EngineWidget() {
   static Widget Engine(11.0);
   return &Engine;
@@ -153,8 +106,6 @@ struct Widget final {
   return Luna::StableTypeKey("Studio.FaultWidget");
 }
 
-// The consumer's own storage protocol for this class, counted so the exact
-// cleanup of every stage is observable.
 [[nodiscard]] ClassAllocator WidgetStorageProtocol() {
   ClassAllocator::AllocateOperation Allocate =
       [](const StorageRequest &Wanted) -> void * {
@@ -186,8 +137,6 @@ struct Widget final {
       std::move(Deallocate));
 }
 
-// One class carrying every construction form this file drives, all of them
-// creating their values through the consumer's own protocol.
 [[nodiscard]] Luna::RegistrationResult RegisterWidget(Luna::State &Owner) {
   Luna::BindingRegistry Registry = Owner.Bindings();
   Luna::ClassBuilder<Widget> Class =
@@ -217,8 +166,6 @@ struct Widget final {
   return Text.find(Needle) != std::string_view::npos;
 }
 
-// Nothing became visible, nothing is owned, and the callback checkpoint the
-// refused call entered with is exactly the one it left.
 void CheckNothingWasPublished(Luna::State &Host, std::string_view Description) {
   Check(Hooks::PublishedUserdataCount(Host) == 0, Description);
   Check(Hooks::OwnedUserdataCount(Host) == 0,
@@ -232,10 +179,6 @@ void CheckNothingWasPublished(Luna::State &Host, std::string_view Description) {
         "a refused construction restores the exact callback checkpoint");
 }
 
-// -- allocation -------------------------------------------------------------
-
-// Storage that never existed is cleaned up by nothing at all, and the refusal
-// is reached by the ordinary call rather than by an injected fault.
 void CheckAllocationFailureThroughRealCalls() {
   ResetModel();
   Luna::State Owner;
@@ -265,13 +208,11 @@ void CheckAllocationFailureThroughRealCalls() {
   Check(Released.MetadataRelease == 0 && Released.Invalidate == 0,
         "no release step runs for a value that was never staged");
 
-  // The same failure reports one identical message however often it happens.
   Check(Failed(Owner, "local W = Widget.New(3)") == Refused,
         "one construction failure family reports one identical message");
   Check(Hooks::ObserveRootStackDepth(Owner) == EntryDepth,
         "every refused construction restores the exact root stack depth");
 
-  // The State constructs as soon as its storage exists again.
   Policy.AllocationProducesNothing = false;
   Check(Owner.Execute("Kept = Widget.New(3)").IsSuccess(),
         "the State constructs a value after a refused allocation");
@@ -279,10 +220,6 @@ void CheckAllocationFailureThroughRealCalls() {
         "the recovered construction publishes exactly one value");
 }
 
-// -- construction -----------------------------------------------------------
-
-// An object that was never constructed is never destroyed, and the storage it
-// would have occupied is given straight back.
 void CheckConstructionFailureThroughRealCalls() {
   ResetModel();
   Luna::State Owner;
@@ -318,8 +255,6 @@ void CheckConstructionFailureThroughRealCalls() {
   Check(Hooks::ObserveRootStackDepth(Owner) == EntryDepth,
         "a refused construction restores the exact root stack depth");
 
-  // A produced object that is no object at all is refused before any milestone
-  // is reached, and names exactly that.
   const std::string Absent = Failed(Owner, "local W = Widget.Absent()");
   Check(Contains(Absent, "produced no object"),
         "a candidate that produced no object names exactly that");
@@ -333,21 +268,11 @@ void CheckConstructionFailureThroughRealCalls() {
   Check(Owner.IsReady(), "the State stays ready through every refusal");
 }
 
-// -- ownership --------------------------------------------------------------
-
-// Ownership establishment has no injection site, and no consumer declaration
-// can reach a refusal there: a candidate always states the payload its own
-// model accepts. What can be refused is a statement Luna itself could not
-// honor, so the stage is driven through exactly the write path a candidate
-// uses.
 void CheckOwnershipFailureAfterConstruction() {
   ResetModel();
   Luna::State Owner;
   Check(RegisterWidget(Owner).IsSuccess(), "the widget class publishes");
 
-  // Owned storage Luna could never destroy: allocation and deallocation are
-  // declared, so staging and construction both succeed and only ownership
-  // establishment can refuse it.
   ClassAllocator::AllocateOperation Allocate =
       [](const StorageRequest &Wanted) -> void * {
     ++AllocateCalls;
@@ -396,30 +321,17 @@ void CheckOwnershipFailureAfterConstruction() {
   Check(Released.Deallocate == 1 && Released.MetadataRelease == 1,
         "every applicable release step of a refused ownership runs once");
 
-  // This is the one situation the incomplete-metadata counter exists to name: a
-  // constructed object Luna was asked to own without the destruction step its
-  // release would need. It is unreachable from any consumer declaration,
-  // because a class that selects such a protocol is refused transactionally
-  // instead.
   Check(Released.IncompleteMetadata == 1,
         "cleanup names the destruction step this statement never declared");
   Check(DestroyCalls == 0,
         "a destruction step the protocol never declared is never performed");
 
-  // The State constructs a complete value straight afterwards, through the
-  // ordinary Luau call.
   Check(Owner.Execute("Kept = Widget.New(6)").IsSuccess(),
         "the State constructs a value after a refused ownership");
   Check(Hooks::PublishedUserdataCount(Owner) == 1,
         "exactly the complete value is published");
 }
 
-// -- identity cache ---------------------------------------------------------
-
-// The identity cache decides before anything is owned, so one native object
-// asked for under two different ownership models is refused there - and that
-// refusal is reachable from script, because a borrowed accessor and a shared
-// factory can name exactly the same object.
 void CheckCacheInsertionRefusalThroughRealCalls() {
   for (int Order = 0; Order < 2; ++Order) {
     ResetModel();
@@ -454,8 +366,6 @@ void CheckCacheInsertionRefusalThroughRealCalls() {
     Check(Hooks::ObserveRootStackDepth(Owner) == EntryDepth,
           "a refused cache insertion restores the exact root stack depth");
 
-    // The value that was already published is untouched, and the engine object
-    // it names is too.
     Check(Owner.Execute("assert(Held ~= nil, 'held')").IsSuccess(),
           "the value published first is still the script's value");
     Check(EngineWidget()->Width == 11.0,
@@ -465,12 +375,6 @@ void CheckCacheInsertionRefusalThroughRealCalls() {
   }
 }
 
-// -- metatable association --------------------------------------------------
-
-// The only metatable failure is a virtual machine that cannot create the table,
-// which has no injection site. The invariant around the stage is asserted
-// instead: one class owns one metatable, created by the first constructed value
-// and reused by every later one, and no refusal ever creates a second.
 void CheckMetatableAssociationIsCreatedOnceAndReused() {
   ResetModel();
   Luna::State Owner;
@@ -506,14 +410,7 @@ void CheckMetatableAssociationIsCreatedOnceAndReused() {
         "the script sees one class type for every value of the class");
 }
 
-// -- publication ------------------------------------------------------------
-
-// The two return-writer fault points bracket the publication stage: one refuses
-// before it begins, the other after it completed. The second one is the only
-// stage failure that has to undo a complete publication.
 void CheckPublicationFailuresPublishNothing() {
-  // Refused before publication began: the candidate ran, but nothing was ever
-  // allocated, constructed, or owned.
   ResetModel();
   {
     Luna::State Owner;
@@ -537,9 +434,6 @@ void CheckPublicationFailuresPublishNothing() {
           "a refused publication restores the exact root stack depth");
   }
 
-  // Refused after publication completed: allocation, construction, ownership,
-  // the cache entry, the metatable, and the value all succeeded, so the refusal
-  // has to release that value exactly once and leave nothing visible.
   ResetModel();
   {
     Luna::State Owner;
@@ -572,7 +466,6 @@ void CheckPublicationFailuresPublishNothing() {
     Check(Hooks::ObserveRootStackDepth(Owner) == EntryDepth,
           "a refused publication restores the exact root stack depth");
 
-    // And the very next construction publishes normally.
     Check(Owner.Execute("Kept = Widget.New(10)").IsSuccess(),
           "the State constructs a value after a refused publication");
     Check(Hooks::PublishedUserdataCount(Owner) == 1 && ConstructedCount == 2,
@@ -581,8 +474,6 @@ void CheckPublicationFailuresPublishNothing() {
   Check(DestroyCalls == 2 && DeallocateCalls == 2,
         "State destruction releases only the value it still owned");
 
-  // A publication the identity cache satisfied established no owner of its own,
-  // so a refusal after it must leave the value that already existed alone.
   ResetModel();
   {
     Luna::State Owner;
@@ -611,13 +502,7 @@ void CheckPublicationFailuresPublishNothing() {
   }
 }
 
-// -- final release ----------------------------------------------------------
-
-// The last stage: every applicable step exactly once, whichever cause ends the
-// value, and a destruction step that throws is contained rather than escaping
-// into a collector.
 void CheckFinalReleaseRunsEveryStepOnce() {
-  // Collection.
   ResetModel();
   {
     Luna::State Owner;
@@ -640,8 +525,6 @@ void CheckFinalReleaseRunsEveryStepOnce() {
   Check(DestroyCalls == 1 && DeallocateCalls == 1,
         "State destruction performs no second release of a collected value");
 
-  // A destruction step that throws: contained, counted, and every remaining
-  // step still runs.
   ResetModel();
   {
     Luna::State Owner;
@@ -669,8 +552,6 @@ void CheckFinalReleaseRunsEveryStepOnce() {
           "the State constructs a value after a contained destruction failure");
   }
 
-  // State destruction is the last cause, and it releases exactly what the State
-  // still owned.
   ResetModel();
   {
     Luna::State Owner;

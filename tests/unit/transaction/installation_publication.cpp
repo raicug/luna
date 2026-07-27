@@ -1,9 +1,3 @@
-// Focused coverage of phases four and five of one registration transaction:
-// protected installation behind the undo journal, reverse restoration of every
-// touched virtual-machine path and every staged overlay, rejection of
-// contradictory internal metadata, and atomic publication of the complete
-// virtual machine plus immutable generation set.
-
 // clang-format off
 #include <luna/binding/binding_registry.hpp>
 #include <luna/binding/callable_descriptor.hpp>
@@ -85,8 +79,6 @@ Declarations(const std::vector<std::string> &Names) {
   return Group;
 }
 
-// Requirements 3.2, 4.1, 4.6: one successful attempt publishes its virtual
-// machine value and its immutable generation set together, exactly once.
 void CheckSuccessfulPublicationIsAtomic() {
   Luna::State Owner;
   const auto Entry = Hooks::GenerationsOf(Owner);
@@ -119,22 +111,16 @@ void CheckSuccessfulPublicationIsAtomic() {
             Hooks::ObserveIntegerGlobal(Owner, "Observed") == 42,
         "a published binding is invocable through the real virtual machine");
 
-  // A second attempt publishes its own generation, and no attempt publishes
-  // twice.
   Check(Owner.Bindings().Register("Second", &AddIntegers).IsSuccess() &&
             Hooks::GenerationsOf(Owner)->Generation() == 2 &&
             Hooks::GenerationsOf(Owner)->Symbols().Size() == 2,
         "each successful attempt publishes exactly one generation");
 
-  // Each callable publishes its own reflection generation alongside its virtual
-  // machine value, so the two halves of a publication never disagree.
   Check(Hooks::ReflectionGeneration(Owner) == 2,
         "publication advances the reflection generation of every callable it "
         "publishes");
 }
 
-// Requirements 1.7, 4.5: the journal restores the exact prior value of every
-// touched path, including a value the attempt did not create.
 void CheckUndoRestoresTheExactPriorValue() {
   Luna::State Owner;
   const auto Seed = Owner.Execute("Slot = 7\nText = 'kept'");
@@ -160,7 +146,6 @@ void CheckUndoRestoresTheExactPriorValue() {
   Check(Hooks::ObserveRootStackDepth(Owner) == EntryDepth,
         "a failed installation leaves the root stack at its entry depth");
 
-  // An absent path is restored to absence, not to a placeholder value.
   Hooks::InjectFault(Owner, FaultPoint::BindingInstallation);
   const auto Absent = Owner.Bindings().Register("Fresh", &AddIntegers);
   Check(!Absent.IsSuccess() && PathKind(Owner, "Fresh") == "absent",
@@ -168,7 +153,6 @@ void CheckUndoRestoresTheExactPriorValue() {
   Check(Owner.Execute("assert(Fresh == nil)").IsSuccess(),
         "the virtual machine agrees the created path is gone");
 
-  // The State stays reusable and the overwrite still works afterwards.
   Check(Owner.Bindings().Register("Slot", &AddIntegers).IsSuccess() &&
             PathKind(Owner, "Slot") == "function" &&
             Owner.Execute("Sum = Slot(2, 3)").IsSuccess() &&
@@ -178,8 +162,6 @@ void CheckUndoRestoresTheExactPriorValue() {
         "an untouched path is never journalled or disturbed");
 }
 
-// Requirements 4.5, 4.6: a multi-symbol group publishes every declaration or
-// restores every journalled effect in reverse order.
 void CheckJoinedGroupPublishesAllOrNone() {
   Luna::State Owner;
   const auto EntryDepth = Hooks::ObserveRootStackDepth(Owner);
@@ -209,8 +191,6 @@ void CheckJoinedGroupPublishesAllOrNone() {
             Hooks::ObserveIntegerGlobal(Owner, "Total") == 21,
         "every published declaration is invocable");
 
-  // The same group against a State whose paths already hold foreign values, and
-  // an internal contradiction discovered after every installation succeeded.
   Luna::State Restored;
   Check(Restored.Execute("Alpha = 1\nZulu = 'text'").IsSuccess(),
         "the group's paths can hold script-created values");
@@ -230,9 +210,6 @@ void CheckJoinedGroupPublishesAllOrNone() {
             Rejected.Publication.RestoredEntryStackDepth,
         "restoration undoes every journalled entry");
 
-  // Reverse order: the newest journalled effect is undone first. Each function
-  // declaration journals its staged overlay and then its path, in canonical
-  // name order.
   const std::vector<std::string> ExpectedOrder{"Zulu", "Zulu",  "Mike",
                                                "Mike", "Alpha", "Alpha"};
   Check(Rejected.Publication.RestorationOrder == ExpectedOrder,
@@ -259,7 +236,6 @@ void CheckJoinedGroupPublishesAllOrNone() {
   Check(Restored.Execute("assert(Alpha == 1 and Zulu == 'text')").IsSuccess(),
         "the virtual machine keeps every committed behavior");
 
-  // The group can be re-submitted afterwards and then publishes normally.
   const JoinedSubmissionReport Retried = Hooks::PublishJoinedFunctions(
       Restored, Declarations({"Zulu", "Alpha", "Mike"}), false);
   Check(Retried.Publication.IsPublished &&
@@ -269,8 +245,6 @@ void CheckJoinedGroupPublishesAllOrNone() {
         "the State stays fully reusable after a rejected group");
 }
 
-// Requirements 4.5, 4.8, 19.8: every injected fault of the installation and
-// publication phases fails deterministically and leaves nothing behind.
 void CheckInjectedFaultsPreserveTheCommittedModel() {
   const auto Attempt = [](FaultPoint Point, std::string_view Fragment,
                           std::string_view Description) {
@@ -314,8 +288,6 @@ void CheckInjectedFaultsPreserveTheCommittedModel() {
   Attempt(FaultPoint::TransactionConsistency, "internal metadata contradicted",
           "a metadata contradiction is rejected before publication");
 
-  // A restoration that itself fails is reported as such rather than silently
-  // treated as a clean rollback.
   Luna::State Owner;
   Hooks::InjectFault(Owner, FaultPoint::BindingInstallation);
   Hooks::InjectFault(Owner, FaultPoint::TransactionUndo);
@@ -328,8 +300,6 @@ void CheckInjectedFaultsPreserveTheCommittedModel() {
         "a failed restoration still publishes nothing and stages nothing");
 }
 
-// Requirement 4.5: every overlay category has a journal scope today, including
-// the ones whose committed stores arrive with a later milestone.
 void CheckJournalCoversEveryOverlayCategory() {
   Luna::State Owner;
   Check(Owner.Execute("Kept = 5").IsSuccess(),
@@ -364,7 +334,6 @@ void CheckJournalCoversEveryOverlayCategory() {
             Restored.StackDepthAfter == *EntryDepth,
         "restoration returns the root stack to its entry depth");
 
-  // A committed journal keeps every installed value instead.
   const PublicationObservation Committed = Hooks::ProbeInstallationJournal(
       Owner, {"Kept", "Created"}, Overlays, false);
   Check(Committed.IsPublished && Committed.RestorationOrder.empty(),
@@ -376,8 +345,6 @@ void CheckJournalCoversEveryOverlayCategory() {
         "a committed journal leaves the root stack at its entry depth");
 }
 
-// Requirements 4.2, 4.5: an ignored nested failure still prevents publication,
-// and the group restores everything it staged.
 void CheckPoisonedGroupNeverPublishes() {
   Luna::State Owner;
   const auto EntryDepth = Hooks::ObserveRootStackDepth(Owner);

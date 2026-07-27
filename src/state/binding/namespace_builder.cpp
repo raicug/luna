@@ -35,12 +35,10 @@ namespace Luna {
 namespace Detail {
 namespace {
 
-// Diagnostic subject of one staged enumeration.
 [[nodiscard]] std::string EnumerationSubjectOf(std::string_view QualifiedName) {
   return SubjectText(SymbolKindText(SymbolKind::Enumeration), QualifiedName);
 }
 
-// One staged enumerator or alias by its local name.
 [[nodiscard]] StagedEnumerator *FindStagedMember(StagedEnumeration &Declaration,
                                                  std::string_view Member) {
   for (StagedEnumerator &Staged : Declaration.Enumerators) {
@@ -50,8 +48,6 @@ namespace {
   return nullptr;
 }
 
-// Documentation and attributes name an already declared member, so a typo is a
-// deterministic failure instead of metadata that silently belongs to nothing.
 [[nodiscard]] ErrorDiagnostic
 UndeclaredMemberDiagnostic(const StagedEnumeration &Declaration,
                            std::string_view Member) {
@@ -62,8 +58,6 @@ UndeclaredMemberDiagnostic(const StagedEnumeration &Declaration,
           "declare it before documenting or annotating it.");
 }
 
-// The same rule for one class: documentation and attributes name an already
-// declared construction candidate of the class.
 [[nodiscard]] ErrorDiagnostic
 UndeclaredClassMemberDiagnostic(const StagedClass &Declaration,
                                 std::string_view Member) {
@@ -124,9 +118,6 @@ NamespaceBuilderState::MakeBuilder(std::shared_ptr<NamespaceBuilderState> Plan,
 
 NamespaceBuilderState::NamespaceBuilderState(State &Owner) noexcept
     : Owner(&Owner) {
-  // The identity a builder is measured against is captured once, here: the
-  // logical State identity, the owner-object epoch, and the lifecycle
-  // generation of the scope the builder was created for.
   if (const State::Impl *Implementation = Owner.Implementation.get()) {
     Handle = Implementation->HandleToken();
     Identity = Implementation->LogicalIdentity();
@@ -136,9 +127,6 @@ NamespaceBuilderState::NamespaceBuilderState(State &Owner) noexcept
 }
 
 State *NamespaceBuilderState::LiveOwner() const noexcept {
-  // The owner is dereferenced only once the shared token proves the
-  // implementation is alive and still held by exactly the captured owner
-  // object.
   const std::shared_ptr<StateHandleToken> Token = Handle.lock();
   if (!Token || Token->Owner != Owner || Token->OwnerEpoch != OwnerEpoch)
     return nullptr;
@@ -161,9 +149,6 @@ BuilderHandleStatus NamespaceBuilderState::Classify() const noexcept {
   if (!Implementation)
     return BuilderHandleStatus::OwnerDestroyed;
 
-  // Thread affinity is checked before readiness, lifecycle generation, or any
-  // virtual-machine-derived state. A builder may be carried between threads,
-  // but only its State's construction thread may stage or commit registration.
   if (!Implementation->IsOwnerThread())
     return BuilderHandleStatus::ForeignThread;
 
@@ -189,18 +174,11 @@ NamespaceBuilderState::StaleDiagnostic(BuilderHandleStatus Status,
 }
 
 void NamespaceBuilderState::RecordFailure(ErrorDiagnostic Diagnostic) {
-  // The first deterministic failure of the chain wins; a later one never
-  // replaces it, so an ignored intermediate result still fails the commit.
   if (!Failure)
     Failure = std::move(Diagnostic);
 }
 
 bool NamespaceBuilderState::CanStage(std::size_t ScopeNode) {
-  // A builder whose State moved, was destroyed, was replaced, or whose scope
-  // belongs to a replaced generation stages nothing and never touches its
-  // State. A frozen or unavailable lifecycle is reported by the transaction
-  // instead, so its wording and precedence stay identical to every other
-  // registration path.
   const BuilderHandleStatus Status = Classify();
   if (Status == BuilderHandleStatus::ForeignThread) {
     const std::string_view QualifiedName = QualifiedNameOf(ScopeNode);
@@ -233,16 +211,12 @@ std::size_t NamespaceBuilderState::Stage(std::size_t ScopeNode,
   Declaration.Segment = std::string(Segment);
   Declaration.QualifiedName = JoinQualifiedName(Parent, Segment);
 
-  // The canonical qualified name has its own Luna-owned length policy, which a
-  // deep chain of valid segments can still exceed.
   if (auto Diagnostic =
           ValidateCanonicalQualifiedName(Declaration.QualifiedName)) {
     RecordFailure(std::move(*Diagnostic));
     return ScopeNode;
   }
 
-  // Staging the same namespace twice keeps one node, so a chain may reopen its
-  // own scope without planning it twice.
   for (std::size_t Index = 0; Index < Staged.Namespaces.size(); ++Index) {
     if (Staged.Namespaces[Index].QualifiedName == Declaration.QualifiedName)
       return Index + 1;
@@ -332,8 +306,6 @@ std::size_t NamespaceBuilderState::StageEnumeration(
     return 0;
   }
 
-  // A user-defined leaf is accepted only with an explicit validated stable key;
-  // the reserved Luna prefix is never available to one.
   if (!Key.IsValid()) {
     RecordFailure(MalformedMetadataDiagnostic(
         EnumerationSubjectOf(Declaration.QualifiedName),
@@ -372,9 +344,6 @@ std::size_t NamespaceBuilderState::StageClass(std::size_t ScopeNode,
     return 0;
   }
 
-  // The declared stable key and the declared storage shape are checked as a
-  // whole, so a class Luna could never identify, allocate, or release is
-  // refused where the consumer's type is still known.
   if (auto Diagnostic = ValidateStagedClass(Declaration)) {
     RecordFailure(std::move(*Diagnostic));
     return 0;
@@ -418,8 +387,6 @@ NamespaceBuilderState::ScopeAnnotationTarget(std::size_t ScopeNode,
                                              std::string_view Member) {
   const std::string_view Scope = QualifiedNameOf(ScopeNode);
 
-  // The scope itself. The root scope is not a declaration of anything, so it
-  // has no record to carry documentation, attributes, or examples.
   if (Member.empty()) {
     if (ScopeNode == RootScopeNode || ScopeNode > Staged.Namespaces.size()) {
       RecordFailure(MalformedMetadataDiagnostic(
@@ -435,9 +402,6 @@ NamespaceBuilderState::ScopeAnnotationTarget(std::size_t ScopeNode,
                                   &Declaration.Examples};
   }
 
-  // One declaration already staged inside this scope, resolved in one fixed
-  // order so a name declared in exactly one category always resolves the same
-  // way whatever order the chain staged its categories in.
   const std::string QualifiedName = JoinQualifiedName(Scope, Member);
   for (StagedFunction &Declaration : Staged.Functions) {
     if (Declaration.QualifiedName == QualifiedName)
@@ -599,8 +563,6 @@ NamespaceBuilderState::EnumerationAnnotationTarget(std::size_t EnumerationNode,
   if (!Declaration)
     return StagedAnnotationTarget();
 
-  // An empty member annotates the enumeration itself, so annotating one
-  // enumerator is always explicit and never depends on staging order.
   if (Member.empty())
     return StagedAnnotationTarget{&Declaration->Documentation,
                                   &Declaration->Attributes,
@@ -703,10 +665,6 @@ void NamespaceBuilderState::StageClassMember(std::size_t ClassNode,
     return;
   }
 
-  // The candidate is checked as a whole here, where the consumer's declaration
-  // is still known: a lost target, a receiver of another class, and one member
-  // name declared both with and without a receiver are all refused before the
-  // plan carries them.
   if (auto Diagnostic = ValidateStagedMethod(*Declaration, Staging)) {
     RecordFailure(std::move(*Diagnostic));
     return;
@@ -752,8 +710,6 @@ void NamespaceBuilderState::StageClassAccessor(std::size_t ClassNode,
     return;
   }
 
-  // A member name collides in exactly one deterministic order, and Luna's own
-  // metamethod and system namespace ranks first in it.
   MemberCollisionRequest Collision;
   Collision.Segment = Staging.Segment;
   Collision.QualifiedName = Staging.QualifiedName;
@@ -776,10 +732,6 @@ void NamespaceBuilderState::StageClassAccessor(std::size_t ClassNode,
     return;
   }
 
-  // The accessor is checked as a whole here, where the consumer's declaration
-  // is still known: a policy that contradicts its own accessors and a value
-  // type Luna could never carry across the boundary are refused before the plan
-  // carries them.
   if (auto Diagnostic = ValidateStagedMember(Staging)) {
     RecordFailure(std::move(*Diagnostic));
     return;
@@ -815,10 +767,6 @@ void NamespaceBuilderState::StageClassConstruction(
     return;
   }
 
-  // The candidate is checked as a whole here, where the consumer's declaration
-  // is still known: a contradictory ownership policy, a missing target, and an
-  // ownership result the class could never honor are all refused before the
-  // plan carries them.
   if (auto Diagnostic = ValidateStagedConstruction(*Declaration, Staging)) {
     RecordFailure(std::move(*Diagnostic));
     return;
@@ -833,9 +781,6 @@ void NamespaceBuilderState::StageClassAllocator(std::size_t ClassNode,
   if (!Declaration || !CanStage(RootScopeNode))
     return;
 
-  // The protocol is checked against the class's declared storage shape here,
-  // where that shape is still known, so a protocol Luna could never create or
-  // release a value through never reaches one candidate of the class.
   if (auto Diagnostic = ValidateSelectedClassStorage(*Declaration, Storage)) {
     RecordFailure(std::move(*Diagnostic));
     return;
@@ -900,9 +845,6 @@ void NamespaceBuilderState::StageClassOperator(std::size_t ClassNode,
     return;
   }
 
-  // Several declarations of one operator form one ordinary overload set. A
-  // duplicate canonical signature is rejected by the same overload-join check
-  // used for methods and functions when the staged plan is submitted.
   if (auto Diagnostic = ValidateStagedOperator(Staging)) {
     RecordFailure(std::move(*Diagnostic));
     return;
@@ -918,8 +860,6 @@ NamespaceBuilderState::ClassAnnotationTarget(std::size_t ClassNode,
   if (!Declaration)
     return StagedAnnotationTarget();
 
-  // An empty member annotates the class itself, so annotating one member is
-  // always explicit and never depends on staging order.
   if (Member.empty())
     return StagedAnnotationTarget{&Declaration->Documentation,
                                   &Declaration->Attributes,
@@ -935,8 +875,6 @@ NamespaceBuilderState::ClassAnnotationTarget(std::size_t ClassNode,
     return StagedAnnotationTarget{&Staged->Documentation, &Staged->Attributes,
                                   &Staged->Examples};
 
-  // An operator is an ordinary member of the class, reached by the Luna-owned
-  // segment its operator is published under.
   if (StagedOperator *Staged = OperatorAt(*Declaration, Member))
     return StagedAnnotationTarget{&Staged->Documentation, &Staged->Attributes,
                                   &Staged->Examples};
@@ -1069,8 +1007,6 @@ std::string_view NamespaceBuilderState::QualifiedNameOfClass(
 }
 
 RegistrationResult NamespaceBuilderState::Commit() {
-  // Diagnostic subject of the whole plan: the first declaration it staged, in
-  // the order the categories are planned.
   std::string_view First;
   if (!Staged.Namespaces.empty())
     First = Staged.Namespaces.front().QualifiedName;
@@ -1100,8 +1036,6 @@ RegistrationResult NamespaceBuilderState::Commit() {
   if (IsFatalHandleStatus(Status))
     return RegistrationResult::Failure(StaleDiagnostic(Status, First));
 
-  // A frozen or unavailable State is reported by the transaction itself, so the
-  // lifecycle wording stays identical to every other registration path.
   State *Live = LiveOwner();
   if (!Live || !Live->Implementation)
     return RegistrationResult::Failure(
@@ -1121,8 +1055,6 @@ EnumStaging::EnumStaging(EnumStaging &&Other) noexcept = default;
 
 EnumStaging &EnumStaging::operator=(EnumStaging &&Other) noexcept = default;
 
-// Destroying an uncommitted staging discards the pending plan when the last
-// builder of the chain goes away. Nothing was installed, so nothing is undone.
 EnumStaging::~EnumStaging() = default;
 
 void EnumStaging::StageValue(std::string_view Name, std::int64_t Numeric) {
@@ -1209,8 +1141,6 @@ ClassStaging::ClassStaging(ClassStaging &&Other) noexcept = default;
 
 ClassStaging &ClassStaging::operator=(ClassStaging &&Other) noexcept = default;
 
-// Destroying an uncommitted staging discards the pending plan when the last
-// builder of the chain goes away. Nothing was installed, so nothing is undone.
 ClassStaging::~ClassStaging() = default;
 
 void ClassStaging::StageDocumentation(std::string_view Member,
@@ -1334,8 +1264,6 @@ NamespaceBuilder::NamespaceBuilder(NamespaceBuilder &&Other) noexcept = default;
 NamespaceBuilder &
 NamespaceBuilder::operator=(NamespaceBuilder &&Other) noexcept = default;
 
-// Destroying an uncommitted builder discards the pending plan when the last
-// builder of the chain goes away. Nothing was installed, so nothing is undone.
 NamespaceBuilder::~NamespaceBuilder() = default;
 
 NamespaceBuilder NamespaceBuilder::RegisterNamespace(std::string_view Name) {
@@ -1428,8 +1356,6 @@ BindingRegistry::CommitModule(ModuleManifest Manifest,
 RegistrationResult
 BindingRegistry::CommitConstant(std::string_view Name,
                                 Detail::ConstantRequest Request) {
-  // A root single-symbol operation commits immediately: one staged constant in
-  // one plan, submitted as one outermost registration transaction.
   std::shared_ptr<Detail::NamespaceBuilderState> Plan =
       Detail::NamespaceBuilderState::Create(*Owner);
   Plan->StageConstant(Detail::NamespaceBuilderState::RootScopeNode, Name,

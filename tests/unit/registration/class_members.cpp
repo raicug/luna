@@ -35,17 +35,11 @@ void Check(bool Condition, std::string_view Description) {
   std::cerr << "class member check failed: " << Description << '\n';
 }
 
-// How often each declared accessor ran. A lazy property runs its getter until
-// it succeeds once, so these counters are what prove a cached value was reused
-// rather than produced again.
 std::size_t LevelReads = 0;
 std::size_t LevelWrites = 0;
 std::size_t WeightReads = 0;
 std::size_t ExpensiveReads = 0;
 
-// One ordinary value type with every accessor shape this milestone declares: a
-// const accessor, a non-const accessor, a mutator, a plain data member, and a
-// const data member.
 struct Gadget final {
   int Charge = 3;
   const int Serial = 42;
@@ -86,7 +80,6 @@ void ResetCounters() {
   return Luna::StableTypeKey("Studio.Gadget");
 }
 
-// One registered class carrying every property mode and both field forms.
 [[nodiscard]] Luna::RegistrationResult
 RegisterGadget(Luna::BindingRegistry &Registry) {
   Luna::ClassBuilder<Gadget> Class =
@@ -189,8 +182,6 @@ void CheckMembersAreReflected() {
   Check(Label.IsValid() && Label.IsReadable() && !Label.IsWritable(),
         "an explicitly read-only field reflects only its read direction");
 
-  // Reflection describes the lazy policy and never the cache, so a snapshot
-  // taken before any access says exactly what one taken after it says.
   Check(Hooks::LazyMemberCacheEntryCount(Owner) == 0,
         "registration records no cached value at all");
 }
@@ -198,8 +189,6 @@ void CheckMembersAreReflected() {
 void CheckContradictoryDeclarationsAreRefused() {
   ResetCounters();
 
-  // A policy that permits no reads but was given a getter is a description
-  // mistake, and it is refused before anything is published.
   Luna::State First;
   Luna::BindingRegistry FirstRegistry = First.Bindings();
   Luna::ClassBuilder<Gadget> Contradicted =
@@ -212,8 +201,6 @@ void CheckContradictoryDeclarationsAreRefused() {
   Check(Hooks::RegisteredClassCount(First) == 0,
         "a refused member publishes no class at all");
 
-  // A const data member asked to be writable explicitly is refused; the same
-  // member with the default policy is silently read-only.
   Luna::State Second;
   Luna::BindingRegistry SecondRegistry = Second.Bindings();
   Luna::ClassBuilder<Gadget> Constant =
@@ -223,8 +210,6 @@ void CheckContradictoryDeclarationsAreRefused() {
   Check(!WithWritableConstant.Commit().IsSuccess(),
         "a const field asked to permit writes is refused transactionally");
 
-  // A field whose ownership Luna could not promise across the member boundary
-  // is refused rather than exposed.
   Luna::State Third;
   Luna::BindingRegistry ThirdRegistry = Third.Bindings();
   Luna::ClassBuilder<Gadget> Borrowed =
@@ -239,7 +224,6 @@ void CheckContradictoryDeclarationsAreRefused() {
 void CheckMemberCollisionsFollowOneOrder() {
   ResetCounters();
 
-  // 1. Luna's own metamethod and system namespace ranks first.
   Luna::State Reserved;
   Luna::BindingRegistry ReservedRegistry = Reserved.Bindings();
   Luna::ClassBuilder<Gadget> ReservedClass =
@@ -255,7 +239,6 @@ void CheckMemberCollisionsFollowOneOrder() {
                 std::string::npos,
         "the reserved-name refusal names Luna's own namespace");
 
-  // 2. A same-category duplicate.
   Luna::State Duplicated;
   Luna::BindingRegistry DuplicateRegistry = Duplicated.Bindings();
   Luna::ClassBuilder<Gadget> DuplicateClass =
@@ -267,7 +250,6 @@ void CheckMemberCollisionsFollowOneOrder() {
   Check(!WithSecond.Commit().IsSuccess(),
         "two properties of one name are a same-category duplicate");
 
-  // 3. An incompatible-category collision with a declaration of another kind.
   Luna::State Mixed;
   Luna::BindingRegistry MixedRegistry = Mixed.Bindings();
   Luna::ClassBuilder<Gadget> MixedClass =
@@ -279,9 +261,6 @@ void CheckMemberCollisionsFollowOneOrder() {
   Check(!WithProperty.Commit().IsSuccess(),
         "a property colliding with another category is refused");
 
-  // The order itself, decided without any State at all. Every arm is reachable
-  // from this classifier; only the inherited one has nothing that can set it
-  // yet.
   Luna::Detail::MemberCollisionRequest Request;
   Request.Segment = "Level";
   Request.QualifiedName = "Gadget.Level";
@@ -314,9 +293,6 @@ void CheckMemberCollisionsFollowOneOrder() {
             MemberCollision::IncompatibleCategory,
         "a declaration of another category outranks an inherited ambiguity");
 
-  // The inherited arm is implemented and unreachable: a class has no base edges
-  // until `Base` and `Cast` exist, so nothing can set this flag through the
-  // public surface yet. Its position in the order is what this milestone fixes.
   Luna::Detail::MemberCollisionRequest InheritedRequest = Request;
   InheritedRequest.InheritedNameIsAmbiguous = true;
   Check(Luna::Detail::ClassifyMemberCollision(InheritedRequest) ==

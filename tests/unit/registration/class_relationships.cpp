@@ -1,16 +1,3 @@
-// Focused coverage of the explicit class relationship graph: base edges, safe
-// downcast policies, derived-to-base receiver and argument adjustment, and the
-// inherited-member ambiguity the graph finally makes reachable.
-//
-// The graph itself is checked as a value first, because every refusal it
-// reports is decidable without a virtual machine at all: a declaration that is
-// not a base, an inaccessible one, an unregistered one, a duplicate edge, an
-// edge that closes a cycle, and a pair of classes reachable through two paths.
-// The same refusals are then taken through real registration, and the accepted
-// graph is exercised through the ordinary access gate, where a base view of a
-// derived object must arrive as the adjusted pointer and an incompatible object
-// must be refused before anything is converted.
-
 // clang-format off
 #include <luna/binding/binding_registry.hpp>
 #include <luna/binding/class_builder.hpp>
@@ -55,8 +42,6 @@ void Check(bool Condition, std::string_view Description) {
   std::cerr << "class relationship check failed: " << Description << '\n';
 }
 
-// -- the model under test ---------------------------------------------------
-
 struct Shape {
   virtual ~Shape() = default;
   int Sides = 3;
@@ -64,8 +49,6 @@ struct Shape {
   [[nodiscard]] int SideCount() const { return Sides; }
 };
 
-// The second base of the registered class, so a derived-to-base adjustment of
-// it is a real pointer adjustment rather than the identity.
 struct Tagged {
   int Tag = 7;
 
@@ -86,8 +69,6 @@ struct Hidden final : private Shape {
   int Kept = 5;
 };
 
-// A diamond: two accessible bases that both reach one further base, so exactly
-// two paths connect the pair.
 struct Left : Shape {
   int LeftValue = 1;
 };
@@ -115,8 +96,6 @@ struct Diamond final : Left, Right {
 [[nodiscard]] Luna::StableTypeKey UnrelatedKey() {
   return Luna::StableTypeKey("Studio.RelationshipUnrelated");
 }
-
-// -- the graph as a value ---------------------------------------------------
 
 [[nodiscard]] RelationshipClass DeclaredClass(const Luna::StableTypeKey &Key,
                                               std::string Name,
@@ -202,9 +181,6 @@ void CheckDuplicateCyclicAndAmbiguousEdgesAreRefused() {
             RelationshipFailure::DuplicateBase,
         "one base edge is declared exactly once");
 
-  // A cycle is only expressible by describing two classes as bases of each
-  // other, which is why the declared facts of one edge are never enough on
-  // their own.
   RelationshipCandidate Cyclic;
   Cyclic.AddClass(DeclaredClass(ShapeKey(), "Studio.Shape"));
   Cyclic.AddClass(DeclaredClass(SquareKey(), "Studio.Square"));
@@ -296,8 +272,6 @@ void CheckCastPoliciesAreRefusedWithoutOneAccessiblePath() {
             RelationshipFailure::DuplicateCast,
         "one cast policy is declared exactly once");
 
-  // A source Luna cannot decide compatibility of at all: the declaration names
-  // no non-mutating check, so nothing about the object could ever be verified.
   RelationshipCandidate Unsafe;
   Unsafe.AddClass(DeclaredClass(TaggedKey(), "Studio.Tagged"));
   Unsafe.AddClass(DeclaredClass(SquareKey(), "Studio.Square"));
@@ -312,8 +286,6 @@ void CheckCastPoliciesAreRefusedWithoutOneAccessiblePath() {
         "a non-polymorphic source has no runtime-type compatibility check");
 }
 
-// The published graph composes a multi-step path rather than assuming one
-// adjustment, and it reports every other pair as unrelated.
 void CheckPublishedPathsComposeEveryAdjustment() {
   const Luna::StableTypeKey LeftKey("Studio.RelationshipLeft");
   const Luna::StableTypeKey DiamondKey("Studio.RelationshipDiamond");
@@ -394,10 +366,6 @@ void CheckInheritedMemberAmbiguityIsCounted() {
         "a name no base declares is not inherited at all");
 }
 
-// -- the graph through real registration ------------------------------------
-
-// The lifetime a borrowed exposure requires, modelled as one generation counter
-// the test owns.
 std::uint64_t Lifetime = 1;
 
 [[nodiscard]] std::string ExposeBorrowed(Luna::State &Owner,
@@ -427,8 +395,6 @@ ReadAs(Luna::State &Owner, const std::string &Path,
   return Text.find(Needle) != std::string_view::npos;
 }
 
-// One plan carrying the whole accepted graph: two bases and the derived class
-// that names both of them.
 [[nodiscard]] Luna::RegistrationResult RegisterAcceptedModel(Luna::State &Owner,
                                                              bool WithCast) {
   Luna::BindingRegistry Registry = Owner.Bindings();
@@ -458,8 +424,6 @@ ReadAs(Luna::State &Owner, const std::string &Path,
   return Studio.Commit();
 }
 
-// A derived value is received as either of its bases, as the adjusted pointer
-// each base view sees, and never as a class no path leads to.
 void CheckDerivedValueReachesEveryRegisteredBase() {
   Luna::State Owner;
   Check(RegisterAcceptedModel(Owner, false).IsSuccess(),
@@ -481,9 +445,6 @@ void CheckDerivedValueReachesEveryRegisteredBase() {
   Check(AsShape.ReachedNativeCode && AsShape.DeliveredExpectedObject,
         "the first base receives the adjusted pointer of the derived value");
 
-  // The second base of a value with two of them starts at a different address
-  // than the object itself, so this is the check that a path is composed rather
-  // than assumed to be the identity.
   const void *const TaggedView = static_cast<Tagged *>(&Value);
   Check(TaggedView != static_cast<const void *>(&Value),
         "the second base of this value really is at another offset");
@@ -499,8 +460,6 @@ void CheckDerivedValueReachesEveryRegisteredBase() {
   Check(Contains(AsUnrelated.Diagnostic, "Studio.Unrelated"),
         "the refusal names the class that was requested");
 
-  // The same adjustment through the real virtual machine: a base member called
-  // with a derived receiver operates on the base view of that object.
   Check(
       Owner.Execute("Result = Studio.Shape.SideCount(SquareValue)").IsSuccess(),
       "a base method accepts a derived receiver from script");
@@ -514,8 +473,6 @@ void CheckDerivedValueReachesEveryRegisteredBase() {
   Check(Tag && *Tag == 9, "the second base read its own adjusted view");
 }
 
-// A base value is received as the derived class only through an explicitly
-// registered safe cast policy, and only when the object really is one.
 void CheckSafeDowncastsRequireAnExplicitPolicy() {
   Luna::State Refusing;
   Check(RegisterAcceptedModel(Refusing, false).IsSuccess(),
@@ -559,8 +516,6 @@ void CheckSafeDowncastsRequireAnExplicitPolicy() {
         "the diagnostic explains that the object is not a value of the class");
 }
 
-// Every family of refused relationship, taken through real registration, leaves
-// the State reusable.
 void CheckRefusedRelationshipsAreTransactional() {
   Luna::State Owner;
   {
@@ -646,7 +601,6 @@ void CheckRefusedRelationshipsAreTransactional() {
           "a downcast without the registered base path it mirrors is refused");
   }
 
-  // Nothing was published by any refusal, so the State still registers.
   Check(RegisterAcceptedModel(Owner, true).IsSuccess(),
         "the State remains reusable after every refused relationship");
   Check(Hooks::ClassMemberIsRegistered(Owner, "Studio.Square", "EdgeLength") ==
@@ -654,10 +608,6 @@ void CheckRefusedRelationshipsAreTransactional() {
         "a method is a callable candidate rather than a typed accessor");
 }
 
-// The identity of a related class never depends on a runtime type name, a
-// runtime type address, or the order the relationships were declared in, even
-// though the cast policy of one of them decides compatibility with runtime type
-// assistance.
 void CheckPersistentIdentityIsIndependentOfRuntimeTypes() {
   Luna::State First;
   Check(RegisterAcceptedModel(First, true).IsSuccess(),
@@ -704,8 +654,6 @@ void CheckPersistentIdentityIsIndependentOfRuntimeTypes() {
         "a derived class and its base keep distinct identities");
 }
 
-// The inherited-member ambiguity arm of the member collision order, reachable
-// only once base edges exist.
 void CheckInheritedMemberAmbiguityIsRefused() {
   Luna::State Owner;
   Luna::BindingRegistry Registry = Owner.Bindings();

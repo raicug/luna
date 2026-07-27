@@ -1,35 +1,5 @@
 #pragma once
 
-// The public custom conversion boundary.
-//
-// Everything a converter author touches lives here and is built from Luna-owned
-// and standard-library types only: no virtual-machine type, header, pointer,
-// stack index, registry reference, constant, or macro is reachable from this
-// header, and none is required to write, compile, or link a converter.
-//
-// The boundary has three parts:
-//
-//   * `ValueView` is a transient token naming one value inside the conversion
-//     frame Luna opened for the current callback. It exposes shape only. It
-//     carries no native pointer and no stack index, and it becomes inert as
-//     soon as the frame it belongs to ends, so retaining one can never reach
-//     released virtual-machine storage. `ToOwned()` is the documented way to
-//     keep a value: it copies into an owning `OwnedValue`.
-//   * `OwnedValue` and `ValuePack` are owning Luna values. They outlive any
-//     frame and are what a converter retains, stores, or publishes.
-//     `Luna::Value` remains the pinned foundation variant; `OwnedValue`
-//     converts to and from it and additionally represents nil and tables.
-//   * `ConversionContext` is the transient conversion frame itself: it reports
-//     the shape under conversion, the diagnostic position and nested path, and
-//     - for a committing write only - the resource reservation and atomic
-//     publication operations.
-//
-// Viability and rank probing is separated from committing conversion by the
-// type system: `Probe` receives `const ConversionContext&`, and every operation
-// that mutates, allocates, or publishes is non-const. Luna additionally records
-// any violation that reaches it through a const cast, so probe purity is both
-// structurally enforced and observably detectable.
-
 // clang-format off
 #include <luna/binding/value.hpp>
 
@@ -48,15 +18,12 @@ namespace Luna {
 
 namespace Detail {
 class ConversionFrame;
-} // namespace Detail
+}
 
 class ConversionContext;
 class OwnedValue;
 class ValueView;
 
-// Luau-free description of what one value looks like. It is deliberately
-// distinct from the pinned foundation `ValueKind`, which cannot describe nil,
-// tables, userdata, or functions.
 enum class ValueCategory {
   None,
   Nil,
@@ -91,8 +58,6 @@ ValueCategoryText(ValueCategory Category) noexcept {
   return "none";
 }
 
-// Ordered conversion rank categories. Ranks are compared as Pareto dimensions;
-// they are never summed into a score.
 enum class ConversionRank { Exact, SafeBuiltIn, User };
 
 [[nodiscard]] constexpr std::string_view
@@ -108,7 +73,6 @@ ConversionRankText(ConversionRank Rank) noexcept {
   return "user";
 }
 
-// Direction of the frame a context describes.
 enum class ConversionDirection { Read, Write };
 
 [[nodiscard]] constexpr std::string_view
@@ -122,7 +86,6 @@ ConversionDirectionText(ConversionDirection Direction) noexcept {
   return "read";
 }
 
-// Outcome of one committing read.
 enum class ConversionStatus {
   Success,
   InactiveContext,
@@ -160,7 +123,6 @@ ConversionStatusText(ConversionStatus Status) noexcept {
   return "rejected";
 }
 
-// Outcome of one reservation or publication.
 enum class WriteStatus {
   Success,
   InactiveContext,
@@ -198,9 +160,6 @@ WriteStatusText(WriteStatus Status) noexcept {
   return "incomplete_aggregate";
 }
 
-// Explicit Luna-owned resource request. A writer states everything it needs
-// before it publishes anything; publication is refused unless the complete
-// value fits inside the reservation.
 struct ValueReservation final {
   std::size_t ValueCount = 0;
   std::size_t ElementCount = 0;
@@ -219,9 +178,6 @@ struct WriteResult final {
   }
 };
 
-// Result of one viability and rank probe. A probe never converts and never
-// mutates; it reports whether conversion would be viable, at which rank, and
-// otherwise why it is not.
 struct ConversionProbe final {
   bool IsViable = false;
   ConversionRank Rank = ConversionRank::User;
@@ -252,16 +208,8 @@ template <class Type> struct ConversionResult final {
   }
 };
 
-// The largest string, in bytes, any conversion accepts in either direction.
-// This is the inherited foundation policy and the single source of truth every
-// converter and diagnostic reads.
 [[nodiscard]] std::size_t MaximumConversionStringBytes() noexcept;
 
-// One owning Luna value. It holds nil, a boolean, a number, a string, or a
-// table of ordered elements plus name-sorted fields, owns every byte it
-// reports, and is safe to retain for as long as the consumer wants. Fields are
-// kept in canonical name order so equality and enumeration never depend on
-// insertion order.
 class OwnedValue final {
 public:
   OwnedValue() = default;
@@ -295,7 +243,6 @@ public:
     return Result;
   }
 
-  // The pinned foundation variant converts into an owning value without loss.
   [[nodiscard]] static OwnedValue FromValue(const Value &Source) {
     if (const bool *SourceBoolean = std::get_if<bool>(&Source))
       return OwnedValue::Boolean(*SourceBoolean);
@@ -308,8 +255,6 @@ public:
     return OwnedValue();
   }
 
-  // The reverse mapping. Nil and tables have no foundation representation, and
-  // a number that is not an exact signed 32-bit integer stays a number.
   [[nodiscard]] std::optional<Value> ToValue() const {
     switch (CategoryValue) {
     case ValueCategory::Boolean:
@@ -356,8 +301,6 @@ public:
     return TextValue;
   }
 
-  // Ordered elements. `Index` is zero-based; diagnostics print the one-based
-  // Luau position.
   [[nodiscard]] std::size_t Size() const noexcept {
     return ElementsValue.size();
   }
@@ -413,8 +356,6 @@ public:
                             std::move(Field));
   }
 
-  // Recursive resource accounting. Writers reserve against exactly these
-  // numbers, so a reservation can be validated before anything is published.
   [[nodiscard]] std::size_t TotalValueCount() const {
     std::size_t Total = 1;
     for (const OwnedValue &Element : ElementsValue)
@@ -462,8 +403,6 @@ public:
     return Total;
   }
 
-  // Largest single string anywhere in the value, which is what the inherited
-  // per-string byte policy applies to.
   [[nodiscard]] std::size_t LargestStringByteCount() const {
     std::size_t Largest = TextValue.size();
     for (const std::string &Name : FieldNamesValue) {
@@ -483,7 +422,6 @@ public:
     return Largest;
   }
 
-  // The reservation one publication of this value needs, exactly.
   [[nodiscard]] ValueReservation RequiredReservation() const {
     ValueReservation Required;
     Required.ValueCount = TotalValueCount();
@@ -537,8 +475,6 @@ private:
   std::vector<OwnedValue> FieldValuesValue;
 };
 
-// One owning ordered pack of values. Argument packs and return packs are both
-// this shape, and it stays valid after the frame that produced it ends.
 class ValuePack final {
 public:
   ValuePack() = default;
@@ -594,21 +530,10 @@ private:
   std::vector<OwnedValue> ValuesValue;
 };
 
-// A transient, non-owning token naming one value inside the conversion frame
-// Luna opened for the current callback.
-//
-// The token is a Luna-owned opaque number. It is not a pointer, not a stack
-// index, and not a registry reference, and no accessor can turn it into one. A
-// view is valid only for the documented extent of the conversion callback it
-// was handed to: once that frame ends, every copy of the view answers as an
-// inert value and the attempt is recorded, so retaining a view can never reach
-// released virtual-machine storage. `ToOwned()` is how a converter keeps a
-// value beyond the callback.
 class ValueView final {
 public:
   ValueView() noexcept = default;
 
-  // The view still names a live value in a live frame.
   [[nodiscard]] bool IsActive() const noexcept;
 
   [[nodiscard]] ValueCategory Kind() const noexcept;
@@ -619,12 +544,8 @@ public:
   [[nodiscard]] std::optional<double> ToNumber() const noexcept;
   [[nodiscard]] std::optional<std::string> ToText() const;
 
-  // Byte count of a string value, which is what the inherited per-string byte
-  // policy is reported against.
   [[nodiscard]] std::size_t ByteCount() const noexcept;
 
-  // Ordered elements. `Index` is zero-based; the nested path prints the
-  // one-based Luau position.
   [[nodiscard]] std::size_t Size() const noexcept;
   [[nodiscard]] ValueView Element(std::size_t Index) const noexcept;
 
@@ -633,10 +554,8 @@ public:
   [[nodiscard]] bool HasField(std::string_view Name) const noexcept;
   [[nodiscard]] ValueView Field(std::string_view Name) const noexcept;
 
-  // Complete nested path of this value, such as `argument 2[4].Key`.
   [[nodiscard]] std::string Path() const;
 
-  // Copy out of the frame. This is the only supported way to retain a value.
   [[nodiscard]] OwnedValue ToOwned() const;
 
 private:
@@ -650,15 +569,6 @@ private:
   std::uint32_t NodeIndexValue = 0;
 };
 
-// The transient conversion frame a converter is invoked with.
-//
-// A context reports the shape under conversion and the diagnostic position and
-// nested path. On a committing write frame it also reserves resources and
-// publishes the finished value; every one of those operations is non-const, so
-// a probe - which receives `const ConversionContext&` - cannot reach them at
-// all. Like `ValueView` it holds only a Luna-owned opaque token and becomes
-// inert when its frame ends, so retaining a context is harmless and detectable
-// rather than dangerous.
 class ConversionContext final {
 public:
   ConversionContext() noexcept = default;
@@ -666,11 +576,8 @@ public:
   [[nodiscard]] bool IsActive() const noexcept;
   [[nodiscard]] ConversionDirection Direction() const noexcept;
 
-  // The frame is a viability and rank probe: nothing may be mutated,
-  // allocated, published, or converted through it.
   [[nodiscard]] bool IsProbing() const noexcept;
 
-  // Shape of the value under conversion.
   [[nodiscard]] ValueCategory Kind() const noexcept;
   [[nodiscard]] bool IsNil() const noexcept;
   [[nodiscard]] std::size_t Size() const noexcept;
@@ -678,18 +585,12 @@ public:
   [[nodiscard]] ValueView Field(std::string_view Name) const noexcept;
   [[nodiscard]] ValueView Source() const noexcept;
 
-  // Diagnostic identity: the callable or member, the one-based argument or
-  // return position, and the complete nested path.
   [[nodiscard]] std::string_view Callable() const noexcept;
   [[nodiscard]] std::size_t Position() const noexcept;
   [[nodiscard]] std::string Path() const;
 
-  // One deterministic diagnostic naming the callable, the position, the
-  // complete nested path, and the reason.
   [[nodiscard]] std::string Describe(std::string_view Reason) const;
 
-  // Writer side. Resources are requested and validated first; publication is
-  // atomic and happens at most once.
   [[nodiscard]] bool HasReservation() const noexcept;
   [[nodiscard]] bool IsPublished() const noexcept;
   [[nodiscard]] ValueReservation Reservation() const noexcept;
@@ -698,9 +599,6 @@ public:
   [[nodiscard]] WriteResult Publish(const OwnedValue &Published);
   [[nodiscard]] WriteResult PublishPack(const ValuePack &Published);
 
-  // Luna's own channel for recording an attempted probe violation. It is
-  // const because the violation is recorded in Luna-owned diagnostics and
-  // never in the conversion outcome.
   void ReportProbeViolation(std::string_view Reason) const;
 
 private:
@@ -716,22 +614,8 @@ private:
   bool ProbingValue = false;
 };
 
-// The type a converter author specializes. A specialization supplies exactly
-// three operations, and nothing in their signatures names a virtual machine:
-//
-//   template <> class TypeConverter<MyType> {
-//   public:
-//     ConversionProbe Probe(ValueView Source,
-//                           const ConversionContext& Context) const;
-//     ConversionResult<MyType> Read(ValueView Source,
-//                                   ConversionContext& Context) const;
-//     WriteResult Write(const MyType& Source, ConversionContext& Context)
-//     const;
-//   };
 template <class Type> class TypeConverter;
 
-// A type participates in the boundary when its converter supplies the three
-// separated operations with exactly these shapes.
 template <class Type>
 concept ConversionCapable =
     requires(const TypeConverter<Type> &Converter, ValueView Source,
@@ -744,8 +628,6 @@ concept ConversionCapable =
       { Converter.Write(Written, Committing) } -> std::same_as<WriteResult>;
     };
 
-// Boundary entry points. Every read and write goes through these so probing
-// stays separated from committing conversion in one place.
 template <class Type>
 [[nodiscard]] ConversionProbe ProbeValue(ValueView Source,
                                          const ConversionContext &Context) {

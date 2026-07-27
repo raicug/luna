@@ -60,24 +60,15 @@ PreparationStatus PrepareGenerations(const RegistrationTransaction &Transaction,
   const DescriptorPlan &Plan = Transaction.Plan();
 
   try {
-    // Canonical order, never insertion order: an equivalent plan prepares one
-    // identical candidate generation.
     const std::vector<std::size_t> Order = Plan.CanonicalOrder();
 
     std::vector<CommittedSymbol> Added;
     Added.reserve(Order.size());
 
-    // Canonical type declarations of the plan, in the same canonical order.
     std::vector<TypeRecord> DeclaredTypes;
 
-    // The candidate reflection generation starts from the captured committed
-    // one, so publication replaces one complete generation rather than merging.
     ReflectionGenerationBuilder Candidate(*Captured.Reflection());
 
-    // The records of the plan, paired with the module identity whose load
-    // contributed each one. Records are added in a second pass because the
-    // canonical index of a module is only known once every module of the
-    // candidate generation has been added.
     std::vector<std::pair<ReflectionRecordFields, std::string_view>>
         PendingRecords;
 
@@ -86,9 +77,6 @@ PreparationStatus PrepareGenerations(const RegistrationTransaction &Transaction,
       if (!Entry)
         return PreparationStatus::IncompletePlan;
 
-      // Only the canonical identity half is required here. Descriptor
-      // completeness, including every payload a category requires, is a
-      // validation concern that already ran before any payload was staged.
       CommittedSymbol Symbol = MakeCommittedSymbol(*Entry);
       if (!Symbol.IsValid())
         return PreparationStatus::IncompletePlan;
@@ -101,8 +89,6 @@ PreparationStatus PrepareGenerations(const RegistrationTransaction &Transaction,
       if (Entry->TypeConversion)
         DeclaredTypes.push_back(*Entry->TypeConversion);
 
-      // The overload set of a callable is published before its candidates, so
-      // every candidate record already names an existing set.
       if (Entry->OverloadSetRecord)
         PendingRecords.emplace_back(*Entry->OverloadSetRecord,
                                     Entry->ModuleIdentity);
@@ -110,9 +96,6 @@ PreparationStatus PrepareGenerations(const RegistrationTransaction &Transaction,
         PendingRecords.emplace_back(*Entry->Record, Entry->ModuleIdentity);
     }
 
-    // Module provenance: a declaration a module load contributed names the
-    // module record of this candidate generation, so every symbol a module
-    // publishes reports the identity and version it came from.
     for (auto &[Fields, ModuleIdentity] : PendingRecords) {
       if (!ModuleIdentity.empty()) {
         const std::optional<std::size_t> Owner =
@@ -127,10 +110,6 @@ PreparationStatus PrepareGenerations(const RegistrationTransaction &Transaction,
       Candidate.AddRecord(std::move(Fields));
     }
 
-    // The candidate type generation. A conflicting converter, an incompatible
-    // duplicate declaration, an unavailable nested type, and a
-    // canonical-descriptor collision are all rejected here, before anything is
-    // installed or published.
     const std::shared_ptr<const TypeGeneration> CapturedTypes =
         Captured.Types() ? Captured.Types() : TypeGeneration::Foundation();
     Prepared.TypesAdvance = !DeclaredTypes.empty();
@@ -153,9 +132,6 @@ PreparationStatus PrepareGenerations(const RegistrationTransaction &Transaction,
     auto Symbols =
         CommittedSymbolTable::Extend(Captured.Symbols(), std::move(Added));
 
-    // The candidate reflection generation is validated either way, but it only
-    // becomes the generation set's reflection half when the plan actually
-    // contributes reflection content.
     Prepared.ReflectionAdvances = PlanContributesReflection(Plan);
     auto CandidateSet = GenerationSet::Derive(Captured, Symbols,
                                               Prepared.ReflectionAdvances
@@ -201,9 +177,6 @@ PrepareFunctionResources(RegistrationTransaction &Transaction,
     return Result;
   }
 
-  // The canonical signature and candidate identity of the declaration travel
-  // with its target, because the staged candidate is one member of the overload
-  // set that owns this path.
   const CallableSignatureDescriptor Signature =
       Entry->Symbol.Signature ? *Entry->Symbol.Signature
                               : CallableSignatureDescriptor();
@@ -229,8 +202,6 @@ PrepareFunctionResources(RegistrationTransaction &Transaction,
     return Result;
   }
 
-  // The staged record is uncommitted, so no ordinary virtual-machine,
-  // reflection, or dispatch query can observe it before publication.
   Result.Binding = Pending;
   return Result;
 }

@@ -1,43 +1,3 @@
-// Property 30: frozen caches are equivalent to uncached generation lookups.
-//
-// Two States are generated from the same committed input and compared with an
-// independent model written here rather than with Luna's own accounting.
-//
-// The generated input is one prelude - two classes, one of which declares the
-// other as its base - plus a generated list of independent declaration units:
-// two-candidate functions, namespaces holding a constant, classes holding a
-// field and one explicitly lazy property, and loaded modules that register
-// their own namespace and constant. The first State commits those units in the
-// generated order and then takes a generated query history over them:
-// reflection lookups by name and by kind, retained snapshots, real script
-// calls, userdata exposure, lazy reads, member writes, explicit cache
-// invalidation, and relationship enumeration. The second State commits exactly
-// the same units in a generated permutation and takes no history at all.
-//
-// The model predicts, from the generated unit list alone, every namespace,
-// every class, every loaded module identity and version, every callable path
-// with its candidate count, and every public declaration with its symbol kind.
-// Both the frozen caches and the uncached lookups are compared with that model,
-// and then with each other: every cached lookup that names a reflected record
-// must reach exactly the record the uncached canonical enumeration holds at
-// that index, every cached namespace, class, module, and overload entry must
-// agree with the live uncached query for it, and every reflected canonical type
-// must be present in the frozen conversion table. Names the model never
-// declared must be absent from both sides, so a refused lookup is refused
-// identically cached and uncached.
-//
-// The generated lifecycle is checked at the same time. A generated number of
-// injected preparation failures each leave the State Ready and unchanged and
-// publish nothing; a generated number of repeated freezes return one identical
-// already-frozen result without republishing; a foreign-thread freeze and a
-// foreign-thread registration are both refused before any mutation; and after
-// freeze, the documented owner-thread runtime state follows its owners - a
-// dispatch-generation change makes every earlier lazy value unreachable while
-// its entry is still owned, and retiring one exposed value drops its entries
-// and its live identity before the value becomes unavailable, so the next
-// access is refused rather than reaching released storage. None of that ever
-// changes the published cache.
-
 // clang-format off
 #include <luna/binding/binding_registry.hpp>
 #include <luna/binding/class_builder.hpp>
@@ -79,9 +39,6 @@ using Luna::Detail::FreezeCacheObservation;
 using Luna::Detail::OwnershipModel;
 using Luna::Detail::StateFaultPoint;
 
-// Deterministic byte source. Equal bytes always drive the equal scenario, so a
-// shrunk counterexample replays exactly the same committed input, the same
-// query history, and the same lifecycle sequence.
 class ByteCursor final {
 public:
   explicit ByteCursor(const std::vector<std::uint8_t> &Bytes) noexcept
@@ -102,11 +59,6 @@ private:
   const std::vector<std::uint8_t> *BytesValue;
   std::size_t IndexValue = 0;
 };
-
-// ---------------------------------------------------------------------------
-// The registered surface: one base class, one derived class always present, and
-// four distinct generated classes.
-// ---------------------------------------------------------------------------
 
 struct Part {
   virtual ~Part() = default;
@@ -175,11 +127,6 @@ template <int Ordinal> [[nodiscard]] Luna::ModuleManifest ManifestOf() {
               : std::nullopt;
   return Manifest ? *Manifest : Luna::ModuleManifest();
 }
-
-// ---------------------------------------------------------------------------
-// One generated declaration unit. Every unit is independent of every other one,
-// so any permutation of the list is the same committed input.
-// ---------------------------------------------------------------------------
 
 enum class UnitKind : std::uint8_t { Callable, Scope, Class, Module };
 
@@ -278,17 +225,10 @@ RegisterGeneratedModule(Luna::BindingRegistry &Registry, std::size_t Ordinal) {
 
 namespace {
 
-// ---------------------------------------------------------------------------
-// The independent model of the committed surface. It is built from the
-// generated unit list alone, in canonical order, so it never depends on the
-// order the units were committed in, on any query taken before freeze, or on
-// anything Luna reports about itself.
-// ---------------------------------------------------------------------------
-
 struct ModelSurface final {
   std::vector<std::string> Namespaces;
   std::vector<std::string> Classes;
-  std::vector<std::string> Modules; // identity|version
+  std::vector<std::string> Modules;
   std::vector<std::pair<std::string, std::size_t>> Callables;
   std::vector<std::pair<std::string, Luna::SymbolKind>> Declarations;
   std::size_t DerivedClasses = 0;
@@ -302,8 +242,6 @@ void Declare(ModelSurface &Model, std::string QualifiedName,
 [[nodiscard]] ModelSurface ModelOf(const std::vector<Unit> &Units) {
   ModelSurface Model;
 
-  // The prelude: one base class with one field, and one derived class with a
-  // field and one explicitly lazy property.
   Model.Classes.push_back("Part");
   Declare(Model, "Part", Luna::SymbolKind::Class);
   Declare(Model, "Part.Serial", Luna::SymbolKind::Field);
@@ -364,11 +302,6 @@ void Declare(ModelSurface &Model, std::string QualifiedName,
   return Total;
 }
 
-// ---------------------------------------------------------------------------
-// Canonical text helpers. Every cached entry is observed as one `|`-separated
-// text, so nothing here reads Luna's private storage layout.
-// ---------------------------------------------------------------------------
-
 [[nodiscard]] std::vector<std::string> Fields(const std::string &Text) {
   std::vector<std::string> Parts;
   std::size_t Start = 0;
@@ -424,10 +357,6 @@ OrderedNames(const Luna::ReflectionRecordRange &Range) {
   return false;
 }
 
-// ---------------------------------------------------------------------------
-// One published cache, compared with the model that predicted it.
-// ---------------------------------------------------------------------------
-
 void VerifyCacheMatchesModel(const Luna::State &Owner,
                              const FreezeCacheObservation &Observed,
                              const ModelSurface &Model) {
@@ -465,16 +394,12 @@ void VerifyCacheMatchesModel(const Luna::State &Owner,
   RC_ASSERT(CachedCallables == Model.Callables);
   RC_ASSERT(Observed.Overloads == Model.Callables.size());
 
-  // The foundation conversion table is always prepared, and every declared
-  // class adds at least its own canonical type; each declared base edge adds at
-  // least one viable cast path.
   RC_ASSERT(Observed.Conversions >= 5 + Model.Classes.size());
   RC_ASSERT(Observed.OrderedConversions.size() == Observed.Conversions);
   RC_ASSERT(Observed.CastPaths >= Model.DerivedClasses);
   RC_ASSERT(Observed.OrderedCastPaths.size() == Observed.CastPaths);
 }
 
-// One uncached generation, compared with the same model.
 void VerifyUncachedMatchesModel(const Luna::ReflectionSnapshot &Snapshot,
                                 const ModelSurface &Model) {
   for (const auto &[QualifiedName, Kind] : Model.Declarations) {
@@ -503,8 +428,6 @@ void VerifyUncachedMatchesModel(const Luna::ReflectionSnapshot &Snapshot,
   RC_ASSERT(ObservedModules == Model.Modules);
 }
 
-// The published cache, compared with the uncached lookups of exactly the
-// generations its key names.
 void VerifyCachedMatchesUncached(const Luna::State &Owner,
                                  const FreezeCacheObservation &Observed,
                                  const Luna::ReflectionSnapshot &Snapshot) {
@@ -514,8 +437,6 @@ void VerifyCachedMatchesUncached(const Luna::State &Owner,
     const std::vector<std::string> Parts = Fields(Detail);
     RC_ASSERT(Parts.size() == 5);
     if (Parts[4] == "-") {
-      // A private committed identity retains no reflected record at all, so it
-      // can never alias one either.
       RC_ASSERT(Parts[1] == "type" || Parts[1] == "dispatch_target" ||
                 Parts[1] == "metatable");
       continue;
@@ -589,8 +510,6 @@ void VerifyCachedMatchesUncached(const Luna::State &Owner,
     RC_ASSERT(Hooks::OverloadCandidateSignatures(Owner, Name).size() == Count);
     RC_ASSERT(Hooks::StagedOverloadCandidateCount(Owner, Name) == 0);
 
-    // Every cached candidate index names one lookup entry of exactly this
-    // callable path, and every one of those is a reflected candidate.
     std::size_t Named = 0;
     const std::string Indices = FieldAt(Text, 2);
     std::size_t Start = 0;
@@ -616,8 +535,6 @@ void VerifyCachedMatchesUncached(const Luna::State &Owner,
     RC_ASSERT(Named == Count);
   }
 
-  // Every canonical type the uncached generation reflects is present in the
-  // frozen conversion table.
   const Luna::TypeRecordRange Types = Snapshot.Types();
   for (std::size_t Index = 0; Index < Types.Size(); ++Index) {
     const std::string Identity = Types.At(Index).Id().ToString();
@@ -627,9 +544,6 @@ void VerifyCachedMatchesUncached(const Luna::State &Owner,
   }
 }
 
-// Two States committed from the same input publish byte-identical caches, apart
-// from the logical State identity and the state-local metatable identities
-// neither one promises to share.
 void VerifyEquivalentCaches(const FreezeCacheObservation &First,
                             const FreezeCacheObservation &Second) {
   RC_ASSERT(First.Published && Second.Published);
@@ -653,11 +567,6 @@ void VerifyEquivalentCaches(const FreezeCacheObservation &First,
 } // namespace
 
 namespace {
-
-// ---------------------------------------------------------------------------
-// The generated query history, and the owner-thread runtime state one frozen
-// State is still allowed to keep.
-// ---------------------------------------------------------------------------
 
 enum class QueryKind : std::uint8_t {
   FindDeclared,
@@ -714,9 +623,6 @@ WriteGadgetMember(Luna::State &Owner, const std::string &Path,
   return Hooks::WriteClassMemberValue(Owner, Request);
 }
 
-// One generated query history. Nothing here may change the committed model, so
-// the generations, the binding count, and the reflected generation are compared
-// before and after the whole history.
 void TakeQueryHistory(ByteCursor &Cursor, Luna::State &Owner,
                       const ModelSurface &Model, Gadget &Probe,
                       const std::uint64_t *Lifetime,
@@ -811,7 +717,6 @@ void TakeQueryHistory(ByteCursor &Cursor, Luna::State &Owner,
     }
   }
 
-  // A query history is exactly that: no query committed anything.
   RC_ASSERT(Hooks::GenerationsOf(Owner) == Generations);
   RC_ASSERT(Hooks::ReflectionGeneration(Owner) == Reflected);
   RC_ASSERT(Hooks::BindingCount(Owner) == Bindings);
@@ -820,8 +725,6 @@ void TakeQueryHistory(ByteCursor &Cursor, Luna::State &Owner,
   RC_ASSERT(!Hooks::ObserveFreezeCache(Owner).Published);
 }
 
-// Every injected preparation failure leaves the Ready State exactly as it was
-// and publishes nothing at all.
 void VerifyFailedFreezesChangeNothing(Luna::State &Owner,
                                       Luna::BindingRegistry &Registry,
                                       std::size_t Attempts) {
@@ -864,8 +767,6 @@ void VerifyFailedFreezesChangeNothing(Luna::State &Owner,
             0);
 }
 
-// Every repeated freeze returns one identical already-frozen result and
-// republishes nothing.
 void VerifyRepeatedFreezeIsDeterministic(Luna::State &Owner,
                                          Luna::BindingRegistry &Registry,
                                          const FreezeCacheObservation &Cached,
@@ -890,8 +791,6 @@ void VerifyRepeatedFreezeIsDeterministic(Luna::State &Owner,
   }
 }
 
-// A foreign thread is refused before mutation, whether it asks to freeze or to
-// register.
 void VerifyForeignThreadNeverMutates(Luna::State &Owner) {
   const auto Generations = Hooks::GenerationsOf(Owner);
   const std::uint64_t Reflected = Hooks::ReflectionGeneration(Owner);
@@ -929,16 +828,9 @@ void VerifyForeignThreadNeverMutates(Luna::State &Owner) {
   RC_ASSERT(Hooks::ObserveRootStackDepth(Owner) == Depth);
 }
 
-// After freeze, the documented owner-thread runtime state still follows its
-// owners: a dispatch-generation change makes every earlier lazy value
-// unreachable, and retiring one exposed value withdraws its entries and its
-// live identity before that value becomes unavailable. None of it republishes
-// or mutates the frozen caches.
 void VerifyInvalidationPrecedesUnavailability(
     Luna::State &Owner, const FreezeCacheObservation &Cached, Gadget &Probe,
     const std::uint64_t *Lifetime) {
-  // The generated query history may already have exposed a value of its own, so
-  // every count here is compared against what this State owned beforehand.
   const std::string Path = "Frozen_0";
   const std::size_t Identities = Hooks::LiveCachedIdentityCount(Owner);
   const std::size_t LiveEntries = Hooks::LiveLazyMemberCacheEntryCount(Owner);
@@ -955,8 +847,6 @@ void VerifyInvalidationPrecedesUnavailability(
   RC_ASSERT(Reused.Reached);
   RC_ASSERT(Reused.ServedFromCache);
 
-  // A dispatch-generation change invalidates by mismatch: the entry is still
-  // owned by Luna, and it is no longer reachable by any access.
   RC_ASSERT(Hooks::AdvanceLifecycleGeneration(Owner));
   RC_ASSERT(Hooks::LazyMemberCacheEntryCountOf(Owner, &Probe) == 1);
   RC_ASSERT(Hooks::LiveLazyMemberCacheEntryCount(Owner) == 0);
@@ -966,7 +856,6 @@ void VerifyInvalidationPrecedesUnavailability(
   RC_ASSERT(AfterGeneration.Recorded);
   RC_ASSERT(Hooks::LiveLazyMemberCacheEntryCount(Owner) == 1);
 
-  // Retirement invalidates before the value becomes unavailable.
   RC_ASSERT(Hooks::RetireClassUserdata(Owner, &Probe));
   RC_ASSERT(Hooks::LazyMemberCacheEntryCountOf(Owner, &Probe) == 0);
   RC_ASSERT(Hooks::LiveCachedIdentityCount(Owner) == Identities);
@@ -975,8 +864,6 @@ void VerifyInvalidationPrecedesUnavailability(
   RC_ASSERT(Refused.Receiver == "invalidated");
   RC_ASSERT(Refused.Boundary == "before_user_code");
 
-  // Registration stays refused while frozen, and nothing above republished or
-  // changed one cached entry.
   const Luna::RegistrationResult Rejected =
       Owner.Bindings().Register("AfterFreeze", [] { return 5; });
   RC_ASSERT(!Rejected.IsSuccess());
@@ -997,7 +884,6 @@ void VerifyInvalidationPrecedesUnavailability(
 } // namespace
 
 int RunFrozenCacheEquivalenceProperties() {
-  // **Validates: Requirements 15.1, 15.2, 15.4, 15.5, 15.7, 15.8, 15.9**
   // clang-format off
   // Feature: reflection-driven-binding-system, Property 30: Frozen caches are equivalent to uncached generation lookups
   const bool Passed = rc::check(
@@ -1008,8 +894,6 @@ int RunFrozenCacheEquivalenceProperties() {
         ByteCursor Plan(Shape);
         ByteCursor Actions(History);
 
-        // One generated committed input: independent units with distinct
-        // ordinals, so any permutation of the list is the same input.
         std::vector<Unit> Units;
         std::vector<std::size_t> Available{0, 1, 2, 3};
         const std::size_t Count = 1 + Plan.Pick(4);
@@ -1048,8 +932,6 @@ int RunFrozenCacheEquivalenceProperties() {
         const std::size_t FailedAttempts = Plan.Pick(3);
         const std::size_t RepeatedFreezes = 1 + Plan.Pick(2);
 
-        // The generated objects outlive both States, so a borrowed value never
-        // names storage that moved or was released early.
         Gadget HistoryProbe;
         Gadget FrozenProbe;
         std::uint64_t HistoryLifetime = 1;
@@ -1111,12 +993,8 @@ int RunFrozenCacheEquivalenceProperties() {
           VerifyCachedMatchesUncached(Second, SecondCache, Frozen);
         }
 
-        // Equivalent committed input, whatever order it was committed in and
-        // whatever was queried first, freezes into the same cache.
         VerifyEquivalentCaches(FirstCache, SecondCache);
 
-        // Every snapshot retained before freeze survives both States and still
-        // reports exactly the surface the model predicted.
         for (const Luna::ReflectionSnapshot &Snapshot : Retained)
           VerifyUncachedMatchesModel(Snapshot, Model);
 

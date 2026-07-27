@@ -35,9 +35,6 @@ StorageRequest StorageRequestFor(const ClassPolicy &Policy) noexcept {
 }
 
 const ClassAllocator &BorrowedStorageProtocol() {
-  // One shared immutable record for every borrowed value in the process. It
-  // declares no step, so it can never destroy or deallocate anything, and
-  // sharing it keeps a borrowed exposure free of any allocation of its own.
   static const ClassAllocator Protocol = ClassAllocator::FromOperations(
       "Luna.BorrowedStorage", StorageRequest(),
       ClassAllocator::AllocateOperation(), ClassAllocator::ConstructOperation(),
@@ -57,8 +54,6 @@ AllocateObjectStorage(const ClassAllocator &Allocator) noexcept {
   if (Held == nullptr || !Held->DeclaresAllocation())
     return Outcome;
 
-  // An allocation that throws produced nothing, so nothing is cleaned up after
-  // it: this is the one failure the protocol answers with no cleanup call.
   try {
     Outcome.Storage = Held->Allocate();
   } catch (...) {
@@ -75,8 +70,6 @@ AllocatorStepOutcome ConstructObject(const ClassAllocator &Allocator,
   if (Storage == nullptr)
     return Outcome;
 
-  // A caller that knows how to build the object owns that step; otherwise the
-  // protocol's own construction step is the only one there is.
   if (Build) {
     try {
       Outcome.Performed = Build(Storage);
@@ -108,8 +101,6 @@ DestroyKnownConstructedObject(const ClassAllocator &Allocator,
   if (Held == nullptr || !Held->DeclaresDestruction() || Storage == nullptr)
     return Outcome;
 
-  // A destruction that throws still counts as the one destruction this object
-  // gets: the object is gone either way, and every remaining step still runs.
   try {
     Outcome.Performed = Held->Destroy(Storage).Performed;
   } catch (...) {

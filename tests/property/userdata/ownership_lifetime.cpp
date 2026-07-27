@@ -1,42 +1,3 @@
-// Property 26: userdata ownership and lifetime transitions match the release
-// state machine.
-//
-// Two halves are generated together, and both of them are compared with an
-// independent release state machine written here rather than with Luna's own
-// accounting.
-//
-// The first half drives the one idempotent release gate directly, exactly the
-// way construction, publication, collection, an explicit invalidation, a
-// lifecycle action, and State destruction drive it. It generates borrowed,
-// Lua-owned, and shared values, ownership statements that agree with their
-// model and statements that deliberately do not, entry through one combined
-// exposure or through the individual staging, construction, establishment, and
-// publication steps, and one ending per value: nothing, invalidation,
-// invalidation of the borrowed lifetime itself, an explicit release under a
-// generated cause, a second release, a release entered by the native object
-// instead of its value, or the collector's own entry. The model predicts the
-// deterministic refusal of every step, the lifetime state of every value, and
-// the exact number of times each release step ran: invalidate, cache eviction,
-// destroy, shared release, deallocate, and metadata release.
-//
-// The second half publishes the same three ownership models through exactly the
-// conversion write path a returned object takes, then reads them back through
-// exactly the access path an ordinary argument takes, so what a refusal costs
-// is observable: a refused access never reaches native code at all. It
-// generates identical and conflicting re-exposures of one object, borrowed
-// lifetime invalidation, explicit release, a State move, a collection of
-// everything the script has dropped, and finally State destruction, and
-// compares the owner count, the published count, the live cache-entry count,
-// every release counter, and the destruction ordering with the same model.
-//
-// Both halves also check what cleanup must never do. A conflicting re-exposure
-// creates no second owner of one object. A destruction step that throws is
-// contained and every remaining step still runs exactly once. Releasing the
-// same value twice performs no second destruction, no second deallocation, and
-// no second shared release. And no cleanup step ever runs without the type,
-// allocator, metatable, and dispatch metadata it requires, through the final
-// release of the last value.
-
 // clang-format off
 #include <luna/binding/binding_registry.hpp>
 #include <luna/binding/class_allocator.hpp>
@@ -82,8 +43,6 @@ using Luna::Detail::ReleaseCause;
 using Luna::Detail::StagedStorage;
 using Luna::Detail::UserdataHeader;
 
-// Deterministic byte source. Equal bytes always drive the equal scenario, so a
-// shrunk counterexample replays exactly the same ownership sequence.
 class ByteCursor final {
 public:
   explicit ByteCursor(const std::vector<std::uint8_t> &Bytes) noexcept
@@ -105,12 +64,6 @@ private:
   std::size_t IndexValue = 0;
 };
 
-// ---------------------------------------------------------------------------
-// One representative native object, plus the exact number of times each storage
-// step ran on it. Nothing in the model reads these; they are what the model's
-// predictions are compared against.
-// ---------------------------------------------------------------------------
-
 struct Probe final {
   int Value = 23;
 };
@@ -118,10 +71,6 @@ struct Probe final {
 std::size_t DestroyCalls = 0;
 std::size_t DeallocateCalls = 0;
 
-// The per-value policy the storage steps of one value are handed as their
-// context. It is what decides whether a destruction reports a failure, and it
-// is named by identity rather than by address, so recycled storage never
-// inherits another value's behaviour.
 struct StoragePolicy final {
   bool DestructionThrows = false;
 };
@@ -137,10 +86,6 @@ void ResetStorageCounters() {
   return Storage;
 }
 
-// The destruction step of one value's protocol. The per-value policy is
-// captured by the step itself, which is exactly how the semantic protocol
-// carries consumer state: Luna retains the step, so it retains the state with
-// it.
 [[nodiscard]] ClassAllocator::DestroyOperation
 ProbeDestruction(StoragePolicy *Policy) {
   return [Policy](void *Storage) {
@@ -167,8 +112,6 @@ ProbeDestruction(StoragePolicy *Policy) {
       ProbeDestruction(Policy), ProbeDeallocation());
 }
 
-// A Lua-owned object Luna destroys but never deallocates, so "destroyed exactly
-// once" and "deallocated exactly once" stay separately observable.
 [[nodiscard]] ClassAllocator DestroyOnlyProtocol(StoragePolicy *Policy) {
   return ClassAllocator::FromOperations(
       "Studio.AdoptedProbeStorage", StorageRequest::ForClass<Probe>(),
@@ -185,13 +128,6 @@ std::uint64_t NextNonce = 0;
   return Identity;
 }
 
-// ---------------------------------------------------------------------------
-// The independent release state machine.
-// ---------------------------------------------------------------------------
-
-// Exactly how many times each release step must have run. This mirrors the
-// counters Luna reports, and every field is predicted from the generated
-// sequence alone.
 struct ModelCounters final {
   std::uint64_t Invalidate = 0;
   std::uint64_t CacheRemoval = 0;
@@ -201,9 +137,6 @@ struct ModelCounters final {
   std::uint64_t MetadataRelease = 0;
 };
 
-// One value the model tracks: its ownership model, whether Luna owns its
-// storage, whether it was known-constructed, whether it still holds a shared
-// ownership reference, and where it is in the release state machine.
 struct ModelRecord final {
   OwnershipModel Ownership = OwnershipModel::Borrowed;
   bool OwnsStorage = false;
@@ -211,32 +144,19 @@ struct ModelRecord final {
   bool WasConstructed = false;
   bool HoldsSharedReference = false;
 
-  // Present only while the value has an ownership record. A value whose record
-  // is gone - refused, or released - has none.
   bool IsRecorded = false;
   LifetimeState Lifetime = LifetimeState::Allocated;
 
-  // What the value's own header still says. A release entered by the native
-  // object rather than by its value never touches the header, which is exactly
-  // why the record - not the header - is what permits access.
   LifetimeState HeaderLifetime = LifetimeState::Allocated;
 
-  // The borrowed lifetime this value was published under is still the declared
-  // one. Any other ownership model is always live.
   bool HandleIsLive = true;
 };
 
-// The one release gate, expressed once against the model. The order is fixed:
-// invalidate, evict the cache entry, destroy an owned constructed object,
-// release the one shared ownership reference, deallocate storage Luna
-// allocated, and only then release the metadata. Calling it again does nothing.
 [[nodiscard]] bool ModelRelease(ModelRecord &Record, ModelCounters &Counted,
                                 bool UpdatesHeader) {
   if (!Record.IsRecorded || Record.Lifetime == LifetimeState::Released)
     return false;
 
-  // A value that never got past `Allocated` was never accessible, so it needs
-  // no invalidation.
   if (Record.Lifetime == LifetimeState::Constructed ||
       Record.Lifetime == LifetimeState::Published) {
     ++Counted.Invalidate;
@@ -268,8 +188,6 @@ struct ModelRecord final {
   return true;
 }
 
-// Invalidation stops access without releasing anything, and invalidating an
-// already invalid or released value changes nothing.
 [[nodiscard]] bool ModelInvalidate(ModelRecord &Record,
                                    ModelCounters &Counted) {
   if (!Record.IsRecorded)
@@ -284,9 +202,6 @@ struct ModelRecord final {
   return true;
 }
 
-// Access is only permitted while the record and its header both say published,
-// and a borrowed value is only reachable while its declared lifetime is still
-// the one it was published under.
 [[nodiscard]] bool ModelPermitsAccess(const ModelRecord &Record) noexcept {
   if (!Record.IsRecorded || Record.Lifetime != LifetimeState::Published)
     return false;
@@ -295,14 +210,6 @@ struct ModelRecord final {
   return Record.Ownership != OwnershipModel::Borrowed || Record.HandleIsLive;
 }
 
-// ---------------------------------------------------------------------------
-// One generated value of the gate-driven half.
-// ---------------------------------------------------------------------------
-
-// How the ownership statement of one value relates to its ownership model.
-// Every flaw is one deterministic refusal, and none of them makes cleanup
-// metadata unreachable: a Lua-owned value always arrives with its destruction
-// step, because without one Luna would refuse to own the object at all.
 enum class OwnershipFlaw {
   None,
   MissingHandle,
@@ -313,15 +220,8 @@ enum class OwnershipFlaw {
   BorrowedStorage
 };
 
-// How the value enters the gate.
-enum class EntryMode {
-  Exposed,              // one combined exposure
-  Stepped,              // stage, construct, establish, publish
-  SkippedEstablishment, // stage, construct, publish - refused, then released
-  StagedOnly            // stage, then a construction failure
-};
+enum class EntryMode { Exposed, Stepped, SkippedEstablishment, StagedOnly };
 
-// What ends the value.
 enum class Ending {
   Nothing,
   Invalidate,
@@ -339,8 +239,6 @@ struct GeneratedValue final {
   Ending End = Ending::Nothing;
   ReleaseCause Cause = ReleaseCause::GarbageCollection;
 
-  // Whether Luna allocated the storage and therefore deallocates it, and
-  // whether the destruction step of that storage throws.
   bool OwnsStorage = false;
   bool DestructionThrows = false;
 };
@@ -371,15 +269,8 @@ struct GeneratedValue final {
   return ReleaseCause::StateDestruction;
 }
 
-// One flaw the generated ownership model can actually exhibit. A borrowed value
-// can lack or outlive its handle or be asked to own its storage; an owning
-// model can be handed a handle it must refuse; a shared value can lack its one
-// reference and a non-shared value can be handed one.
 [[nodiscard]] OwnershipFlaw GeneratedFlaw(OwnershipModel Ownership,
                                           std::size_t Choice) noexcept {
-  // Biased so most values publish and every refusal still occurs often. A
-  // sequence in which nothing is ever owned would exercise no release step at
-  // all.
   switch (Ownership) {
   case OwnershipModel::Borrowed:
     switch (Choice % 8) {
@@ -464,18 +355,12 @@ struct GeneratedValue final {
     break;
   }
 
-  // Only a borrowed value has a lifetime a consumer can end without releasing
-  // anything, so the other two models end the same sequence by invalidation.
   if (Value.End == Ending::InvalidateHandle &&
       Value.Ownership != OwnershipModel::Borrowed)
     Value.End = Ending::Invalidate;
 
   Value.Cause = GeneratedCause(Cursor.Pick(4));
 
-  // Luna never owns the storage of an object it only borrows, and never
-  // deallocates storage a `std::shared_ptr` already owns. Asking it to own
-  // borrowed storage is the `BorrowedStorage` flaw, and it is the only way that
-  // combination is generated.
   Value.OwnsStorage = Value.Ownership == OwnershipModel::LuaOwned
                           ? Cursor.Pick(4) != 0
                           : Value.Flaw == OwnershipFlaw::BorrowedStorage;
@@ -484,8 +369,6 @@ struct GeneratedValue final {
   return Value;
 }
 
-// The deterministic refusal one ownership statement earns at establishment, or
-// none when the statement agrees with its model.
 [[nodiscard]] OwnershipFailure
 ModelEstablishmentFailure(const GeneratedValue &Value) noexcept {
   const bool HasHandle = Value.Flaw == OwnershipFlaw::ExpiredHandle ||
@@ -520,11 +403,6 @@ ModelEstablishmentFailure(const GeneratedValue &Value) noexcept {
   }
   return OwnershipFailure::None;
 }
-
-// ---------------------------------------------------------------------------
-// One State with one registered class, so every header carries a complete, real
-// class identity.
-// ---------------------------------------------------------------------------
 
 class Fixture final {
 public:
@@ -571,11 +449,6 @@ private:
 
 namespace {
 
-// ---------------------------------------------------------------------------
-// The gate-driven half: one generated ownership sequence, compared step by step
-// with the model above.
-// ---------------------------------------------------------------------------
-
 void VerifyGateDrivenSequence(ByteCursor &Cursor) {
   ResetStorageCounters();
   Hooks::ResetUserdataCollections();
@@ -586,17 +459,12 @@ void VerifyGateDrivenSequence(ByteCursor &Cursor) {
   for (std::size_t Index = 0; Index < Count; ++Index)
     Generated.push_back(GenerateValue(Cursor));
 
-  // Storage outlives the State, so a value Luna never releases is still the
-  // test's to clean up and a shared reference count is still observable
-  // afterwards.
   std::vector<std::unique_ptr<Probe>> BorrowedObjects(Count);
   std::vector<std::shared_ptr<Probe>> SharedObjects(Count);
   std::vector<Probe *> UnownedStorage(Count, nullptr);
   std::vector<Luna::LifetimeHandle> Handles(Count);
   std::vector<std::shared_ptr<Probe>> Spares(Count);
 
-  // One stable policy per value, so the storage steps of one value can never be
-  // taken for another value's.
   std::vector<std::unique_ptr<StoragePolicy>> Policies(Count);
   for (std::size_t Index = 0; Index < Count; ++Index) {
     Policies[Index] = std::make_unique<StoragePolicy>();
@@ -663,15 +531,11 @@ void VerifyGateDrivenSequence(ByteCursor &Cursor) {
       if (Value.Flaw == OwnershipFlaw::ExpiredHandle)
         Handles[Index].Invalidate();
 
-      // Luna refuses to own the storage of an object it only borrows, and it
-      // refuses that before anything is recorded.
       const bool StageRefused = Value.Ownership == OwnershipModel::Borrowed &&
                                 Allocator.OwnsStorage();
       const OwnershipFailure Establishment = ModelEstablishmentFailure(Value);
       const bool Throws = Value.DestructionThrows;
 
-      // Every consequence of one release, predicted by the model rather than
-      // read back from Luna.
       const auto ApplyRelease = [&](bool UpdatesHeader) {
         const std::uint64_t Before = Expected.Destroy;
         const bool Released = ModelRelease(Record, Expected, UpdatesHeader);
@@ -697,8 +561,6 @@ void VerifyGateDrivenSequence(ByteCursor &Cursor) {
           if (Value.Ownership == OwnershipModel::Shared) {
             Request.SharedOwnership = SharedObjects[Index];
           } else {
-            // A reference Luna must refuse. It names another object entirely,
-            // so accepting it could never be mistaken for correct.
             Spares[Index] = std::make_shared<Probe>();
             Request.SharedOwnership = Spares[Index];
           }
@@ -715,8 +577,6 @@ void VerifyGateDrivenSequence(ByteCursor &Cursor) {
             RC_ASSERT(!Outcome.Succeeded);
             RC_ASSERT(Outcome.Failure == Establishment);
 
-            // A refused exposure releases exactly what its earlier steps
-            // established, and leaves no owner behind.
             Record.IsRecorded = true;
             Record.WasConstructed = true;
             Record.Lifetime = LifetimeState::Constructed;
@@ -753,8 +613,6 @@ void VerifyGateDrivenSequence(ByteCursor &Cursor) {
           RC_ASSERT(Header.Allocator.IsDeclared());
 
           if (Value.Entry == EntryMode::StagedOnly) {
-            // Construction never happened, so nothing is destroyed and the
-            // staged storage is simply given back.
             RC_ASSERT(Gate.Release(Header, ReleaseCause::ConstructionFailure));
             const std::uint64_t Invalidations = Expected.Invalidate;
             RC_ASSERT(ApplyRelease(true));
@@ -789,7 +647,6 @@ void VerifyGateDrivenSequence(ByteCursor &Cursor) {
           Record.HoldsSharedReference =
               Value.Ownership == OwnershipModel::Shared;
 
-          // Ownership is established exactly once.
           RC_ASSERT(Gate.Establish(Header, Request).Failure ==
                     OwnershipFailure::OwnershipAlreadyEstablished);
 
@@ -802,8 +659,6 @@ void VerifyGateDrivenSequence(ByteCursor &Cursor) {
         }
       }
 
-      // Luna retains exactly one shared ownership reference, and only for a
-      // shared value whose ownership was established.
       if (Value.Ownership == OwnershipModel::Shared) {
         RC_ASSERT(SharedObjects[Index].use_count() ==
                   (Record.HoldsSharedReference ? 2 : 1));
@@ -814,8 +669,6 @@ void VerifyGateDrivenSequence(ByteCursor &Cursor) {
                 ModelPermitsAccess(Record));
 
       if (Record.Lifetime != LifetimeState::Published) {
-        // Nothing a refused or already released value is asked to do performs a
-        // second step.
         const ModelCounters Before = Expected;
         RC_ASSERT(!Gate.Release(Header, Value.Cause));
         RC_ASSERT(Expected.MetadataRelease == Before.MetadataRelease);
@@ -833,8 +686,6 @@ void VerifyGateDrivenSequence(ByteCursor &Cursor) {
         break;
 
       case Ending::InvalidateHandle:
-        // Ending the declared lifetime releases nothing at all; it only makes
-        // every later access fail.
         Handles[Index].Invalidate();
         Record.HandleIsLive = false;
         break;
@@ -856,8 +707,6 @@ void VerifyGateDrivenSequence(ByteCursor &Cursor) {
       }
 
       case Ending::ReleaseByStorage:
-        // The native object knows itself, not the virtual-machine block that
-        // carries it, so this release never touches the header.
         RC_ASSERT(Gate.ReleaseByStorage(Storage, Value.Cause));
         RC_ASSERT(ApplyRelease(false));
         RC_ASSERT(!Gate.ReleaseByStorage(Storage, Value.Cause));
@@ -879,7 +728,6 @@ void VerifyGateDrivenSequence(ByteCursor &Cursor) {
       }
     }
 
-    // Every counter, predicted from the generated sequence alone.
     std::size_t ExpectedRecords = 0;
     std::size_t ExpectedPublished = 0;
     for (const ModelRecord &Record : Model) {
@@ -913,8 +761,6 @@ void VerifyGateDrivenSequence(ByteCursor &Cursor) {
     RC_ASSERT(Counted.Deallocate == Expected.Deallocate);
     RC_ASSERT(Counted.MetadataRelease == Expected.MetadataRelease);
 
-    // Nothing a cleanup step throws escapes the gate, and nothing runs without
-    // the metadata it requires.
     RC_ASSERT(Counted.ContainedException == ExpectedContained);
     RC_ASSERT(Counted.IncompleteMetadata == 0);
     RC_ASSERT(Gate.RetainsCleanupMetadata());
@@ -923,8 +769,6 @@ void VerifyGateDrivenSequence(ByteCursor &Cursor) {
     RC_ASSERT(DeallocateCalls == Expected.Deallocate);
   }
 
-  // State destruction releases everything left, exactly once each, while its
-  // cleanup metadata is still valid.
   for (ModelRecord &Record : Model)
     static_cast<void>(ModelRelease(Record, Expected, false));
   RC_ASSERT(DestroyCalls == Expected.Destroy);
@@ -936,8 +780,6 @@ void VerifyGateDrivenSequence(ByteCursor &Cursor) {
   RC_ASSERT(Destroyed.RetainedCleanupMetadata);
   RC_ASSERT(Destroyed.IncompleteMetadata == 0);
 
-  // None of these values was ever a virtual-machine block, so the machine
-  // finalized none of them and the explicit final sweep released every one.
   RC_ASSERT(Destroyed.ReleasedDuringClose == 0);
   RC_ASSERT(Destroyed.ReleasedAfterClose == RemainingBeforeDestruction);
   RC_ASSERT(Hooks::ObserveUserdataCollections().ContainedException == 0);
@@ -956,20 +798,10 @@ void VerifyGateDrivenSequence(ByteCursor &Cursor) {
 
 namespace {
 
-// ---------------------------------------------------------------------------
-// The write-path half: the same three ownership models published through
-// exactly the conversion write path a returned object takes, read back through
-// exactly the access path an ordinary argument takes.
-// ---------------------------------------------------------------------------
-
-// The ownership statement of one exposure, and whether it agrees with its
-// model.
 enum class WriteVariant { Valid, ExpiredHandle, MissingHandle, MissingShared };
 
-// What ends one published value.
 enum class WriteEnding { Nothing, InvalidateHandle, Release };
 
-// What one re-exposure of an already exposed object asks for.
 enum class ReuseVariant {
   None,
   Identical,
@@ -989,9 +821,6 @@ struct GeneratedWrite final {
   GeneratedWrite Value;
   Value.Ownership = GeneratedOwnership(Cursor.Pick(3));
 
-  // Only the refusals a consumer can actually cause are generated: a borrowed
-  // object whose declared lifetime is missing or already over, and a shared
-  // object with no shared ownership reference.
   switch (Cursor.Pick(6)) {
   case 0:
     if (Value.Ownership == OwnershipModel::Borrowed)
@@ -1027,15 +856,11 @@ struct GeneratedWrite final {
   return Value;
 }
 
-// The deterministic refusal text the write path reports for one variant, and
-// "none" for a statement that agrees with its model.
 [[nodiscard]] std::string_view
 ExpectedWriteFailure(const GeneratedWrite &Value) noexcept {
   switch (Value.Variant) {
   case WriteVariant::ExpiredHandle:
   case WriteVariant::MissingHandle:
-    // The object's owner already ended, or never declared, the lifetime the
-    // value would be exposed under.
     return "expired_userdata";
   case WriteVariant::MissingShared:
     return "internal_failure";
@@ -1138,8 +963,6 @@ void VerifyWritePathSequence(ByteCursor &Cursor) {
     std::optional<Luna::State> Moved;
     Luna::State *Active = &Primary;
 
-    // One exposure per generated value, each through exactly the conversion
-    // write path a returned object takes.
     for (std::size_t Index = 0; Index < Count; ++Index) {
       const GeneratedWrite &Value = Generated[Index];
       ModelRecord &Record = Model[Index];
@@ -1184,8 +1007,6 @@ void VerifyWritePathSequence(ByteCursor &Cursor) {
       RC_ASSERT(Written.Published == (Failure == "none"));
       RC_ASSERT(Written.PublishedCount == (Written.Published ? 1 : 0));
 
-      // A refused exposure publishes nothing and leaves the stack exactly as it
-      // found it.
       RC_ASSERT(Written.FinalStackDepth == Written.EntryStackDepth);
 
       if (Written.Published) {
@@ -1195,8 +1016,6 @@ void VerifyWritePathSequence(ByteCursor &Cursor) {
         Record.HeaderLifetime = LifetimeState::Published;
         Record.HoldsSharedReference = Value.Ownership == OwnershipModel::Shared;
       } else if (Value.Variant == WriteVariant::MissingShared) {
-        // The cache created nothing, but ownership establishment ran against a
-        // staged, known-constructed record, so its release is observable.
         Record.IsRecorded = true;
         Record.WasConstructed = true;
         Record.Lifetime = LifetimeState::Constructed;
@@ -1208,8 +1027,6 @@ void VerifyWritePathSequence(ByteCursor &Cursor) {
         ++WrittenValues;
     }
 
-    // Exactly the values the model says exist, owned once each, published once
-    // each, and recorded in the identity cache once each.
     const auto CountRecorded = [&Model]() {
       std::size_t Recorded = 0;
       for (const ModelRecord &Record : Model) {
@@ -1248,9 +1065,6 @@ void VerifyWritePathSequence(ByteCursor &Cursor) {
 
     VerifyCounts(*Active);
 
-    // The class metatable is a consequence of publishing a value, never of
-    // registering a class or of refusing an exposure, and one class owns
-    // exactly one of them.
     bool AnyPublished = false;
     for (const ModelRecord &Record : Model) {
       AnyPublished =
@@ -1260,8 +1074,6 @@ void VerifyWritePathSequence(ByteCursor &Cursor) {
     RC_ASSERT(Hooks::ClassMetatableCreationCount(*Active, "Probe") ==
               (AnyPublished ? 1U : 0U));
 
-    // Every published value reaches native code and delivers exactly its own
-    // object; nothing else does.
     for (std::size_t Index = 0; Index < Count; ++Index) {
       const ModelRecord &Record = Model[Index];
       const auto Read =
@@ -1284,9 +1096,6 @@ void VerifyWritePathSequence(ByteCursor &Cursor) {
       }
     }
 
-    // One re-exposure of the first published object. A compatible request hands
-    // back the value that already exists; an incompatible one is refused
-    // without creating a second owner.
     std::optional<std::size_t> First;
     for (std::size_t Index = 0; Index < Count && !First; ++Index) {
       if (Model[Index].Lifetime == LifetimeState::Published)
@@ -1341,8 +1150,6 @@ void VerifyWritePathSequence(ByteCursor &Cursor) {
         RC_ASSERT(Again.FinalStackDepth == Again.EntryStackDepth);
       }
 
-      // Neither answer creates a second owner, spends a release step, or
-      // retains a second shared ownership reference.
       RC_ASSERT(Expected.MetadataRelease == Before.MetadataRelease);
       VerifyCounts(*Active);
       RC_ASSERT(ReadThroughAccessPath(*Active, Paths[Index], Storage[Index])
@@ -1351,8 +1158,6 @@ void VerifyWritePathSequence(ByteCursor &Cursor) {
       ++ExpectedArrivals;
     }
 
-    // A State move preserves the logical identity every value and every route
-    // is keyed by, so nothing about ownership changes.
     if (MovesState) {
       Moved.emplace(std::move(Primary));
       Active = &*Moved;
@@ -1361,7 +1166,6 @@ void VerifyWritePathSequence(ByteCursor &Cursor) {
       VerifyCounts(*Active);
     }
 
-    // One generated ending per published value.
     for (std::size_t Index = 0; Index < Count; ++Index) {
       const GeneratedWrite &Value = Generated[Index];
       ModelRecord &Record = Model[Index];
@@ -1373,8 +1177,6 @@ void VerifyWritePathSequence(ByteCursor &Cursor) {
         break;
 
       case WriteEnding::InvalidateHandle: {
-        // Ending the declared lifetime releases nothing and destroys nothing;
-        // it only stops every later access, before any native code runs.
         const ModelCounters Before = Expected;
         Handles[Index].Invalidate();
         Record.HandleIsLive = false;
@@ -1390,12 +1192,8 @@ void VerifyWritePathSequence(ByteCursor &Cursor) {
         if (Value.DestructionThrows && Expected.Destroy != BeforeDestroy)
           ++ExpectedContained;
 
-        // The identity-cache entry went before the payload, so the value's own
-        // header already refuses every access.
         ExpectedHeaderState[Index] = LifetimeState::Invalid;
 
-        // The gate is idempotent: releasing the same object again performs no
-        // second destruction, deallocation, or shared release.
         RC_ASSERT(
             !Hooks::ReleaseClassValue(*Active, Storage[Index], Value.Cause));
         break;
@@ -1420,8 +1218,6 @@ void VerifyWritePathSequence(ByteCursor &Cursor) {
 
     VerifyCounts(*Active);
 
-    // Everything the script has dropped is collected, and every value the
-    // collector reaches ends through exactly the same gate.
     if (CollectsEverything) {
       for (const std::string &Path : Paths)
         RC_ASSERT(Active->Execute(Path + " = nil").IsSuccess());
@@ -1442,7 +1238,6 @@ void VerifyWritePathSequence(ByteCursor &Cursor) {
       RC_ASSERT(Hooks::ObserveUserdataCollections().ForeignBlock == 0);
       RC_ASSERT(Hooks::ObserveUserdataCollections().UnroutedOrigin == 0);
 
-      // The class keeps its one metatable through a collection of every value.
       RC_ASSERT(Hooks::ClassMetatableCreationCount(*Active, "Probe") <= 1);
     }
 
@@ -1455,14 +1250,11 @@ void VerifyWritePathSequence(ByteCursor &Cursor) {
     else
       RC_TAG("write path: values left for State destruction");
 
-    // The State keeps executing and exposing after every generated refusal,
-    // release, and collection.
     RC_ASSERT(Active->Execute("Recovered = 7").IsSuccess());
     RC_ASSERT(Hooks::ObserveIntegerGlobal(*Active, "Recovered") ==
               std::optional<int>(7));
   }
 
-  // State destruction releases everything left, exactly once each.
   for (ModelRecord &Record : Model)
     static_cast<void>(ModelRelease(Record, Expected, false));
   RC_ASSERT(DestroyCalls == Expected.Destroy);
@@ -1488,7 +1280,6 @@ void VerifyWritePathSequence(ByteCursor &Cursor) {
 
 int RunUserdataOwnershipLifetimeProperties() {
   // clang-format off
-  // **Validates: Requirements 11.3, 11.4, 11.5, 11.6, 11.7, 11.8, 11.9, 11.10, 11.11**
   // Feature: reflection-driven-binding-system, Property 26: Userdata ownership and lifetime transitions match the release state machine
   const bool Passed = rc::check(
       // clang-format on

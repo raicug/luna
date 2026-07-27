@@ -28,13 +28,8 @@
 namespace Luna::Detail {
 namespace {
 
-// Luna's own storage policy for one exposed object. A class whose declared
-// storage is larger than this is refused rather than allocated, so the bound is
-// explicit instead of implied by the allocator.
 constexpr std::size_t MaximumClassByteCount = 1U << 20;
 
-// Luna's own alignment policy. Storage more strictly aligned than this is
-// refused, because Luna would have to guess how to obtain it.
 constexpr std::size_t MaximumClassAlignment = 64;
 
 [[nodiscard]] std::string ClassSubject(const StagedClass &Declaration) {
@@ -63,10 +58,6 @@ ConstructionSubject(const StagedConstruction &Declaration) {
                      Declaration.QualifiedName);
 }
 
-// The declared relationships and operators of one class, as canonically ordered
-// reflection relations. A base and a cast are named by the canonical type of
-// the class they connect to, and an operator by the class's own type plus the
-// operator it answers, so no relation ever clones the record that declares it.
 [[nodiscard]] std::vector<ReflectionRelationFields>
 DeclaredClassRelations(const StagedClass &Declaration, const TypeId &Own) {
   std::vector<ReflectionRelationFields> Related;
@@ -118,8 +109,6 @@ DeclaredClassRelations(const StagedClass &Declaration, const TypeId &Own) {
   if (!Own.IsValid())
     return Related;
 
-  // Canonical operator order is the order Luna supports the operators in, never
-  // the order the class declared them.
   for (const ClassOperatorDescriptor &Described : ClassOperatorDescriptors()) {
     for (const StagedOperator &Staged : Declaration.Operators) {
       if (Staged.Selected != Described.Selected)
@@ -146,8 +135,6 @@ DescriptorPlanEntry MakeClassPlanEntry(const StagedClass &Declaration,
                                        SymbolId Parent) {
   DescriptorPlanEntry Entry;
 
-  // A class is its own category: it owns one Luna table at exactly the path its
-  // qualified name names, and every later member declares itself inside it.
   Entry.Category = PlanEntryKind::ClassSymbol;
   Entry.VmPath = Declaration.QualifiedName;
 
@@ -183,8 +170,6 @@ DescriptorPlanEntry MakeClassPlanEntry(const StagedClass &Declaration,
   Record.Relations = DeclaredClassRelations(Declaration, Entry.TypeFields->Id);
   Entry.Record = std::move(Record);
 
-  // The declared storage shape travels with the declaration, so publication
-  // records it without ever seeing the consumer's type again.
   Entry.ClassStorage = Declaration.Policy;
 
   if (!Declaration.Relationships.IsEmpty())
@@ -196,9 +181,6 @@ DescriptorPlanEntry MakeClassMetatablePlanEntry(const StagedClass &Declaration,
                                                 const SymbolId &ClassSymbol) {
   DescriptorPlanEntry Entry;
 
-  // The metatable identity of the class. It publishes no reflection record,
-  // because a metatable is Luna's own private identity rather than part of the
-  // declared surface a consumer or a generator reads.
   Entry.Category = PlanEntryKind::Metatable;
   Entry.VmPath =
       JoinQualifiedName(Declaration.QualifiedName, ClassMetatableSegment);
@@ -214,9 +196,6 @@ MakeConstructionPlanEntry(const StagedClass &Class,
                           const SymbolId &ClassSymbol) {
   DescriptorPlanEntry Entry;
 
-  // A construction candidate is a callable candidate: the same category, the
-  // same virtual-machine path shape, the same installation, and the same
-  // rollback journal every other callable uses.
   Entry.Category = PlanEntryKind::Function;
   Entry.VmPath = Declaration.QualifiedName;
 
@@ -227,8 +206,6 @@ MakeConstructionPlanEntry(const StagedClass &Class,
   const std::string LocalName =
       std::string(FinalSegment(Declaration.QualifiedName));
 
-  // The overload set of the member name. Its identity depends only on the name
-  // and the class scope, never on which candidate declared it first.
   const SymbolDescriptor SetSymbol =
       MakeOverloadSetSymbol(Declaration.QualifiedName, ClassSymbol);
   const SymbolId SetIdentity = IdentityOf(SetSymbol);
@@ -266,11 +243,6 @@ MakeConstructionPlanEntry(const StagedClass &Class,
   Record.ReturnValues = MakeReflectedReturns(Metadata);
   Record.Returns = ReflectedReturnShape(Metadata);
 
-  // What a consumer and a generator need to know about the result: how the
-  // produced object will be owned, and which allocator policy produced its
-  // storage. A class that selected its own protocol is reflected by every
-  // candidate that creates its values through it, whichever order the two were
-  // declared in.
   Record.OwnershipResult =
       std::string(ConstructionOwnershipText(Declaration.Ownership));
   Record.AllocatorPolicy = ReflectedAllocatorPolicy(Class, Declaration);
@@ -288,17 +260,12 @@ DescriptorPlanEntry MakeMethodPlanEntry(const StagedClass &Class,
                                         const SymbolId &ClassSymbol) {
   DescriptorPlanEntry Entry;
 
-  // A member candidate is a callable candidate: the same category, the same
-  // virtual-machine path shape, the same installation, and the same rollback
-  // journal every other callable uses.
   Entry.Category = PlanEntryKind::Function;
   Entry.VmPath = Declaration.QualifiedName;
 
   const TypeDescriptor Owner = ClassTypeOf(Class);
   const CallableMetadata &Metadata = Declaration.Callable->Metadata();
 
-  // The receiver travels in the canonical signature, so an instance method and
-  // a static method of one name are told apart by the receiver alone.
   const CallableSignatureDescriptor Signature =
       CanonicalFoundationSignature(Metadata);
   const std::string LocalName =
@@ -417,8 +384,6 @@ DescriptorPlanEntry MakeOperatorPlanEntry(const StagedClass &Class,
 
 std::string ReflectedAllocatorPolicy(const StagedClass &Class,
                                      const StagedConstruction &Declaration) {
-  // Only a candidate whose object Luna creates itself is allocated through the
-  // class's protocol; an adopted object was never Luna's to allocate.
   const bool CreatesStorage =
       Declaration.AllocatorPolicy == ConstructedStoragePolicyName;
   if (Class.SelectsStorage && CreatesStorage)
@@ -449,16 +414,11 @@ ValidateStagedMethod(const StagedClass &Class,
                      const StagedMethod &Declaration) {
   const std::string Subject = MethodSubject(Declaration);
 
-  // A refusal the declaration itself recorded ranks first, exactly as it does
-  // for a construction candidate.
   if (!Declaration.Refusal.empty())
     return MalformedMetadataDiagnostic(Subject, Declaration.Refusal);
   if (!Declaration.HasTarget())
     return NullCallableDiagnostic(Subject);
 
-  // What the candidate declares and what its metadata says must agree: an
-  // instance method describes the class it operates on, and a static method
-  // describes no receiver at all.
   const ReceiverMetadata *Receiver =
       Declaration.Callable->Metadata().Receiver();
   if (Declaration.DeclaresReceiver != (Receiver != nullptr))
@@ -476,10 +436,6 @@ ValidateStagedMethod(const StagedClass &Class,
                    "disagree.");
   }
 
-  // One member name is either an instance member or a static one, never both:
-  // a call site cannot tell the two apart by anything other than the receiver,
-  // and a receiver is exactly what would already have been validated or refused
-  // before the ordinary arguments were even inspected.
   for (const StagedMethod &Existing : Class.Methods) {
     if (&Existing == &Declaration || Existing.Segment != Declaration.Segment)
       continue;
@@ -498,17 +454,11 @@ ValidateStagedConstruction(const StagedClass &Class,
                            const StagedConstruction &Declaration) {
   const std::string Subject = ConstructionSubject(Declaration);
 
-  // A refusal the declaration itself recorded ranks first: an incompatible
-  // explicit ownership policy is a description mistake, not a target mistake.
   if (!Declaration.Refusal.empty())
     return MalformedMetadataDiagnostic(Subject, Declaration.Refusal);
   if (!Declaration.HasTarget())
     return NullCallableDiagnostic(Subject);
 
-  // Luna only owns an object it can also destroy, and the class declaration
-  // already refuses a class it could never destroy; an ownership result that
-  // needs Luna-owned storage additionally needs a storage shape Luna could
-  // allocate.
   if (Declaration.Ownership == ConstructionOwnership::LuaOwned &&
       Class.Policy.IsAbstract)
     return MalformedMetadataDiagnostic(
@@ -524,8 +474,6 @@ std::optional<ErrorDiagnostic>
 ValidateStagedClass(const StagedClass &Declaration) {
   const std::string Subject = ClassSubject(Declaration);
 
-  // A user-defined leaf type is accepted only with an explicit validated stable
-  // key; the reserved Luna prefix is never available to one.
   if (!Declaration.Key.IsValid())
     return MalformedMetadataDiagnostic(
         Subject,
@@ -533,8 +481,6 @@ ValidateStagedClass(const StagedClass &Declaration) {
             std::string(StableTypeKeyStatusText(Declaration.Key.Status())) +
             ").");
 
-  // The declared storage shape is what Luna allocates a Lua-owned value with,
-  // so a shape Luna cannot honor is refused here instead of at allocation.
   if (Declaration.Policy.ByteCount == 0)
     return MalformedMetadataDiagnostic(
         Subject, "the declared storage size of this class is zero.");
@@ -553,8 +499,6 @@ ValidateStagedClass(const StagedClass &Declaration) {
         static_cast<long long>(Declaration.Policy.Alignment), 1,
         static_cast<long long>(MaximumClassAlignment));
 
-  // Luna releases every value it owns exactly once, so a class it could never
-  // destroy is refused rather than exposed with an unreachable release path.
   if (!Declaration.Policy.IsDestructible)
     return MalformedMetadataDiagnostic(
         Subject, "this class is not destructible, so Luna could never release "
@@ -567,10 +511,6 @@ ValidateSelectedClassStorage(const StagedClass &Declaration,
                              const ClassAllocator &Storage) {
   const std::string Subject = ClassSubject(Declaration);
 
-  // The steps a protocol declares are the whole cleanup rule, so a protocol
-  // Luna could allocate through but never give storage back through, or
-  // construct through but never destroy through, is refused here rather than
-  // leaking one value per call.
   if (!Storage.IsDeclared())
     return MalformedMetadataDiagnostic(
         Subject, "the selected allocator names no storage protocol at all.");
@@ -593,9 +533,6 @@ ValidateSelectedClassStorage(const StagedClass &Declaration,
         "the selected allocator declares no deallocation step, so Luna "
         "could never give back the storage it allocated.");
 
-  // The declared storage shape of the class is what a value of it occupies, so
-  // a protocol that hands out less, or less strictly aligned, storage than that
-  // is refused before anything is ever constructed in it.
   const StorageRequest Requested = Storage.Storage();
   if (!Requested.IsUsable())
     return MalformedMetadataDiagnostic(

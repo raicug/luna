@@ -1,38 +1,3 @@
-// Property 25: optional, defaulted, variadic, and multiple-value calls follow
-// their reflected shapes.
-//
-// Three halves are generated together and every one of them is compared with an
-// independent signature-shape model written here rather than with Luna's own
-// code.
-//
-// The first half is pure. It generates declared parameter shapes - required,
-// optional, defaulted, and variadic parameters, defaults whose type disagrees
-// with their parameter, and variadic parameters that are not final - and
-// compares the first deterministic refusal and the accepted call arity with a
-// reference scan.
-//
-// The second half drives one generated call of one declared shape through the
-// real compiler and virtual machine. The model predicts, from the shape alone,
-// whether the arity is accepted, which supplied argument is refused first, what
-// every fixed slot of the selected native target receives, which one-based call
-// positions the variadic tail carries, how many committing conversions the call
-// costs, and the exact diagnostic sentence a refusal reports. An omitted
-// default is observable because the target records the value it received, so a
-// materialized default appears exactly once and a refused call materializes
-// none at all. A second generated call resolves an overload set in which the
-// defaulted candidate can lose, which is how "only after selection" is
-// measured: a losing candidate records nothing.
-//
-// The third half publishes generated zero, scalar, and multiple return shapes,
-// including a dynamic pack whose element count the invocation decides, and
-// injects nested conversion, reservation, and finalization failures. A refused
-// publication must expose zero values rather than a partial pack.
-//
-// Every half also checks what a failure must leave behind: the exact callback
-// checkpoint and root stack depth, an untouched canary, no published result,
-// injected faults consumed exactly where the shape reaches them, and a State
-// that keeps registering, converting, and executing afterwards.
-
 // clang-format off
 #include <luna/binding/argument_pack.hpp>
 #include <luna/binding/binding_registry.hpp>
@@ -74,8 +39,6 @@ using Luna::ParameterShapeStatus;
 using Luna::ValueKind;
 using FaultPoint = Luna::Detail::StateFaultPoint;
 
-// Deterministic byte source. Equal bytes always drive the equal scenario, so a
-// shrunk counterexample rebuilds the exact same shape, call, and return.
 class ByteCursor final {
 public:
   explicit ByteCursor(const std::vector<std::uint8_t> &Bytes) noexcept
@@ -97,10 +60,6 @@ private:
   std::size_t IndexValue = 0;
 };
 
-// ---------------------------------------------------------------------------
-// Shared text of one value, used by both the native targets and the model.
-// ---------------------------------------------------------------------------
-
 [[nodiscard]] std::string IntegerText(int Value) {
   return std::to_string(Value);
 }
@@ -115,7 +74,6 @@ private:
   return Value ? "true" : "false";
 }
 
-// The wording Luna's own diagnostics use for a received number.
 [[nodiscard]] std::string DiagnosticNumberText(double Value) {
   std::ostringstream Stream;
   Stream << std::setprecision(std::numeric_limits<double>::max_digits10)
@@ -137,7 +95,6 @@ private:
   return "unknown";
 }
 
-// One foundation value as the model and the targets both spell it.
 [[nodiscard]] std::string ValueText(const Luna::Value &Source) {
   if (const bool *Flag = std::get_if<bool>(&Source))
     return "boolean " + FlagText(*Flag);
@@ -164,12 +121,6 @@ private:
   return "nil";
 }
 
-// ---------------------------------------------------------------------------
-// The independent declared-shape model.
-// ---------------------------------------------------------------------------
-
-// One generated parameter, described without any Luna type, so the reference
-// scan below never reads Luna's own descriptor.
 struct GeneratedParameter final {
   ParameterForm Form = ParameterForm::Required;
   ValueKind Kind = ValueKind::Integer;
@@ -212,8 +163,6 @@ struct ReferenceShape final {
   std::size_t Position = 0;
 };
 
-// The reference scan. Every rule is decided in ascending parameter position,
-// and a defaulted parameter's default must name the parameter's own type.
 [[nodiscard]] ReferenceShape
 ReferenceValidate(const std::vector<GeneratedParameter> &Parameters) {
   bool SawRelaxed = false;
@@ -265,7 +214,6 @@ ReferenceArityOf(const std::vector<GeneratedParameter> &Parameters) {
   return Arity;
 }
 
-// The accepted-arity sentence one shape reports, worded independently.
 [[nodiscard]] std::string ReferenceArityText(const ReferenceArity &Arity) {
   if (Arity.IsVariadic)
     return "at least " + std::to_string(Arity.Minimum) + " arguments";
@@ -288,8 +236,6 @@ ReferenceArityOf(const std::vector<GeneratedParameter> &Parameters) {
   }
 }
 
-// One generated declared shape, compared with the reference scan and the
-// reference arity, plus the immutable metadata every descriptor must report.
 void VerifyDeclaredShapeModel(ByteCursor &Cursor) {
   const std::size_t Count = Cursor.Pick(5);
 
@@ -312,8 +258,6 @@ void VerifyDeclaredShapeModel(ByteCursor &Cursor) {
       break;
     }
     Parameter.Kind = GeneratedKind(Cursor.Pick(4));
-    // A malformed default is deliberately reachable, biased so most defaults
-    // still name their own parameter type.
     Parameter.DefaultKind =
         Cursor.Pick(3) == 0 ? GeneratedKind(Cursor.Pick(4)) : Parameter.Kind;
     Parameter.AcceptsNil = Cursor.Pick(2) == 0;
@@ -340,9 +284,6 @@ void VerifyDeclaredShapeModel(ByteCursor &Cursor) {
   if (!ExpectedArity.IsVariadic)
     RC_ASSERT(*Arity.Maximum == ExpectedArity.FixedCount);
 
-  // Reflection distinguishes required, optional, defaulted, and variadic
-  // parameters, and a default is immutable metadata rather than a value some
-  // call produced.
   for (std::size_t Index = 0; Index < Count; ++Index) {
     const GeneratedParameter &Source = Described[Index];
     const ParameterDescriptor &Declared = Descriptors[Index];
@@ -376,36 +317,30 @@ void VerifyDeclaredShapeModel(ByteCursor &Cursor) {
 
 namespace {
 
-// ---------------------------------------------------------------------------
-// The declared shapes one generated call runs against.
-// ---------------------------------------------------------------------------
-
 constexpr std::size_t ShapeCount = 8;
 
 [[nodiscard]] std::string_view ShapeName(std::size_t Shape) noexcept {
   switch (Shape) {
   case 0:
-    return "Scale"; // (integer, optional integer)
+    return "Scale";
   case 1:
-    return "Offset"; // (integer, integer = 5)
+    return "Offset";
   case 2:
-    return "Tag"; // (optional integer = 7)
+    return "Tag";
   case 3:
-    return "Concat"; // (integer, string)
+    return "Concat";
   case 4:
-    return "Sum"; // (...)
+    return "Sum";
   case 5:
-    return "Join"; // (string, ...) retained
+    return "Join";
   case 6:
-    return "Mix"; // (integer, optional integer, ...)
+    return "Mix";
   default:
     break;
   }
-  return "Range"; // (integer = 1, number = 2.5)
+  return "Range";
 }
 
-// One declared parameter of one pooled shape, written out here so the model
-// never asks Luna what the shape is.
 struct ModelParameter final {
   ParameterForm Form = ParameterForm::Required;
   ValueKind Kind = ValueKind::Integer;
@@ -462,10 +397,6 @@ ShapeParameters(std::size_t Shape) {
   return Arity;
 }
 
-// What one selected native target observed: how often it ran, what every fixed
-// slot carried, and the one-based call position of every variadic element. A
-// materialized default is an ordinary present slot here, which is exactly how
-// "materialized exactly once" becomes observable.
 struct ShapeObservation final {
   std::size_t Calls = 0;
   std::vector<std::string> Slots;
@@ -616,8 +547,6 @@ void RecordVariadic(ShapeObservation &Entry, const Arguments &Values) {
                                 1, 2.5))
           .IsSuccess();
 
-  // One ordinary callable that only the recovery check calls, so a reuse never
-  // disturbs the observation of the generated call.
   Registered = Registered && Registry
                                  .RegisterFunction("Reuse",
                                                    [&Observed]() {
@@ -627,10 +556,6 @@ void RecordVariadic(ShapeObservation &Entry, const Arguments &Values) {
                                  .IsSuccess();
   return Registered;
 }
-
-// ---------------------------------------------------------------------------
-// One generated call of one declared shape.
-// ---------------------------------------------------------------------------
 
 enum class SampleKind {
   IntegralNumber,
@@ -666,8 +591,6 @@ struct ArgumentSample final {
   return Pool;
 }
 
-// One sample the declared parameter accepts, so generated calls reach the
-// target often instead of always refusing.
 [[nodiscard]] ArgumentSample MatchingSample(ValueKind Kind,
                                             ByteCursor &Cursor) {
   const std::vector<ArgumentSample> &Pool = ArgumentPool();
@@ -696,9 +619,6 @@ struct GeneratedCall final {
   const std::vector<ModelParameter> &Parameters = ShapeParameters(Call.Shape);
   const ReferenceArity Arity = ShapeArity(Call.Shape);
 
-  // Two generation modes: argument sequences shaped like the declared
-  // parameters, including deliberate omissions and explicit nils, and freely
-  // generated sequences, which is what drives arity and type refusals.
   if (Cursor.Pick(3) != 0) {
     const std::size_t Supplied = Cursor.Pick(Arity.FixedCount + 1);
     for (std::size_t Index = 0; Index < Supplied; ++Index) {
@@ -711,8 +631,6 @@ struct GeneratedCall final {
     if (Arity.IsVariadic && Supplied == Arity.FixedCount) {
       const std::size_t Extra = Cursor.Pick(4);
       for (std::size_t Index = 0; Index < Extra; ++Index) {
-        // A table is the only representation the variadic policy refuses, and
-        // it is generated often enough to reach the first-failure rule.
         Call.Arguments.push_back(Cursor.Pick(5) == 0
                                      ? ArgumentPool()[8]
                                      : ArgumentPool()[Cursor.Pick(8)]);
@@ -732,10 +650,6 @@ struct GeneratedCall final {
   return Call;
 }
 
-// ---------------------------------------------------------------------------
-// The independent signature-shape model of one generated call.
-// ---------------------------------------------------------------------------
-
 struct ModelCallOutcome final {
   bool Accepted = false;
   std::string Diagnostic;
@@ -745,8 +659,6 @@ struct ModelCallOutcome final {
   int Marker = 0;
 };
 
-// The first deterministic refusal of one supplied argument against one declared
-// parameter type, or nothing when the conversion is available.
 [[nodiscard]] std::optional<std::string>
 ModelRejection(ValueKind Kind, const ArgumentSample &Argument) {
   const std::string Expected(PublicTypeName(Kind));
@@ -791,8 +703,6 @@ ModelRejection(ValueKind Kind, const ArgumentSample &Argument) {
   return "boolean " + FlagText(Argument.Flag);
 }
 
-// The variadic policy: a boolean, number, string, or nil converts through the
-// captured registry, and every other representation is refused whole.
 [[nodiscard]] std::string ModelElementText(const ArgumentSample &Argument) {
   switch (Argument.Kind) {
   case SampleKind::IntegralNumber:
@@ -823,16 +733,12 @@ ModelRejection(ValueKind Kind, const ArgumentSample &Argument) {
     return Outcome;
   }
 
-  // Every supplied fixed argument is converted before any default is
-  // materialized, so a refused call materializes nothing.
   std::vector<std::string> Slots(Arity.FixedCount, "omitted");
   for (std::size_t Index = 0; Index < Arity.FixedCount && Index < Received;
        ++Index) {
     const ModelParameter &Parameter = Parameters[Index];
     const ArgumentSample &Argument = Call.Arguments[Index];
 
-    // An explicit nil is the empty value exactly when the parameter's own
-    // conversion accepts nil; otherwise it is an ordinary supplied value.
     if (Parameter.AcceptsNil && Argument.Kind == SampleKind::Nil)
       continue;
 
@@ -863,8 +769,6 @@ ModelRejection(ValueKind Kind, const ArgumentSample &Argument) {
     }
   }
 
-  // Only now, with every supplied argument accepted, is each omitted default
-  // materialized - exactly once, and never for an omitted optional.
   for (std::size_t Index = Received; Index < Arity.FixedCount; ++Index) {
     if (const std::optional<Luna::Value> &Default = Parameters[Index].Default)
       Slots[Index] = ValueText(*Default);
@@ -885,10 +789,6 @@ ModelRejection(ValueKind Kind, const ArgumentSample &Argument) {
 } // namespace
 
 namespace {
-
-// ---------------------------------------------------------------------------
-// One overload set in which the defaulted candidate can lose.
-// ---------------------------------------------------------------------------
 
 struct PickObservation final {
   std::size_t RichCalls = 0;
@@ -920,9 +820,6 @@ struct PickObservation final {
   return Rich && Text;
 }
 
-// A default is materialized only after its candidate is selected: the losing
-// candidate records nothing at all, and the winning one records exactly one
-// default value when its parameter was omitted.
 void VerifyDefaultAfterSelection(Luna::State &Owner,
                                  const PickObservation &Observed,
                                  ByteCursor &Cursor) {
@@ -935,7 +832,6 @@ void VerifyDefaultAfterSelection(Luna::State &Owner,
 
   switch (Cursor.Pick(3)) {
   case 0:
-    // The defaulted candidate wins and materializes its omitted default once.
     Arguments = "3";
     ExpectedRich = 1;
     ExpectedSlots = {"integer 3", "integer 5"};
@@ -943,14 +839,12 @@ void VerifyDefaultAfterSelection(Luna::State &Owner,
     ExpectedMarker = 1;
     break;
   case 1:
-    // The defaulted candidate loses, so no default is materialized.
     Arguments = "'t'";
     ExpectedText = 1;
     ExpectedReads = 1;
     ExpectedMarker = 2;
     break;
   default:
-    // The defaulted parameter is supplied, so no default applies.
     Arguments = "3, 4";
     ExpectedRich = 1;
     ExpectedSlots = {"integer 3", "integer 4"};
@@ -972,32 +866,26 @@ void VerifyDefaultAfterSelection(Luna::State &Owner,
   RC_ASSERT(Observed.TextCalls == ExpectedText);
   RC_ASSERT(Observed.RichSlots == ExpectedSlots);
 
-  // Both candidates were probed for the one supplied position, and only the
-  // selected candidate converted anything.
   RC_ASSERT(Counts.ArgumentProbes == 2);
   RC_ASSERT(Counts.CommittingArgumentReads == ExpectedReads);
 }
 
-// ---------------------------------------------------------------------------
-// Zero, scalar, and multiple return publication.
-// ---------------------------------------------------------------------------
-
 [[nodiscard]] std::string_view ReturnShapeName(std::size_t Shape) noexcept {
   switch (Shape) {
   case 0:
-    return "Nothing"; // void
+    return "Nothing";
   case 1:
-    return "Twice"; // one scalar
+    return "Twice";
   case 2:
-    return "Split"; // std::pair
+    return "Split";
   case 3:
-    return "Detail"; // std::tuple
+    return "Detail";
   case 4:
-    return "Bundle"; // dynamic ReturnPack
+    return "Bundle";
   default:
     break;
   }
-  return "Echo"; // dynamic ReturnPack behind a variadic parameter
+  return "Echo";
 }
 
 [[nodiscard]] bool RegisterReturnShapes(Luna::BindingRegistry &Registry) {
@@ -1024,9 +912,6 @@ void VerifyDefaultAfterSelection(Luna::State &Owner,
                             })
           .IsSuccess();
 
-  // The dynamic pack: its element count is decided by the invocation, and one
-  // generated element violates the inherited per-string byte policy, so the
-  // whole publication must expose zero values.
   const bool Dynamic =
       Registry
           .RegisterFunction(
@@ -1085,8 +970,6 @@ struct GeneratedReturn final {
   return "nil";
 }
 
-// One generated return shape and the outcome the model predicts for it,
-// including exactly which injected fault the shape reaches.
 [[nodiscard]] GeneratedReturn GenerateReturn(ByteCursor &Cursor) {
   GeneratedReturn Case;
   Case.Shape = Cursor.Pick(6);
@@ -1115,8 +998,6 @@ struct GeneratedReturn final {
     break;
   case 4: {
     const std::size_t Count = Cursor.Pick(4);
-    // A refused position inside the pack, or a position past its end, which
-    // publishes every element instead.
     const std::size_t FailAt = Cursor.Pick(Count + 2);
     Case.ArgumentList = std::to_string(Count) + ", " + std::to_string(FailAt);
     if (FailAt >= 1 && FailAt <= Count) {
@@ -1152,9 +1033,6 @@ struct GeneratedReturn final {
                : Choice == 2 ? FaultPoint::ReturnWrite
                              : FaultPoint::VoidFinalization;
 
-  // A void shape reaches only its finalization point, and every value or pack
-  // shape reaches only reservation and writing. A pack that already refused an
-  // element never reaches either, so the injected fault stays pending.
   const bool IsVoid = Case.Shape == 0;
   const bool Applies = IsVoid == (Case.Fault == FaultPoint::VoidFinalization);
   if (!Applies || Case.Fails)
@@ -1208,8 +1086,6 @@ void VerifyReturnPublication(Luna::State &Owner, const GeneratedReturn &Case) {
     RC_ASSERT(Hooks::ObserveIntegerGlobal(Owner, "Matched") ==
               std::optional<int>(1));
   } else {
-    // A refused publication exposes zero values: nothing reached a result
-    // position, so neither global was ever assigned.
     RC_ASSERT(!Result.IsSuccess());
     const Luna::ErrorDiagnostic *Diagnostic = Result.Diagnostic();
     RC_ASSERT(Diagnostic != nullptr);
@@ -1229,7 +1105,6 @@ void VerifyReturnPublication(Luna::State &Owner, const GeneratedReturn &Case) {
   if (!Case.HasFault)
     return;
 
-  // The injected fault was consumed exactly where the shape reaches it.
   RC_ASSERT(Hooks::PendingFaults(Owner, Case.Fault) ==
             (Case.ConsumesFault ? 0U : 1U));
   static_cast<void>(Hooks::ConsumeFault(Owner, Case.Fault));
@@ -1238,10 +1113,6 @@ void VerifyReturnPublication(Luna::State &Owner, const GeneratedReturn &Case) {
 } // namespace
 
 namespace {
-
-// ---------------------------------------------------------------------------
-// One generated call through the real compiler and virtual machine.
-// ---------------------------------------------------------------------------
 
 void VerifyShapeCall(Luna::State &Owner, const CallObservation &Observed,
                      const GeneratedCall &Call, const ModelCallOutcome &Model) {
@@ -1257,8 +1128,6 @@ void VerifyShapeCall(Luna::State &Owner, const CallObservation &Observed,
       Luna::Detail::OverloadInstrumentationTotals();
   RC_TAG(std::string(Model.Accepted ? "call accepted" : "call refused"));
 
-  // One committed candidate resolves to itself without probing anything, so
-  // these calls keep the foundation's arity and type behavior exactly.
   RC_ASSERT(Counts.ArgumentProbes == 0);
   RC_ASSERT(Counts.CommittingArgumentReads == Model.CommittingReads);
 
@@ -1267,18 +1136,12 @@ void VerifyShapeCall(Luna::State &Owner, const CallObservation &Observed,
     RC_ASSERT(Result.IsSuccess());
     RC_ASSERT(Entry.Calls == 1);
 
-    // Every fixed slot carries exactly what the shape describes: a supplied
-    // value, an omitted slot, or one materialized default.
     RC_ASSERT(Entry.Slots == Model.Slots);
 
-    // The variadic tail carries every remaining argument, numbered by its
-    // one-based call position rather than by its index.
     RC_ASSERT(Entry.Variadic == Model.Variadic);
     RC_ASSERT(Hooks::ObserveIntegerGlobal(Owner, "Marker") ==
               std::optional<int>(Model.Marker));
   } else {
-    // A refused call converts nothing further, materializes no default, and
-    // never reaches the target.
     RC_ASSERT(!Result.IsSuccess());
     const Luna::ErrorDiagnostic *Diagnostic = Result.Diagnostic();
     RC_ASSERT(Diagnostic != nullptr);
@@ -1326,8 +1189,6 @@ void VerifyGeneratedInvocation(ByteCursor &Calls, ByteCursor &Returns) {
   VerifyDefaultAfterSelection(Owner, Picked, Calls);
   VerifyReturnPublication(Owner, ReturnCase);
 
-  // The State keeps invoking, converting, registering, and executing after
-  // every generated refusal.
   RC_ASSERT(Owner.Execute("Recovered = Reuse()").IsSuccess());
   RC_ASSERT(Observed.ReuseCalls == 1);
   RC_ASSERT(Hooks::ObserveIntegerGlobal(Owner, "Recovered") ==
@@ -1342,7 +1203,6 @@ void VerifyGeneratedInvocation(ByteCursor &Calls, ByteCursor &Returns) {
 } // namespace
 
 int RunRichSignatureShapeProperties() {
-  // **Validates: Requirements 7.1, 7.2, 7.3, 7.4, 7.5, 7.7, 7.8, 7.9, 7.10**
   // clang-format off
   // Feature: reflection-driven-binding-system, Property 25: Optional, defaulted, variadic, and multiple-value calls follow their reflected shapes
   const bool Passed = rc::check(

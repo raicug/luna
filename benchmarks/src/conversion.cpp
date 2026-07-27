@@ -1,16 +1,3 @@
-// Conversion benchmark scenario.
-//
-// Every case drives one declared parameter and return shape through the real
-// conversion boundary: scalars, strings, a trailing optional, a variadic pack,
-// and a fixed multiple-return pack. Each corpus is registered once per mode, so
-// a sample times reading arguments and publishing returns rather than
-// registration.
-//
-// The declared shapes are split across two corpora on purpose: one holds the
-// fixed-arity shapes and one holds the relaxed shapes, so a mode that cannot
-// prepare one of them still reports measured numbers for the other instead of
-// blocking the whole scenario.
-
 // clang-format off
 #include <luna/luna.hpp>
 

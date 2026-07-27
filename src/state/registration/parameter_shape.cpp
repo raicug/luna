@@ -23,8 +23,6 @@
 namespace Luna::Detail {
 namespace {
 
-// The canonical type of one declared parameter. A variadic tail carries Luna's
-// own value type, which is what reflection names for a heterogeneous pack.
 [[nodiscard]] TypeDescriptor
 DeclaredParameterType(const ParameterDescriptor &Parameter) {
   if (const ValueKind *Kind = Parameter.Kind())
@@ -47,9 +45,6 @@ DispositionOf(const ParameterDescriptor &Parameter) {
   return ParameterDisposition::Required;
 }
 
-// One immutable default rendered for reflection. The number form is the shared
-// conversion formatting, so a reflected default reads exactly as a diagnostic
-// prints the same value.
 [[nodiscard]] std::string DefaultText(const Value &Default) {
   if (const bool *Flag = std::get_if<bool>(&Default))
     return *Flag ? "true" : "false";
@@ -94,8 +89,6 @@ CanonicalDeclaredSignature(const CallableMetadata &Metadata) {
 
   const std::span<const ParameterDescriptor> Parameters = Metadata.Parameters();
   for (const ParameterDescriptor &Parameter : Parameters) {
-    // A variadic tail owns no fixed position: the canonical model carries it as
-    // the variadic flag instead of as one more parameter type.
     if (Parameter.IsVariadic()) {
       Signature.IsVariadic = true;
       continue;
@@ -112,9 +105,6 @@ CanonicalDeclaredSignature(const CallableMetadata &Metadata) {
 CallableSignatureDescriptor
 WithCanonicalReceiver(const CallableMetadata &Metadata,
                       CallableSignatureDescriptor Signature) {
-  // A callable that declares no receiver leaves both fields exactly as the
-  // foundation left them, so nothing about a free function, a static method, a
-  // constructor, or a factory changes here.
   if (const ReceiverMetadata *Receiver = Metadata.Receiver()) {
     Signature.ReceiverType = TypeDescriptor::ForClass(Receiver->Class());
     Signature.ReceiverIsConst = Receiver->IsConst();
@@ -173,8 +163,6 @@ std::string
 CanonicalSignatureText(const CallableSignatureDescriptor &Signature) {
   std::string Text = CanonicalTypeText(Signature.ReturnType);
 
-  // The receiver is part of the call shape, so it is part of the text: a member
-  // candidate never reflects the same signature a static one reflects.
   if (Signature.ReceiverType) {
     Text += "[";
     Text += CanonicalTypeText(*Signature.ReceiverType);
@@ -189,8 +177,6 @@ CanonicalSignatureText(const CallableSignatureDescriptor &Signature) {
       Text += ",";
     Text += CanonicalTypeText(Signature.ParameterTypes[Index]);
 
-    // An omittable parameter is marked, so a defaulted or optional slot never
-    // reflects the same text a required slot of the same type reflects.
     if (Index >= Signature.RequiredParameterCount)
       Text += "?";
   }

@@ -8,8 +8,6 @@
 
 namespace {
 
-// The declared member policies compile from this header alone: no other Luna
-// header, no Luau include path, and nothing but the standard library.
 static_assert(Luna::MemberAccessText(Luna::MemberAccess::ReadOnly) ==
                   std::string_view("read-only"),
               "A member's declared directions have reflected text.");
@@ -47,8 +45,6 @@ static_assert(std::is_same_v<decltype(Luna::FieldPolicy::Owned(
                              Luna::FieldPolicy>,
               "Every field policy factory yields the same value type.");
 
-// The two generated descriptors a member is reached through are built from
-// Luna-owned and standard-library types alone.
 static_assert(std::is_same_v<Luna::Detail::MemberReadOutcome,
                              decltype(Luna::Detail::MemberReadOutcome::Accept(
                                  Luna::Value(1)))>,

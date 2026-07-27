@@ -1,11 +1,3 @@
-// Focused coverage for deterministic documentation generation: one explicit
-// immutable snapshot plus immutable options produce one complete artifact, the
-// bytes are canonical UTF-8 without a byte-order mark and with LF endings only,
-// the traversal is independent of registration order, generation reads only the
-// captured generation, and metadata that cannot be encoded canonically is one
-// deterministic rejection with no partial bytes. Golden and structural coverage
-// of the whole reflected surface arrives with the generator test suite task.
-
 // clang-format off
 #include <luna/binding/binding_registry.hpp>
 #include <luna/binding/class_builder.hpp>
@@ -59,10 +51,6 @@ struct Gadget final {
   return Created ? std::move(*Created) : Luna::ModuleManifest();
 }
 
-// One reflected surface covering namespaces, callables with parameters and
-// returns, constants, classes with construction and members and an operator,
-// enumerations with aliases, attributes, examples, prose, and module
-// provenance. `Reversed` states the same declarations in the opposite order.
 void RegisterSurface(Luna::BindingRegistry &Registry, bool Reversed) {
   const auto RegisterModule = [&Registry] {
     return Registry.RegisterModule(
@@ -122,9 +110,6 @@ void RegisterSurface(Luna::BindingRegistry &Registry, bool Reversed) {
   return Registry.Reflection();
 }
 
-// Requirements 16.2, 16.3: one explicitly captured snapshot and equal options
-// produce one complete artifact whose bytes are canonical UTF-8 without a
-// byte-order mark and with LF line endings only, repeatedly.
 void CheckRepeatedGenerationIsByteIdenticalAndCanonical() {
   Luna::State Owner;
   const Luna::ReflectionSnapshot Snapshot = Surface(Owner, false);
@@ -155,8 +140,6 @@ void CheckRepeatedGenerationIsByteIdenticalAndCanonical() {
         "every generated line, including the last, is LF terminated");
 }
 
-// Requirement 16.4: the traversal follows canonical names and declaration
-// metadata, so stating the same surface in another order changes nothing.
 void CheckGeneratedOrderIgnoresRegistrationOrder() {
   Luna::State Forward;
   Luna::State Backward;
@@ -174,8 +157,6 @@ void CheckGeneratedOrderIgnoresRegistrationOrder() {
         "generated documentation is independent of registration order");
 }
 
-// Requirements 16.1, 16.9: the artifact describes every reflected category it
-// captured and identifies module and version provenance.
 void CheckGeneratedContentCoversTheReflectedSurface() {
   Luna::State Owner;
   const Luna::ReflectionSnapshot Snapshot = Surface(Owner, false);
@@ -233,8 +214,6 @@ void CheckGeneratedContentCoversTheReflectedSurface() {
         "each symbol names the scope that owns it");
 }
 
-// Requirements 16.2, 16.3: generation reads only the captured generation, so a
-// retained snapshot outlives later registration and its originating State.
 void CheckGenerationReadsOnlyTheCapturedSnapshot() {
   Luna::DocumentationOptions Options;
   std::string Captured;
@@ -262,7 +241,6 @@ void CheckGenerationReadsOnlyTheCapturedSnapshot() {
         "the two captured generations describe different surfaces");
 }
 
-// Requirement 16.2: immutable options select the artifact deterministically.
 void CheckOptionsSelectTheArtifactDeterministically() {
   Luna::State Owner;
   const Luna::ReflectionSnapshot Snapshot = Surface(Owner, false);
@@ -300,8 +278,6 @@ void CheckOptionsSelectTheArtifactDeterministically() {
         "repeated generation with the same options stays byte-identical");
 }
 
-// Requirement 16.3: metadata that cannot be encoded canonically is one
-// deterministic rejection that exposes no partial artifact.
 void CheckUnencodableMetadataIsRejectedWithoutPartialBytes() {
   const auto Generate = [](std::string_view Documentation) {
     Luna::State Owner;
@@ -337,7 +313,6 @@ void CheckUnencodableMetadataIsRejectedWithoutPartialBytes() {
         "encodable metadata still generates completely");
 }
 
-// Requirement 16.2: an empty captured generation is still a complete artifact.
 void CheckEmptySnapshotGeneratesACompleteArtifact() {
   const Luna::ReflectionSnapshot Empty;
   const Luna::GeneratedArtifact Artifact =

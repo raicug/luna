@@ -1,12 +1,5 @@
 #pragma once
 
-// Compile-time normalization from one C++ type to its canonical descriptor.
-// References and top-level cv-qualification are removed, while pointer depth,
-// pointee cv-qualification, array extent, semantic wrappers, enum identity,
-// class identity, and ordered structural children are preserved. User-defined
-// leaves never derive identity from RTTI: each one consumes an explicit
-// validated stable key in canonical left-to-right order.
-
 // clang-format off
 #include <luna/binding/value.hpp>
 #include <luna/type/stable_type_key.hpp>
@@ -32,7 +25,6 @@
 
 namespace Luna::Detail {
 
-// Supplies explicit stable keys to user-defined leaves in canonical order.
 class UserKeyCursor {
 public:
   explicit UserKeyCursor(std::span<const StableTypeKey> Keys) noexcept
@@ -72,8 +64,6 @@ template <class Type>
     return CvQualification::None;
 }
 
-// Reserved Luna-owned leaf keys. Anything absent here is either a structural
-// constructor or a user-defined leaf requiring an explicit stable key.
 template <class Type>
 [[nodiscard]] constexpr std::optional<FixedTypeKey> FixedKeyFor() noexcept {
   using Leaf = std::remove_cv_t<Type>;
@@ -125,7 +115,6 @@ template <class Type> struct CanonicalType {
   }
 };
 
-// References are normalized away wherever they appear.
 template <class Type> struct CanonicalType<Type &> {
   static constexpr std::size_t UserLeafCount =
       CanonicalType<std::remove_cv_t<Type>>::UserLeafCount;
@@ -144,8 +133,6 @@ template <class Type> struct CanonicalType<Type &&> {
   }
 };
 
-// Pointers retain their depth and pointee cv-qualification; a character pointer
-// is the reserved C-string leaf instead.
 template <class Type> struct CanonicalType<Type *> {
   static constexpr bool IsCString =
       std::is_same_v<std::remove_cv_t<Type>, char>;
@@ -325,15 +312,10 @@ template <class... Types> struct CanonicalType<std::tuple<Types...>> {
   }
 };
 
-// Number of explicit stable keys one normalized type requires, in canonical
-// left-to-right order.
 template <class Type>
 inline constexpr std::size_t UserDefinedLeafCount =
     CanonicalType<std::remove_cvref_t<Type>>::UserLeafCount;
 
-// Builds the canonical descriptor of one normalized type. The descriptor is
-// unsupported when a leaf is unsupported, a required stable key is missing or
-// invalid, or more keys are supplied than the type consumes.
 template <class Type>
 [[nodiscard]] inline TypeDescriptor
 CanonicalDescriptorFor(std::span<const StableTypeKey> UserKeys = {}) {

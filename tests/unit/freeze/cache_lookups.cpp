@@ -1,13 +1,3 @@
-// Focused coverage of what one published freeze cache holds.
-//
-// Three things are checked here: every cached entry resolves to exactly the
-// answer the uncached generation lookup gives - and a name neither one declares
-// is refused identically by both - every cached entry names an immutable owner
-// or a stable identity rather than a replaceable pointer, so invalidation
-// always precedes unavailability, and an owning reflection snapshot stays
-// readable from another thread before freeze, after freeze, and after its State
-// is gone.
-
 // clang-format off
 #include <luna/binding/binding_registry.hpp>
 #include <luna/binding/class_builder.hpp>
@@ -50,8 +40,6 @@ void Check(bool Condition, std::string_view Description) {
   ++FailureCount;
   std::cerr << "frozen cache lookup check failed: " << Description << '\n';
 }
-
-// -- the representative model ------------------------------------------------
 
 struct Part {
   virtual ~Part() = default;
@@ -116,8 +104,6 @@ void ConfigureUnits(Luna::NamespaceBuilder &Builder) {
   return Registry.RegisterModule(UnitsManifest(), &ConfigureUnits);
 }
 
-// -- canonical text helpers --------------------------------------------------
-
 [[nodiscard]] std::vector<std::string> Fields(const std::string &Text) {
   std::vector<std::string> Parts;
   std::size_t Start = 0;
@@ -153,8 +139,6 @@ const std::vector<std::string> &AbsentNames() {
   return Names;
 }
 
-// -- cached and uncached lookups ---------------------------------------------
-
 void CheckCachedLookupsMatchUncachedLookups() {
   Luna::State Owner;
   Luna::BindingRegistry Registry = Owner.Bindings();
@@ -169,9 +153,6 @@ void CheckCachedLookupsMatchUncachedLookups() {
             Cached.OrderedLookups.size() == Cached.Lookups,
         "one published cache describes every entry it holds");
 
-  // Every cached lookup either names one immutable reflection record by stable
-  // index, and then agrees with it completely, or names a private committed
-  // identity that has no reflected record at all.
   std::size_t Reflected = 0;
   for (const std::string &Detail : Cached.LookupDetails) {
     const std::vector<std::string> Parts = Fields(Detail);
@@ -195,10 +176,6 @@ void CheckCachedLookupsMatchUncachedLookups() {
               std::string(Luna::SymbolKindText(Record.Kind())) == Parts[2] &&
               Record.Id().ToString() == Parts[3],
           "a cached lookup resolves to exactly the record it names");
-    // One qualified name resolves to the primary record of that name: an
-    // overload set for a callable path, and the declaration itself for every
-    // other kind. A candidate therefore agrees with its own set, never with
-    // itself, on both sides.
     const Luna::SymbolId Primary =
         Record.OverloadSet().IsValid() ? Record.OverloadSet() : Record.Id();
     Check(Uncached.Find(Record.Id()).QualifiedName() == Parts[0] &&
@@ -208,8 +185,6 @@ void CheckCachedLookupsMatchUncachedLookups() {
   }
   Check(Reflected > 0, "the cache names reflected records");
 
-  // Every cached scope, class, module, and overload entry agrees with the live
-  // uncached query for it.
   Check(Cached.Namespaces == Hooks::NamespaceOwnershipCount(Owner) &&
             Cached.Metatables == Hooks::RegisteredClassCount(Owner) &&
             Cached.Modules == Hooks::LoadedModuleCount(Owner) &&
@@ -263,8 +238,6 @@ void CheckCachedLookupsMatchUncachedLookups() {
           "every cached overload index agrees with the uncached candidate set");
   }
 
-  // Every canonical type the uncached generation reflects is present in the
-  // frozen conversion table.
   const Luna::TypeRecordRange Types = Uncached.Types();
   for (std::size_t Index = 0; Index < Types.Size(); ++Index) {
     const std::string Identity = Types.At(Index).Id().ToString();
@@ -274,7 +247,6 @@ void CheckCachedLookupsMatchUncachedLookups() {
           "every reflected canonical type is in the frozen conversion table");
   }
 
-  // A name the model never declared is refused identically cached and uncached.
   for (const std::string &Absent : AbsentNames()) {
     Check(!Uncached.Find(Absent).IsValid() &&
               !CachesLookupNamed(Cached, Absent),
@@ -289,8 +261,6 @@ void CheckCachedLookupsMatchUncachedLookups() {
             .IsSuccess(),
         "the cached paths answer exactly what the uncached paths answered");
 }
-
-// -- stable identities rather than replaceable pointers ----------------------
 
 [[nodiscard]] std::string ExposeGadget(Luna::State &Owner,
                                        const std::string &Path, Gadget &Object,
@@ -348,7 +318,6 @@ void CheckInvalidationPrecedesUnavailability() {
   Check(Reused.Reached && Reused.ServedFromCache,
         "the recorded value serves the next read");
 
-  // A write of the same object invalidates the values that described it.
   const auto Written = WriteMember(Owner, Path, "Charge", 5);
   Check(Written.Reached && Written.Invalidated == 1 &&
             Hooks::LazyMemberCacheEntryCountOf(Owner, &Value) == 0,
@@ -360,8 +329,6 @@ void CheckInvalidationPrecedesUnavailability() {
         "the next read recomputes from the object rather than from a stale "
         "value");
 
-  // A dispatch-generation change invalidates by mismatch: the entry is still
-  // owned by Luna, and no access can reach it.
   Check(Hooks::AdvanceLifecycleGeneration(Owner),
         "the test advances the dispatch generation");
   Check(Hooks::LazyMemberCacheEntryCountOf(Owner, &Value) == 1 &&
@@ -373,8 +340,6 @@ void CheckInvalidationPrecedesUnavailability() {
             Hooks::LiveLazyMemberCacheEntryCount(Owner) == 1,
         "the later generation records its own value");
 
-  // Retirement invalidates before the value becomes unavailable, so the next
-  // access is refused instead of reaching released storage.
   Check(Hooks::RetireClassUserdata(Owner, &Value) &&
             Hooks::LazyMemberCacheEntryCountOf(Owner, &Value) == 0 &&
             Hooks::LiveCachedIdentityCount(Owner) == 0,
@@ -400,8 +365,6 @@ void CheckInvalidationPrecedesUnavailability() {
             After.OrderedModules == Published.OrderedModules,
         "documented runtime state never mutates one published cache");
 }
-
-// -- cross-thread snapshot reads --------------------------------------------
 
 struct SnapshotReading final {
   std::vector<std::string> Names;
@@ -474,8 +437,6 @@ void CheckSnapshotsReadFromAnyThread() {
           "a snapshot taken after freeze reads identically from another "
           "thread");
 
-    // Capturing a snapshot on a foreign thread is a read, so it is permitted
-    // and answers exactly what the owner thread answers.
     SnapshotReading Captured;
     std::thread Foreign([&Owner, &Captured] {
       Captured = Read(Owner.Bindings().Reflection());

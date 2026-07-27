@@ -1,12 +1,3 @@
-// Canonical overload sets and Pareto resolution.
-//
-// Two halves are checked here. The first is the pure selection model: rank
-// sequences compared as Pareto dimensions, with no score, no registration-order
-// tie break, and no candidate-count limit. The second is one overload set
-// through the real compiler and virtual machine: candidates grouped under one
-// qualified name, ordered canonically, resolved by side-effect-free probing,
-// and refused with canonical no-match or ambiguity diagnostics.
-
 // clang-format off
 #include <luna/binding/argument_pack.hpp>
 #include <luna/binding/binding_registry.hpp>
@@ -61,8 +52,6 @@ void Check(bool Condition, std::string_view Description) {
   std::cerr << "overload resolution check failed: " << Description << '\n';
 }
 
-// Declared shapes used by the resolution cases: one trailing optional
-// parameter, one final variadic tail, and one plain fixed arity.
 [[nodiscard]] int ScaledByFactor(int Value, std::optional<int> Factor) {
   return Value * (Factor ? *Factor : 1);
 }
@@ -127,8 +116,6 @@ void CheckDominanceComparesEveryPositionIndependently() {
   Check(CompareRankSequences(Exact, Exact) == DominanceOrdering::Equivalent,
         "identical rank sequences are equivalent, not dominating");
 
-  // One better and one worse position stays incomparable. A weighted sum would
-  // have picked the first sequence here; Pareto comparison must not.
   const auto Mixed = Ranks({ConversionRank::Exact, ConversionRank::User});
   const auto Opposite =
       Ranks({ConversionRank::SafeBuiltIn, ConversionRank::SafeBuiltIn});
@@ -137,7 +124,6 @@ void CheckDominanceComparesEveryPositionIndependently() {
         "a sequence better in one position and worse in another is "
         "incomparable");
 
-  // The shape element is one more dimension, never a summed score.
   const auto ExactArity = Ranks({ConversionRank::Exact});
   const auto Omitted =
       Ranks({ConversionRank::Exact}, SignatureShapeRank::OmittedParameters);
@@ -152,7 +138,6 @@ void CheckDominanceComparesEveryPositionIndependently() {
             DominanceOrdering::Incomparable,
         "a better shape with a worse argument rank stays incomparable");
 
-  // Sequences describing different received counts belong to different calls.
   Check(CompareRankSequences(
             Exact, Ranks({ConversionRank::Exact, ConversionRank::Exact})) ==
             DominanceOrdering::Incomparable,
@@ -183,7 +168,6 @@ void CheckSelectionRequiresDominatingEveryOtherCandidate() {
   Check(Dominating.Frontier.size() == 1 && Dominating.Frontier.front() == 1,
         "a selection reports exactly one non-dominated candidate");
 
-  // Two equivalent candidates are ambiguous: neither dominates the other.
   const std::vector<ViableCandidate> Equivalent{
       ViableCandidate{0, Ranks({ConversionRank::Exact})},
       ViableCandidate{1, Ranks({ConversionRank::Exact})}};
@@ -192,8 +176,6 @@ void CheckSelectionRequiresDominatingEveryOtherCandidate() {
             Tied.Frontier.size() == 2,
         "equivalent rank sequences stay ambiguous instead of tie-breaking");
 
-  // An incomparable frontier reports every non-dominated candidate and drops
-  // the dominated one.
   const std::vector<ViableCandidate> Frontier{
       ViableCandidate{0, Ranks({ConversionRank::Exact, ConversionRank::User})},
       ViableCandidate{1, Ranks({ConversionRank::User, ConversionRank::Exact})},
@@ -204,7 +186,6 @@ void CheckSelectionRequiresDominatingEveryOtherCandidate() {
             Ambiguous.Frontier.back() == 1,
         "an ambiguity reports the non-dominated frontier in canonical order");
 
-  // Selection is independent of the order candidates are supplied in.
   const std::vector<ViableCandidate> Reversed{
       ViableCandidate{2, Ranks({ConversionRank::User})},
       ViableCandidate{1, Ranks({ConversionRank::Exact})},
@@ -255,7 +236,6 @@ void CheckOverloadSetGroupsCandidatesCanonically() {
   Luna::BindingRegistry Registry = Owner.Bindings();
   const int EntryDepth = StackDepth(Owner);
 
-  // Registration order is deliberately not canonical order.
   const auto Text = Registry.RegisterFunction(
       "Measure", [](std::string Value) { return int(Value.size()); });
   const auto Pair = Registry.RegisterFunction(
@@ -274,7 +254,6 @@ void CheckOverloadSetGroupsCandidatesCanonically() {
   Check(StackDepth(Owner) == EntryDepth,
         "grouping candidates restores the exact entry stack depth");
 
-  // Canonical order follows the encoded signature, never registration order.
   const std::vector<std::string> Signatures =
       Hooks::OverloadCandidateSignatures(Owner, "Measure");
   Check(Signatures.size() == 3, "every committed candidate is enumerable");
@@ -299,8 +278,6 @@ void CheckIndistinguishableCandidateStaysADuplicate() {
       Registry.RegisterFunction("Scale", [](int Value) { return Value * 2; });
   Check(First.IsSuccess(), "the first candidate registers");
 
-  // The same parameter shape with a different return type: no call could ever
-  // select between the two, so the foundation's duplicate diagnostic stands.
   const auto Duplicate =
       Registry.Register("Scale", [](int Value) { static_cast<void>(Value); });
   Check(!Duplicate.IsSuccess() && Duplicate.Diagnostic() &&
@@ -330,9 +307,6 @@ void CheckResolutionSelectsTheDominatingCandidate() {
   static_cast<void>(Registry.RegisterFunction(
       "Describe", [](int Left, int Right) { return Left + Right; }));
 
-  // An integral number is exactly a signed 32-bit integer, so the integer
-  // candidate dominates the number candidate. A fractional number is exactly a
-  // number, so the number candidate wins instead.
   Check(ExecutionSucceeds(Owner, "assert(Describe(3) == 30)\n"
                                  "assert(Describe(2.5) == 250)\n"
                                  "assert(Describe('abcd') == 4)\n"
@@ -374,8 +348,6 @@ void CheckAmbiguousFrontierIsReportedInCanonicalOrder() {
   Luna::State Owner;
   Luna::BindingRegistry Registry = Owner.Bindings();
 
-  // Two candidates whose rank sequences cannot dominate each other: each one is
-  // exact in one position and a safe built-in conversion in the other.
   static_cast<void>(Registry.RegisterFunction(
       "Blend", [](int Left, double Right) { return int(Right) + Left; }));
   static_cast<void>(Registry.RegisterFunction(
@@ -389,7 +361,6 @@ void CheckAmbiguousFrontierIsReportedInCanonicalOrder() {
             Contains(Message, "(number, signed 32-bit integer)"),
         "the diagnostic lists the non-dominated signatures");
 
-  // Both candidates remain callable where the call is not ambiguous.
   Check(ExecutionSucceeds(Owner, "assert(Blend(1, 2.5) == 3)\n"
                                  "assert(Blend(1.5, 2) == 3)\n"),
         "an unambiguous call still resolves after an ambiguous one");
@@ -447,7 +418,6 @@ void CheckScopedOverloadSetPublishesOneCallable() {
                                  "assert(Studio.Measure(4, 3) == 12)\n"),
         "every scoped candidate is invocable through one path");
 
-  // A candidate may still join a committed scoped overload set afterwards.
   Luna::NamespaceBuilder Reopened = Registry.RegisterNamespace("Studio");
   static_cast<void>(Reopened.RegisterFunction(
       "Measure", [](std::string Value) { return int(Value.size()); }));
@@ -470,8 +440,6 @@ void CheckRefusedCandidateLeavesTheCommittedSetIntact() {
       Registry.RegisterFunction("Total", [](int Value) { return Value; }));
   const auto Address = Hooks::BindingRecordAddress(Owner, "Total");
 
-  // A candidate that joins a committed overload set and then fails before
-  // publication must leave that set exactly as it was.
   Hooks::InjectFault(Owner, FaultPoint::TransactionConsistency);
   const auto Refused = Registry.RegisterFunction(
       "Total", [](int Left, int Right) { return Left + Right; });
@@ -519,8 +487,6 @@ void CheckSingleCandidateKeepsFoundationDiagnostics() {
         "the single-candidate callable stays invocable");
 }
 
-// One overload set publishes one reflected set record and one reflected
-// candidate per declaration, each naming the set it belongs to.
 void CheckOverloadSetIsReflectedWithItsCandidates() {
   Luna::State Owner;
   Luna::BindingRegistry Registry = Owner.Bindings();
@@ -559,14 +525,12 @@ void CheckOverloadSetIsReflectedWithItsCandidates() {
   Check(EveryCandidateNamesTheSet,
         "each reflected candidate names the overload set it belongs to");
 
-  // Canonical order, and one distinct reflected signature per candidate.
   std::vector<std::string> Sorted = Signatures;
   std::sort(Sorted.begin(), Sorted.end());
   Check(Sorted == Signatures, "candidate records are enumerated canonically");
   Check(std::unique(Sorted.begin(), Sorted.end()) == Sorted.end(),
         "no two candidates of one set reflect the same signature");
 
-  // The ordered parameters and the return shape of one candidate.
   const Luna::ReflectionRecord Pair = Snapshot.Find(Candidates.At(0).Id());
   Check(Snapshot.Symbols(Luna::SymbolKind::FunctionCandidate).Size() == 3 &&
             Snapshot.Symbols(Luna::SymbolKind::OverloadSet).Size() == 1,
@@ -622,8 +586,6 @@ void CheckScopedOverloadSetIsReflectedInsideItsNamespace() {
   Check(Snapshot.Symbols(Luna::ScopeId(Set.Id())).Size() == 2,
         "both scoped candidates are reflected inside the set");
 
-  // A candidate joining the published set adds one candidate record and no
-  // second set record.
   Luna::NamespaceBuilder Reopened = Registry.RegisterNamespace("Studio");
   static_cast<void>(Reopened.RegisterFunction(
       "Scale", [](std::string Value) { return int(Value.size()); }));
@@ -680,9 +642,6 @@ void CheckDeclaredShapeIsReflected() {
         "an omittable parameter is marked in the reflected signature");
 }
 
-// Resolution ranks the declared shape, not only the fixed parameter types: a
-// variadic candidate participates, and a fixed candidate still wins the calls
-// it accepts exactly.
 void CheckDeclaredShapeParticipatesInResolution() {
   Luna::State Owner;
   Luna::BindingRegistry Registry = Owner.Bindings();
@@ -693,13 +652,9 @@ void CheckDeclaredShapeParticipatesInResolution() {
   Check(Hooks::OverloadCandidateCount(Owner, "Sum") == 2,
         "a fixed and a variadic candidate share one overload set");
 
-  // Two arguments: both candidates are viable with equal argument ranks, and
-  // the exact fixed arity dominates the variadic tail on the shape dimension.
   Check(ExecutionSucceeds(Owner, "assert(Sum(2, 3) == 5)"),
         "an exact fixed arity outranks a variadic tail");
 
-  // Three arguments and one string argument: only the variadic candidate
-  // accepts them, and it consumes the whole tail.
   Check(ExecutionSucceeds(Owner, "assert(Sum(1, 2, 3) == 3)\n"
                                  "assert(Sum('one') == 1)\n"
                                  "assert(Sum() == 0)\n"),
@@ -723,8 +678,6 @@ void CheckOmittableParametersParticipateInResolution() {
   static_cast<void>(Registry.RegisterFunction(
       "Pick", [](std::string Value) { return int(Value.size()); }));
 
-  // The optional parameter accepts both omission and an explicit nil, and
-  // neither call is confused with the string candidate.
   Check(ExecutionSucceeds(Owner, "assert(Pick(4) == 4)\n"
                                  "assert(Pick(4, nil) == 4)\n"
                                  "assert(Pick(4, 3) == 12)\n"
@@ -738,8 +691,6 @@ void CheckOmittableParametersParticipateInResolution() {
         "the no-match diagnostic renders the omittable parameter");
 }
 
-// Requirements 6.11, 6.8: only the selected candidate commits work, it commits
-// it once, and a refused resolution commits none at all.
 void CheckSelectedCandidateCommitsExactlyOnce() {
   Luna::State Owner;
   Luna::BindingRegistry Registry = Owner.Bindings();
@@ -774,8 +725,6 @@ void CheckSelectedCandidateCommitsExactlyOnce() {
   Check(FixedCalls == 1 && VariadicCalls == 1 && TextCalls == 0,
         "each selected candidate runs exactly once per call");
 
-  // A refused resolution commits nothing: no conversion result is published and
-  // no native target runs.
   const Luna::ExecutionResult Refused = Owner.Execute("return Track({}, {})");
   Check(!Refused.IsSuccess(), "a call no candidate accepts fails");
   Check(FixedCalls == 1 && VariadicCalls == 1 && TextCalls == 0,

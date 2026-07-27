@@ -74,7 +74,6 @@ CommittedSymbolTable::At(std::size_t Index) const noexcept {
 
 const CommittedSymbol *
 CommittedSymbolTable::Find(std::string_view QualifiedName) const noexcept {
-  // The table is canonically ordered, so the first match is deterministic.
   for (const CommittedSymbol &Symbol : Symbols) {
     if (Symbol.Symbol.QualifiedName == QualifiedName)
       return &Symbol;
@@ -113,7 +112,6 @@ std::shared_ptr<const GenerationSet> GenerationSet::Initial() {
     Initial->SymbolTable = CommittedSymbolTable::Empty();
     Initial->ReflectionGeneration = ReflectionStorage::Empty();
 
-    // Every State starts by observing the migrated foundation types.
     Initial->TypeGenerationValue = TypeGeneration::Foundation();
     return std::shared_ptr<const GenerationSet>(std::move(Initial));
   }();
@@ -168,9 +166,6 @@ SymbolView::Find(const SymbolId &Identity) const {
 
 std::vector<SymbolViewEntry>
 SymbolView::FindAll(std::string_view QualifiedName) const {
-  // One qualified name owns several symbols exactly when it owns an overload
-  // set, so every candidate of the name is reported here: the pending ones of
-  // the active transaction first, then the committed ones.
   std::vector<SymbolViewEntry> Found;
   for (const DescriptorPlanEntry &Entry : Pending->PlannedEntries()) {
     if (Entry.Symbol.QualifiedName == QualifiedName)

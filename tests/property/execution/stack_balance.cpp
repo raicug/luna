@@ -47,9 +47,7 @@ enum class SourceKind : std::uint32_t {
 } // namespace
 
 int RunExecutionStackBalanceProperties() {
-  // **Validates: Requirements 7.3, 7.4, 7.5**
   // clang-format off
-  // Feature: luau-binding-foundation, Property 15: Execution preserves stack depth
   const bool Passed = rc::check(
       // clang-format on
       "Execution preserves stack depth",

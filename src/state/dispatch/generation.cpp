@@ -101,14 +101,10 @@ void DispatchRetention::Release() noexcept {
     Ledger->Release(RetainerKind);
   Ledger.reset();
 
-  // The claim is given back before the generation is, so an observer can never
-  // see an unaccounted holder of a generation that is still alive.
   HeldGeneration.reset();
 }
 
 std::shared_ptr<const DispatchGeneration> DispatchGeneration::Empty() {
-  // One immutable empty generation is enough for every State that has published
-  // no callable yet: it owns nothing and describes nothing.
   static const std::shared_ptr<const DispatchGeneration> Value =
       std::shared_ptr<const DispatchGeneration>(new DispatchGeneration());
   return Value;
@@ -151,10 +147,6 @@ DispatchGeneration::Retire(const DispatchGeneration &Current,
   if (!Slot.IsValid())
     return nullptr;
 
-  // The retired entry keeps its permanent slot and its canonical name; only the
-  // target it dispatched to is gone, so the slot is unavailable rather than
-  // stale. A slot this generation never held an entry for receives one now, so
-  // removal is always an entry that names its symbol and never an absence.
   DispatchEntry Retired;
   if (const DispatchEntry *Existing = Current.Find(Slot)) {
     Retired = *Existing;
@@ -234,8 +226,6 @@ void DispatchTable::Bind(DispatchSlotId Slot, std::string QualifiedName,
   DispatchLatchGuard Guard(Latch);
   const std::shared_ptr<const DispatchGeneration> Captured = CurrentLocked();
 
-  // The successor is prepared first and published second, so a preparation that
-  // cannot allocate leaves the published generation exactly as it was.
   PublishLocked(DispatchGeneration::Derive(*Captured, std::move(Entry)));
 }
 
@@ -276,9 +266,6 @@ void DispatchTable::RetireEverything() noexcept {
     PublishLocked(
         DispatchGeneration::Derive(*Captured, std::move(Unavailable)));
   } catch (...) {
-    // Not even the unavailable entries could be prepared, so the answer is the
-    // generation that describes nothing. It allocates nothing, and every issued
-    // slot is unreachable through it.
     PublishLocked(DispatchGeneration::Empty());
   }
 }
@@ -295,8 +282,6 @@ DispatchRetention DispatchTable::Retain(DispatchRetainer Retainer) const {
     Held = CurrentLocked();
   }
 
-  // The claim is accounted outside the latch: nothing but this table's own
-  // storage is ever guarded, and a retention never needs the table again.
   return DispatchRetention(std::move(Held), Ledger, Retainer);
 }
 
@@ -394,25 +379,18 @@ void DispatchTable::JournalSupersededLocked(
   if (!Previous || Previous == Current)
     return;
 
-  // The empty generation is one immortal singleton every State shares, so it is
-  // never journaled and never reclaimed.
   if (Previous == DispatchGeneration::Empty())
     return;
 
   try {
     Superseded.push_back(std::move(Previous));
   } catch (...) {
-    // Journaling only makes retention observable. Shared ownership is what
-    // keeps a retained generation alive, so a journal entry that could not be
-    // recorded shortens no one's generation.
   }
 }
 
 std::size_t DispatchTable::ReclaimUnretainedLocked() noexcept {
   std::size_t Reclaimed = 0;
   for (auto Position = Superseded.begin(); Position != Superseded.end();) {
-    // The journal itself is the only remaining owner, so no invocation, no
-    // userdata cleanup, and no lifecycle journal still needs this generation.
     if (Position->use_count() == 1) {
       Position = Superseded.erase(Position);
       ++Reclaimed;

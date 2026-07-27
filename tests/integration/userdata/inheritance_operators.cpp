@@ -1,8 +1,3 @@
-// Integration coverage for inheritance, safe casts, and operators through the
-// real Luau compiler and VM. Focused tests own the exhaustive graph/operator
-// matrix; this case proves their shared receiver pipeline, stack restoration,
-// deterministic diagnostics, prevalidation boundary, and State reuse.
-
 // clang-format off
 #include <luna/luna.hpp>
 

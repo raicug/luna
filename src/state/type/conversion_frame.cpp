@@ -17,9 +17,6 @@ namespace Luna::Detail {
 
 namespace {
 
-// Every live frame of the current thread, keyed by its Luna-owned token. The
-// token is issued monotonically and never reused, so an ended frame's token
-// resolves to nothing instead of to some later frame.
 struct FrameTable final {
   std::unordered_map<std::uint64_t, ConversionFrame *> Frames;
   std::uint64_t NextToken = 1;
@@ -39,7 +36,6 @@ struct FrameTable final {
          std::to_string(Permitted);
 }
 
-// An aggregate is complete only when every field it publishes is named.
 [[nodiscard]] bool IsCompleteAggregate(const OwnedValue &Source) {
   for (std::size_t Index = 0; Index < Source.FieldCount(); ++Index) {
     if (Source.FieldName(Index).empty())
@@ -54,7 +50,6 @@ struct FrameTable final {
   return true;
 }
 
-// Which reserved resource a request exceeds, if any.
 [[nodiscard]] std::optional<std::string>
 ExceededResource(const ValueReservation &Required,
                  const ValueReservation &Reserved) {
@@ -397,7 +392,6 @@ WriteResult ConversionFrame::Publish(const OwnedValue &Source, bool IsProbe,
     return Result;
   }
 
-  // Everything is validated, so publication is a single visible step.
   PublishedResultValue = Source;
   PublishedValue = true;
   Result.Status = WriteStatus::Success;

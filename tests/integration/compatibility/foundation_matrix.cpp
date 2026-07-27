@@ -10,36 +10,14 @@
 #include <utility>
 // clang-format on
 
-// Foundation compatibility matrix.
-//
-// This file pins the behavior that `Register(Name, Callable)` must keep as the
-// reflection-driven internals are introduced behind it: accepted source forms,
-// supported values, deterministic first-failure diagnostics, exception
-// translation, exact stack restoration, State recovery, State isolation, and
-// zero/one return shapes. It only uses the public API plus the private test
-// hooks, so it stays valid when the internals are replaced.
-//
-// The whole matrix is rerun through both public spellings of one function
-// registration - the pinned `Register` and the explicit `RegisterFunction` -
-// because compatibility is a property of the shared path behind both, not of
-// one name.
-
 namespace {
 
 using Hooks = Luna::Detail::StateTestHooks;
 
-// The whole matrix is rerun through both public spellings of one explicit
-// function registration. `Register` is the pinned foundation name and
-// `RegisterFunction` the explicit one; they share one adapter, one canonical
-// descriptor builder, one transaction entry, one callable target, and one
-// diagnostic path, so every expectation below must hold identically for either
-// API rather than only for the name the foundation shipped with.
 enum class RegistrationApi { LegacyRegister, ExplicitRegisterFunction };
 
 RegistrationApi ActiveApi = RegistrationApi::LegacyRegister;
 
-// One registry facade whose `Register` routes to whichever spelling is under
-// test, so the matrix itself stays written once.
 class DualRegistry final {
 public:
   explicit DualRegistry(Luna::BindingRegistry Registry) noexcept
@@ -422,10 +400,6 @@ RegistrationFailed(const Luna::RegistrationResult &Result,
 
   const auto Invalid = Dual(State).Register("Bad Name", [] {});
 
-  // Candidates sharing one qualified name form one overload set, so a duplicate
-  // is a candidate no call could tell apart from one the name already owns: the
-  // same parameter shape, whatever it returns. Its diagnostic, its refusal to
-  // stage anything, and its exact stack restoration are unchanged.
   const auto Duplicate =
       Dual(State).Register("Balanced", [](int Value) { return Value; });
   if (Invalid.IsSuccess() || Duplicate.IsSuccess() ||
@@ -499,9 +473,6 @@ RegistrationFailed(const Luna::RegistrationResult &Result,
 } // namespace
 
 int RunFoundationCompatibilityMatrixTests() {
-  // The same matrix, once per public spelling. A failure code above 100 belongs
-  // to the explicit `RegisterFunction` pass, so a regression names the API it
-  // came from.
   for (const RegistrationApi Api :
        {RegistrationApi::LegacyRegister,
         RegistrationApi::ExplicitRegisterFunction}) {

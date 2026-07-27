@@ -1,10 +1,5 @@
 #pragma once
 
-// Explicit stable identity for user-defined leaf types. A stable key is the
-// only persistent identity Luna accepts for a user class or enum leaf: it never
-// derives from an RTTI name, an address, a registration order, a locale, or a
-// process-random value.
-
 // clang-format off
 #include <compare>
 #include <cstddef>
@@ -16,7 +11,6 @@
 
 namespace Luna {
 
-// Deterministic reason a stable-key text is accepted or rejected.
 enum class StableTypeKeyStatus {
   Valid,
   Empty,
@@ -50,12 +44,8 @@ StableTypeKeyStatusText(StableTypeKeyStatus Status) noexcept {
 
 class StableTypeKey {
 public:
-  // Explicit Luna-owned policy: keys are ASCII, dot-separated identifier
-  // segments and never exceed this many bytes.
   static constexpr std::size_t MaximumLength = 256;
 
-  // Every fixed Luna-owned key lives under this prefix, so a user-defined leaf
-  // can never claim a reserved identity.
   static constexpr std::string_view ReservedKeyPrefix = "luna.";
 
   static constexpr char SegmentSeparator = '.';
@@ -114,7 +104,6 @@ public:
 
   [[nodiscard]] bool IsEmpty() const noexcept { return TextValue.empty(); }
 
-  // Locale-independent FNV-1a over the exact key bytes.
   [[nodiscard]] std::size_t Hash() const noexcept {
     std::uint64_t Accumulator = 0xcbf29ce484222325ULL;
     for (const char Character : TextValue) {

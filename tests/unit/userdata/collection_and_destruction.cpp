@@ -44,8 +44,6 @@ void Check(bool Condition, std::string_view Description) {
   std::cerr << "userdata collection check failed: " << Description << '\n';
 }
 
-// One representative native object, plus the exact number of times Luna ran
-// each storage step on it.
 struct Probe final {
   int Value = 11;
 };
@@ -68,8 +66,6 @@ void ResetStorageCounters() {
   return Storage;
 }
 
-// The semantic protocol of storage Luna owns. Either of its two steps can be
-// told to report a failure, which is how a collection proves it contains one.
 [[nodiscard]] ClassAllocator OwnedStorageProtocol() {
   ClassAllocator::AllocateOperation Allocate =
       [](const StorageRequest &Wanted) -> void * {
@@ -90,8 +86,6 @@ void ResetStorageCounters() {
                                                       const StorageRequest &) {
     ++DeallocateCalls;
     if (DeallocateThrows) {
-      // The storage is still released: only the consumer's report of it
-      // throws.
       ::operator delete(Storage);
       throw std::runtime_error("probe deallocation reported a failure");
     }
@@ -113,8 +107,6 @@ std::uint64_t NextNonce = 0;
   return Identity;
 }
 
-// One State with one registered class, so every value a test exposes carries a
-// complete, real class identity.
 class Fixture final {
 public:
   Fixture() {
@@ -134,8 +126,6 @@ private:
   Luna::State Owner;
 };
 
-// One exposure through exactly the conversion write path a returned object
-// takes.
 [[nodiscard]] Luna::Detail::ClassValueWriteObservation
 ExposeValue(Luna::State &Host, const std::string &Path, void *Storage,
             OwnershipModel Ownership, const Luna::LifetimeHandle &Handle,
@@ -159,15 +149,10 @@ ExposeOwned(Luna::State &Host, const std::string &Path, void *Storage) {
                      OwnedStorageProtocol());
 }
 
-// Drops every script-visible reference to one path, so the only thing left
-// holding the value is the weak identity slot the cache keeps.
 [[nodiscard]] bool DropReference(Luna::State &Host, const std::string &Path) {
   return Host.Execute(Path + " = nil").IsSuccess();
 }
 
-// The collection boundary exists before any value does, and Luau spells it as
-// the destructor of Luna's own userdata tag rather than as a field a script
-// could read or replace.
 void CheckCollectorIsInstalled() {
   Fixture Owner;
   Luna::State &Host = Owner.StateObject();
@@ -176,15 +161,10 @@ void CheckCollectorIsInstalled() {
   Check(!Hooks::ClassMetatableIsCreated(Host, "Probe"),
         "registering a class still installs nothing in the virtual machine");
 
-  // Nothing about the boundary is reachable from a script: the metatable is
-  // protected, and the collector is not a metatable field at all.
   Check(Host.Execute("Probed = getmetatable(newproxy(true))").IsSuccess(),
         "a script may still use its own proxies");
 }
 
-// A collected value ends exactly the way an explicitly released one does: one
-// invalidation, one cache eviction, one destruction, one deallocation, one
-// metadata release.
 void CheckCollectionReleasesThroughTheGate() {
   ResetStorageCounters();
   Hooks::ResetUserdataCollections();
@@ -234,8 +214,6 @@ void CheckCollectionReleasesThroughTheGate() {
   Check(Hooks::LiveCachedIdentityCount(Host) == 0,
         "a collected value leaves no live cache entry behind");
 
-  // The class metatable is retained through collection, so a value exposed
-  // afterwards carries exactly the same one.
   Probe *Reborn = AllocateProbe();
   Check(ExposeOwned(Host, "Reborn", Reborn).Published,
         "a value exposed after collection publishes");
@@ -245,8 +223,6 @@ void CheckCollectionReleasesThroughTheGate() {
         "the State stays usable after a collection");
 }
 
-// Nothing a consumer's cleanup step throws may reach the virtual machine, and
-// every remaining step still runs exactly once.
 void CheckCollectionContainsExceptions() {
   ResetStorageCounters();
   Hooks::ResetUserdataCollections();
@@ -262,8 +238,6 @@ void CheckCollectionContainsExceptions() {
   Check(DropReference(Host, "Throwing"),
         "the script drops its reference to the throwing value");
 
-  // The collector is entered from inside ordinary script execution as well as
-  // from an explicit collection, and neither one may see a C++ exception.
   Check(Host.Execute("local Held = {}\nfor Index = 1, 4096 do Held[Index] = "
                      "{ Index } end\nreturn #Held")
             .IsSuccess(),
@@ -287,7 +261,6 @@ void CheckCollectionContainsExceptions() {
         "the contained exception did not stop the boundary from releasing the "
         "value");
 
-  // The State is not poisoned by a contained cleanup exception.
   Check(Host.Execute("Recovered = 7\nreturn Recovered").IsSuccess(),
         "the State executes again after a contained cleanup exception");
   Probe *Another = AllocateProbe();
@@ -295,8 +268,6 @@ void CheckCollectionContainsExceptions() {
         "the State exposes another value after a contained cleanup exception");
 }
 
-// Collection is one more cause of the one idempotent gate, so a value an
-// explicit release already ended is released exactly once in total.
 void CheckCollectionAfterExplicitReleaseDoesNothing() {
   ResetStorageCounters();
   Hooks::ResetUserdataCollections();
@@ -327,8 +298,6 @@ void CheckCollectionAfterExplicitReleaseDoesNothing() {
         "every collected block was Luna's and found its own State's gate");
 }
 
-// Luna never destroys an object it only borrows, whichever cause ends the
-// value - collection included.
 void CheckCollectingBorrowedValuesDestroysNothing() {
   ResetStorageCounters();
   Hooks::ResetUserdataCollections();
@@ -365,8 +334,6 @@ void CheckCollectingBorrowedValuesDestroysNothing() {
         "collecting a borrowed value never invalidates the owner's lifetime");
 }
 
-// A shared value releases exactly one corresponding shared ownership reference
-// when it is collected, and never more than one.
 void CheckCollectingSharedValuesReleasesOneReference() {
   ResetStorageCounters();
   Hooks::ResetUserdataCollections();
@@ -398,9 +365,6 @@ void CheckCollectingSharedValuesReleasesOneReference() {
         "the consumer is left holding exactly its own reference");
 }
 
-// State destruction refuses every new invocation first, then closes and
-// finalizes the machine while every piece of cleanup metadata is still valid,
-// and releases each userdata resource exactly once.
 void CheckStateDestructionOrdering() {
   ResetStorageCounters();
   Hooks::ResetUserdataCollections();
@@ -442,8 +406,6 @@ void CheckStateDestructionOrdering() {
         "nothing was thrown at the collection boundary during close");
 }
 
-// A value the machine never held is still released exactly once, by the same
-// gate and with the same metadata, after the machine has closed.
 void CheckStateDestructionReleasesValuesTheMachineNeverHeld() {
   ResetStorageCounters();
   Hooks::ResetUserdataCollections();
@@ -456,8 +418,6 @@ void CheckStateDestructionReleasesValuesTheMachineNeverHeld() {
     if (Gate == nullptr)
       return;
 
-    // One value staged, constructed, owned, and published entirely outside the
-    // virtual machine: no block exists, so no finalizer can ever run for it.
     Probe *Storage = AllocateProbe();
     const auto Described = Hooks::DescribeClassUserdata(
         Host, "Probe", OwnershipModel::LuaOwned, ConstAccess::Mutable);
@@ -489,8 +449,6 @@ void CheckStateDestructionReleasesValuesTheMachineNeverHeld() {
         "the final sweep ran with every piece of cleanup metadata still valid");
 }
 
-// A cleanup step that throws during State destruction is contained too: the
-// remaining steps still run, and the destructor completes.
 void CheckStateDestructionContainsExceptions() {
   ResetStorageCounters();
   Hooks::ResetUserdataCollections();
@@ -518,8 +476,6 @@ void CheckStateDestructionContainsExceptions() {
         "it");
 }
 
-// A collected value of one State never reaches another State's gate, and a
-// State that is gone is never reached at all.
 void CheckCollectionIsIsolatedByState() {
   ResetStorageCounters();
   Hooks::ResetUserdataCollections();
@@ -551,9 +507,6 @@ void CheckCollectionIsIsolatedByState() {
         "every collected value found the gate of the State that exposed it");
 }
 
-// The collection route is keyed by the logical State identity a move preserves,
-// so a value exposed before a move is still collected by exactly the gate that
-// owns it.
 void CheckCollectionSurvivesStateMoves() {
   ResetStorageCounters();
   Hooks::ResetUserdataCollections();

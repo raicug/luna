@@ -1,24 +1,5 @@
 #pragma once
 
-// The reflected call shape of one callable parameter.
-//
-// A parameter is required, optional, defaulted, or variadic, and the difference
-// is metadata rather than a second registration path:
-//
-//   * A required parameter must be supplied.
-//   * An optional parameter maps both omission and an explicit nil to the empty
-//     value; a present non-nil value converts as its ordinary type.
-//   * A defaulted parameter carries one immutable Luna-owned default value. The
-//     default applies only to omission: an explicit nil is a supplied value and
-//     follows the parameter's ordinary conversion, which accepts nil only when
-//     the parameter type itself accepts nil. The default is validated here, at
-//     registration, and materialized only after its candidate is selected.
-//   * A variadic parameter consumes every remaining call argument. A callable
-//     has at most one and it is final.
-//
-// Nothing in this header names a virtual machine, and no macro is required to
-// describe a shape.
-
 // clang-format off
 #include <luna/binding/supported_callable.hpp>
 #include <luna/binding/value.hpp>
@@ -37,7 +18,6 @@
 
 namespace Luna {
 
-// Call-shape form of one parameter.
 enum class ParameterForm { Required, Optional, Defaulted, Variadic };
 
 [[nodiscard]] constexpr std::string_view
@@ -55,7 +35,6 @@ ParameterFormText(ParameterForm Form) noexcept {
   return "required";
 }
 
-// The foundation value kind one value carries.
 [[nodiscard]] constexpr ValueKind ValueKindOf(const Value &Source) noexcept {
   if (std::holds_alternative<bool>(Source))
     return ValueKind::Boolean;
@@ -66,8 +45,6 @@ ParameterFormText(ParameterForm Form) noexcept {
   return ValueKind::String;
 }
 
-// One immutable parameter descriptor. A variadic parameter has no single value
-// kind; every other form names exactly one.
 class ParameterDescriptor final {
 public:
   ParameterDescriptor() = default;
@@ -79,7 +56,6 @@ public:
     return Descriptor;
   }
 
-  // A trailing optional parameter. Omission and explicit nil are both empty.
   [[nodiscard]] static ParameterDescriptor ForOptional(ValueKind Kind) {
     ParameterDescriptor Descriptor;
     Descriptor.FormValue = ParameterForm::Optional;
@@ -88,9 +64,6 @@ public:
     return Descriptor;
   }
 
-  // A defaulted parameter. `AcceptsNil` states whether the parameter's own type
-  // converts an explicit nil, which is the only way an explicit nil is accepted
-  // for a defaulted parameter.
   [[nodiscard]] static ParameterDescriptor
   ForDefaulted(ValueKind Kind, Value Default, bool AcceptsNil = false) {
     ParameterDescriptor Descriptor;
@@ -101,8 +74,6 @@ public:
     return Descriptor;
   }
 
-  // The final variadic parameter. `Retains` selects the owning `ArgumentPack`
-  // form over the callback-lifetime `ArgumentView` form.
   [[nodiscard]] static ParameterDescriptor ForVariadic(bool Retains) {
     ParameterDescriptor Descriptor;
     Descriptor.FormValue = ParameterForm::Variadic;
@@ -120,15 +91,12 @@ public:
     return FormValue == ParameterForm::Variadic;
   }
 
-  // A variadic parameter that retains its arguments beyond the invocation.
   [[nodiscard]] bool Retains() const noexcept { return RetainsValue; }
 
-  // The parameter may be omitted: it is optional, defaulted, or variadic.
   [[nodiscard]] bool IsOmittable() const noexcept {
     return FormValue != ParameterForm::Required;
   }
 
-  // An explicit nil is a value this parameter's own conversion accepts.
   [[nodiscard]] bool AcceptsNil() const noexcept { return AcceptsNilValue; }
 
   [[nodiscard]] bool HasDefault() const noexcept {
@@ -161,18 +129,6 @@ private:
   bool RetainsValue = false;
 };
 
-// First deterministic reason one declared parameter shape is refused:
-//
-//   * `RequiredAfterRelaxed` - a required parameter follows an optional or
-//     defaulted one.
-//   * `VariadicNotFinal` - a variadic parameter is not the final one, or there
-//     is more than one.
-//   * `MissingValueKind` - a parameter names no value kind, or a variadic
-//     parameter names one.
-//   * `MisplacedDefault` - a defaulted parameter carries no default, or another
-//     form carries one.
-//   * `DefaultTypeMismatch` - the default value's type is not the parameter's
-//     declared type.
 enum class ParameterShapeStatus {
   Valid,
   RequiredAfterRelaxed,
@@ -201,8 +157,6 @@ ParameterShapeStatusText(ParameterShapeStatus Status) noexcept {
   return "valid";
 }
 
-// One refusal, with the one-based parameter position it belongs to. Position
-// zero means the shape as a whole is refused.
 struct ParameterShapeIssue final {
   ParameterShapeStatus Status = ParameterShapeStatus::Valid;
   std::size_t Position = 0;
@@ -212,9 +166,6 @@ struct ParameterShapeIssue final {
   }
 };
 
-// Validates one declared parameter shape. Every rule is decided in ascending
-// parameter position, so an equivalent shape always reports one identical first
-// refusal.
 [[nodiscard]] inline ParameterShapeIssue
 ValidateParameterShape(std::span<const ParameterDescriptor> Parameters) {
   bool SawRelaxed = false;
@@ -261,7 +212,6 @@ ValidateParameterShape(std::span<const ParameterDescriptor> Parameters) {
   return ParameterShapeIssue();
 }
 
-// The call arity one declared shape accepts. A variadic shape has no maximum.
 struct ParameterArity final {
   std::size_t Minimum = 0;
   std::optional<std::size_t> Maximum;
@@ -288,16 +238,11 @@ ArityOf(std::span<const ParameterDescriptor> Parameters) {
 
 namespace Detail {
 
-// One target plus the immutable default values of its trailing parameters. The
-// wrapper's own call operator is exactly the declared signature, so the
-// ordinary descriptor builder reads the same shape a plain function would
-// declare and the defaults ride along as metadata.
 template <class Signature, class Target> class DefaultedCallable;
 
 template <class Return, class... Parameters, class Target>
 class DefaultedCallable<Return(Parameters...), Target> final {
 public:
-  // Only a fixed parameter can carry a default; a variadic tail never does.
   static constexpr std::size_t FixedParameterCount =
       (std::size_t{0} + ... +
        (IsVariadicParameterType<Parameters> ? std::size_t{0} : std::size_t{1}));
@@ -309,7 +254,6 @@ public:
     return std::invoke(TargetValue, std::forward<Parameters>(Arguments)...);
   }
 
-  // Defaults of the trailing parameters, in declared order.
   [[nodiscard]] std::span<const Value> Defaults() const noexcept {
     return DefaultsValue;
   }
@@ -325,9 +269,6 @@ template <class Signature, class Target>
 struct IsDefaultedCallable<DefaultedCallable<Signature, Target>>
     : std::true_type {};
 
-// One consumer default normalized into a foundation value. Only the foundation
-// value types are defaults, so a malformed default is a compile-time rejection
-// rather than a runtime surprise.
 [[nodiscard]] inline Value NormalizedDefault(bool Source) {
   return Value(Source);
 }
@@ -350,9 +291,6 @@ struct IsDefaultedCallable<DefaultedCallable<Signature, Target>>
 
 } // namespace Detail
 
-// Declares immutable default values for the trailing parameters of one target.
-// The defaults are validated and reflected at registration; each one applies
-// only when its parameter is omitted.
 template <class Callable, class... Defaults>
 [[nodiscard]] auto WithDefaults(Callable &&Target, Defaults &&...Values) {
   using Normalized = std::remove_cvref_t<Callable>;

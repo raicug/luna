@@ -63,7 +63,6 @@ CompareOptionalType(const std::optional<TypeDescriptor> &Left,
   return TypeDescriptor::Compare(*Left, *Right);
 }
 
-// A callable candidate carries its own canonical signature.
 [[nodiscard]] constexpr bool RequiresSignature(SymbolKind Kind) noexcept {
   switch (Kind) {
   case SymbolKind::FunctionCandidate:
@@ -78,8 +77,6 @@ CompareOptionalType(const std::optional<TypeDescriptor> &Left,
   }
 }
 
-// A class member, enum member, or declared type identifies its owning or
-// declared canonical type.
 [[nodiscard]] constexpr bool RequiresAssociatedType(SymbolKind Kind) noexcept {
   switch (Kind) {
   case SymbolKind::Method:
@@ -100,8 +97,6 @@ CompareOptionalType(const std::optional<TypeDescriptor> &Left,
   }
 }
 
-// A constant may name its canonical type; a scope, module, or overload set
-// never does.
 [[nodiscard]] constexpr bool PermitsAssociatedType(SymbolKind Kind) noexcept {
   return RequiresAssociatedType(Kind) || Kind == SymbolKind::Constant;
 }
@@ -173,7 +168,6 @@ bool CallableSignatureDescriptor::IsValid() const {
     return false;
   if (!ReceiverType && ReceiverIsConst)
     return false;
-  // Required parameters always precede optional and defaulted ones.
   return RequiredParameterCount <= ParameterTypes.size();
 }
 

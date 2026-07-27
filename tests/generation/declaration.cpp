@@ -1,14 +1,3 @@
-// Focused coverage for deterministic Luau `.d.lua` declaration generation: one
-// explicit immutable snapshot plus immutable options produce one complete
-// artifact, the captured records map onto representable Luau functions,
-// overloads, parameter dispositions, returns, classes, members, inheritance,
-// enumerations, constants, namespaces, and modules, the bytes are canonical
-// UTF-8 without a byte-order mark and with LF endings only, the traversal is
-// independent of registration order, generation reads only the captured
-// generation, and unsupported, inconsistent, or unrepresentable metadata is one
-// deterministic rejection with no partial bytes. Golden and structural coverage
-// of the whole reflected surface arrives with the generator test suite task.
-
 // clang-format off
 #include <luna/binding/argument_pack.hpp>
 #include <luna/binding/binding_registry.hpp>
@@ -96,11 +85,6 @@ struct Gadget final : Shape {
   return Created ? std::move(*Created) : Luna::ModuleManifest();
 }
 
-// One reflected surface covering module provenance, namespaces, single and
-// overloaded functions, optional, defaulted, and variadic parameters, zero,
-// scalar, and multiple returns, constants, classes with construction, an
-// inherited base, members of both directions, an operator, and an enumeration
-// with an alias. `Reversed` states the same declarations in the opposite order.
 void RegisterSurface(Luna::BindingRegistry &Registry, bool Reversed) {
   const auto RegisterModule = [&Registry] {
     return Registry.RegisterModule(
@@ -176,9 +160,6 @@ void RegisterSurface(Luna::BindingRegistry &Registry, bool Reversed) {
   return Registry.Reflection();
 }
 
-// Requirements 16.2, 16.3: one explicitly captured snapshot and equal options
-// produce one complete artifact whose bytes are canonical UTF-8 without a
-// byte-order mark and with LF line endings only, repeatedly.
 void CheckRepeatedGenerationIsByteIdenticalAndCanonical() {
   Luna::State Owner;
   const Luna::ReflectionSnapshot Snapshot = Surface(Owner, false);
@@ -208,8 +189,6 @@ void CheckRepeatedGenerationIsByteIdenticalAndCanonical() {
         "every generated line, including the last, is LF terminated");
 }
 
-// Requirement 16.4: the traversal follows canonical names and declaration
-// metadata, so stating the same surface in another order changes nothing.
 void CheckGeneratedOrderIgnoresRegistrationOrder() {
   Luna::State Forward;
   Luna::State Backward;
@@ -227,8 +206,6 @@ void CheckGeneratedOrderIgnoresRegistrationOrder() {
         "generated declarations are independent of registration order");
 }
 
-// Requirements 16.1, 16.9: the captured records map onto representable Luau
-// declarations, and generated material identifies module provenance.
 void CheckGeneratedContentMapsTheReflectedSurface() {
   Luna::State Owner;
   const Luna::ReflectionSnapshot Snapshot = Surface(Owner, false);
@@ -290,8 +267,6 @@ void CheckGeneratedContentMapsTheReflectedSurface() {
         "declared prose reaches the artifact as Luau comments");
 }
 
-// Requirements 16.2, 16.3: generation reads only the captured generation, so a
-// retained snapshot outlives later registration and its originating State.
 void CheckGenerationReadsOnlyTheCapturedSnapshot() {
   const Luna::DeclarationOptions Options;
   std::string Captured;
@@ -319,7 +294,6 @@ void CheckGenerationReadsOnlyTheCapturedSnapshot() {
         "the two captured generations declare different surfaces");
 }
 
-// Requirement 16.2: immutable options select the artifact deterministically.
 void CheckOptionsSelectTheArtifactDeterministically() {
   Luna::State Owner;
   const Luna::ReflectionSnapshot Snapshot = Surface(Owner, false);
@@ -354,8 +328,6 @@ void CheckOptionsSelectTheArtifactDeterministically() {
         "repeated generation with the same options stays byte-identical");
 }
 
-// Requirement 16.5: unsupported, inconsistent, and unencodable metadata each
-// produce one deterministic rejection that exposes no partial artifact.
 void CheckUnrepresentableMetadataIsRejectedWithoutPartialBytes() {
   Luna::State Reserved;
   {
@@ -422,7 +394,6 @@ void CheckUnrepresentableMetadataIsRejectedWithoutPartialBytes() {
         "encodable metadata still generates completely");
 }
 
-// Requirement 16.2: an empty captured generation is still a complete artifact.
 void CheckEmptySnapshotGeneratesACompleteArtifact() {
   const Luna::ReflectionSnapshot Empty;
   const Luna::GeneratedArtifact Artifact =

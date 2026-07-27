@@ -1,16 +1,3 @@
-// Zero, scalar, and multiple return shapes, and their atomic publication.
-//
-// Three things are checked here, in the order the shape travels through Luna.
-// First the declared shape: `void` produces zero values, a supported scalar
-// one, and a returned `std::pair`, `std::tuple`, or `Luna::ReturnPack` the
-// ordered elements of the pack, described by one canonical return type and one
-// reflected return shape. Then the publication itself: every element is staged
-// and validated and the whole publication reserved before the first value
-// reaches a result position, so a refused element exposes zero return values,
-// restores the callback checkpoint exactly, and reports one deterministic
-// diagnostic naming the one-based return position. Finally the same shapes run
-// through the real compiler and virtual machine.
-
 // clang-format off
 #include <luna/binding/binding_registry.hpp>
 #include <luna/binding/callable_descriptor.hpp>
@@ -69,8 +56,6 @@ void Check(bool Condition, std::string_view Description) {
   return Diagnostic && Diagnostic->Message().find(Text) != std::string::npos;
 }
 
-// -- the callables whose return shapes are under test -----------------------
-
 void Reset() {}
 
 [[nodiscard]] int Doubled(int Value) { return Value * 2; }
@@ -87,8 +72,6 @@ void Reset() {}
 
 [[nodiscard]] std::tuple<int> Single(int Value) { return {Value}; }
 
-// The dynamic pack: the element count depends on the arguments rather than on
-// the signature.
 [[nodiscard]] Luna::ReturnPack Repeat(std::string Text, int Count) {
   Luna::ReturnPack Pack;
   for (int Index = 0; Index < Count; ++Index)
@@ -96,8 +79,6 @@ void Reset() {}
   return Pack;
 }
 
-// One element that violates the inherited per-string byte policy, so the whole
-// pack must publish nothing.
 [[nodiscard]] std::pair<int, std::string> Oversized() {
   return {1, std::string(Luna::MaximumConversionStringBytes() + 1, 'x')};
 }
@@ -124,8 +105,6 @@ template <class Callable>
 [[nodiscard]] Luna::TypeDescriptor Fixed(Luna::FixedTypeKey Key) {
   return Luna::TypeDescriptor::ForFixed(Key);
 }
-
-// -- declared shapes --------------------------------------------------------
 
 void CheckDeclaredReturnShapes() {
   const Luna::CallableMetadata Zero = MetadataOf(&Reset);
@@ -157,8 +136,6 @@ void CheckDeclaredReturnShapes() {
             Dynamic.ReturnType().PackKinds().empty(),
         "a returned dynamic pack declares no fixed element types");
 
-  // Canonical types: a pack is one canonical return pack of its element types,
-  // and a dynamic pack is Luna's owning value pack.
   std::vector<Luna::TypeDescriptor> Elements;
   Elements.push_back(Fixed(Luna::FixedTypeKey::Int32));
   Elements.push_back(Fixed(Luna::FixedTypeKey::Int32));
@@ -176,14 +153,12 @@ void CheckDeclaredReturnShapes() {
             Fixed(Luna::FixedTypeKey::ValuePack),
         "a dynamic pack is the canonical owning value pack");
 
-  // Availability follows what the shape publishes, one value per element.
   Check(Luna::Detail::PublishedReturnTypes(ExpectedPair).size() == 2 &&
             Luna::Detail::PublishedReturnTypes(
                 Fixed(Luna::FixedTypeKey::ValuePack))
                 .empty(),
         "a pack publishes one value per element and a dynamic pack none");
 
-  // Reflection distinguishes zero, scalar, and multiple return shapes.
   Check(Luna::Detail::ReflectedReturnShapeOf(Zero.ReturnType()) ==
                 ReturnShape::Zero &&
             Luna::Detail::ReflectedReturnShapeOf(Scalar.ReturnType()) ==
@@ -208,8 +183,6 @@ void CheckDeclaredReturnShapes() {
         "a dynamic pack reflects no per-value record");
 }
 
-// A reflected multiple shape accepts a dynamic pack's absent element records
-// and still refuses a multiple shape that claims exactly one value.
 void CheckReflectedMultipleShapeConsistency() {
   using Builder = Luna::Detail::ReflectionGenerationBuilder;
   using Status = Luna::Detail::ReflectionGenerationStatus;
@@ -244,8 +217,6 @@ void CheckReflectedMultipleShapeConsistency() {
   Check(Candidate(ReturnShape::Multiple, 1) == Status::InconsistentReturns,
         "a multiple shape never claims exactly one value");
 }
-
-// -- atomic publication -----------------------------------------------------
 
 [[nodiscard]] Luna::InvocationOutcome
 StagedPack(std::vector<Luna::Value> Values) {
@@ -289,8 +260,6 @@ void CheckRefusedPacksPublishNothing() {
   const Luna::ReturnMetadata Declared =
       Luna::ReturnMetadata::ForPack({ValueKind::Integer, ValueKind::String});
 
-  // One element that does not match its declared type refuses the whole pack
-  // and names the one-based return position.
   const auto Mismatch = Hooks::Write(
       Declared, StagedPack({Luna::Value(1), Luna::Value(2)}), 0, 0, 0, 3);
   Check(Mismatch.Result.Status == WriteStatus::InternalFailure &&
@@ -300,7 +269,6 @@ void CheckRefusedPacksPublishNothing() {
             Mentions(&*Mismatch.Result.Diagnostic, "Return value 2"),
         "a refused element names its one-based return position");
 
-  // A produced count that disagrees with the declared shape is refused whole.
   const auto WrongCount =
       Hooks::Write(Declared,
                    StagedPack({Luna::Value(1), Luna::Value(std::string("x")),
@@ -314,7 +282,6 @@ void CheckRefusedPacksPublishNothing() {
             Mentions(&*WrongCount.Result.Diagnostic, "publishes 2"),
         "a count refusal reports the produced and declared counts");
 
-  // The inherited per-string byte policy applies to every element.
   const std::string TooLong(Luna::MaximumConversionStringBytes() + 1, 'x');
   const auto Oversize = Hooks::Write(
       Declared, StagedPack({Luna::Value(1), Luna::Value(TooLong)}), 0, 0, 0, 2);
@@ -325,8 +292,6 @@ void CheckRefusedPacksPublishNothing() {
         "an oversized element reports the inherited byte policy and publishes "
         "nothing");
 
-  // Reservation happens before anything is published, so an unavailable
-  // reservation publishes nothing either.
   const auto Unreserved = Hooks::Write(
       Declared, StagedPack({Luna::Value(1), Luna::Value(std::string("x"))}), 0,
       0, 1, 2);
@@ -335,7 +300,6 @@ void CheckRefusedPacksPublishNothing() {
             Mentions(&*Unreserved.Result.Diagnostic, "2 return values"),
         "a pack that cannot reserve its publication publishes nothing");
 
-  // A failure after the elements were published still exposes zero values.
   const auto LateFailure = Hooks::Write(
       Declared, StagedPack({Luna::Value(1), Luna::Value(std::string("x"))}), 1,
       0, 0, 4);
@@ -344,7 +308,6 @@ void CheckRefusedPacksPublishNothing() {
         "an injected late failure restores the checkpoint and publishes zero "
         "values");
 
-  // A pack outcome and a scalar shape never publish each other's values.
   const auto WrongShape =
       Hooks::Write(Luna::ReturnMetadata::ForValue(ValueKind::Integer),
                    StagedPack({Luna::Value(1)}), 0, 0, 0, 1);
@@ -352,8 +315,6 @@ void CheckRefusedPacksPublishNothing() {
             WrongShape.StackDepth == 1,
         "a scalar shape refuses a pack outcome");
 }
-
-// -- the same shapes through the real compiler and virtual machine ----------
 
 [[nodiscard]] bool RegisterReturnShapes(Luna::State &Owner) {
   Luna::BindingRegistry Registry = Owner.Bindings();
@@ -429,7 +390,6 @@ void CheckReturnShapesThroughTheVirtualMachine() {
   Check(StateHooks::ObserveRootStackDepth(Owner) == EntryDepth,
         "published and refused packs both restore the root stack depth");
 
-  // The State stays reusable after a refused publication.
   Check(Succeeds(Owner, "local A, B = Divide(11, 3)\n"
                         "assert(A == 3 and B == 2, 'reuse')\n"),
         "a State remains reusable after a refused return pack");

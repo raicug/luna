@@ -1,7 +1,3 @@
-// Implementation of the lifecycle closure and blocker analysis. Every function
-// here is a pure reader: it answers what one unload or replacement would reach
-// and why it is refused, and it never changes a single thing.
-
 // clang-format off
 #include "state/module/lifecycle.hpp"
 
@@ -27,9 +23,6 @@
 namespace Luna::Detail {
 namespace {
 
-// One canonical path contains another when they are equal or when the second is
-// a descendant segment of the first. Segment-exact matching is what keeps
-// `Studio.Physics` from claiming `Studio.PhysicsExtra`.
 [[nodiscard]] bool PathContains(std::string_view Scope,
                                 std::string_view Candidate) noexcept {
   if (Scope.empty() || Candidate.size() < Scope.size())
@@ -72,8 +65,6 @@ namespace {
   }
 }
 
-// Which closure category one reflected symbol belongs to, beyond the reflection
-// record every symbol contributes.
 [[nodiscard]] LifecycleAffectedKind AffectedKindOf(SymbolKind Kind) noexcept {
   switch (Kind) {
   case SymbolKind::Namespace:
@@ -105,15 +96,8 @@ ConstraintText(const std::vector<VersionConstraint> &Constraints) {
   return Text.empty() ? std::string("no constraint") : Text;
 }
 
-// Every loaded module that depends on `Identity`, directly or through another
-// dependent, together with the canonical dependency path that reaches it. Paths
-// run from the dependent to the requested module, so a diagnostic reads in the
-// direction the dependency does.
 [[nodiscard]] std::map<std::string, std::vector<std::string>>
 CollectDependents(const LifecycleSubject &Subject, std::string_view Identity) {
-  // Canonical order: dependents are keyed by stable identity, and both the
-  // frontier and the result are visited in that order, so the paths never
-  // depend on the order the modules were loaded in.
   std::map<std::string, std::vector<std::string>> Dependents;
   std::vector<std::string> Frontier{std::string(Identity)};
 

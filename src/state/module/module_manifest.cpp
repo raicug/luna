@@ -1,9 +1,3 @@
-// Implementation of the immutable load-once module manifest values. Every
-// parse, precedence comparison, and normalization step here is deterministic
-// and locale-independent: only ASCII digits and identifier characters are
-// recognized, ordering never consults an unordered container, and nothing
-// depends on declaration order.
-
 // clang-format off
 #include <luna/module/module_manifest.hpp>
 
@@ -53,7 +47,6 @@ namespace {
   return true;
 }
 
-// Splits a dot-separated list without allocating for the separators.
 [[nodiscard]] std::vector<std::string_view> SplitDots(std::string_view Text) {
   std::vector<std::string_view> Segments;
   std::size_t Start = 0;
@@ -69,8 +62,6 @@ namespace {
   return Segments;
 }
 
-// Parses one core numeric identifier: digits only, no leading zero unless the
-// identifier is exactly "0", and no value beyond the 64-bit range.
 [[nodiscard]] SemanticVersionStatus
 ParseCoreNumber(std::string_view Text, std::uint64_t &Value) noexcept {
   if (Text.empty())
@@ -189,9 +180,6 @@ struct ParsedVersion final {
   return std::strong_ordering::equal;
 }
 
-// One prerelease identifier comparison: numeric identifiers compare
-// numerically, a numeric identifier sorts below an alphanumeric one, and two
-// alphanumeric identifiers compare by ASCII.
 [[nodiscard]] std::strong_ordering
 ComparePrereleaseIdentifier(std::string_view Left, std::string_view Right) {
   const bool LeftNumeric = IsAllDigits(Left);
@@ -224,8 +212,6 @@ ComparePrereleaseIdentifier(std::string_view Left, std::string_view Right) {
          (Value + Mixer + (Accumulator << 6) + (Accumulator >> 2));
 }
 
-// Dot-separated identifier segments, the same grammar canonical qualified
-// names use, so a module identity is always a legal reflected name prefix.
 [[nodiscard]] ModuleManifestStatus
 ClassifyIdentityText(std::string_view Text) noexcept {
   if (Text.empty())
@@ -674,8 +660,6 @@ ModuleManifest ModuleManifest::Create(
     return Manifest;
   }
 
-  // Normalize dependencies: merge every declaration of one identity, order the
-  // accumulated constraints canonically, and drop exact duplicates.
   std::map<std::string, std::vector<VersionConstraint>> MergedDependencies;
   for (ModuleDependency &Dependency : Dependencies) {
     std::vector<VersionConstraint> &Constraints =

@@ -35,8 +35,6 @@ namespace {
           .ReceivedType = Name ? Name : "unknown"};
 }
 
-// One shared entry guard for every migrated reader: the stack must exist and
-// the value must already have the type the record represents.
 [[nodiscard]] bool Accepts(lua_State *State, int StackIndex, int ExpectedType,
                            ArgumentReadResult &Rejection) {
   if (!State) {
@@ -154,8 +152,6 @@ namespace {
   return true;
 }
 
-// Every foundation record derives its identity from its own complete canonical
-// descriptor, so the same type resolves the same `TypeId` in every State.
 [[nodiscard]] TypeRecord Declare(FixedTypeKey Key, std::string PublicName,
                                  LuauRepresentation Representation,
                                  ValueKind Kind, TypeReadFunction Read,
@@ -211,8 +207,6 @@ std::vector<TypeRecord> FoundationTypeRecords() {
       Declare(FixedTypeKey::String, "string", LuauRepresentation::String,
               ValueKind::String, &ReadString, &WriteString);
 
-  // The inherited foundation limit is an explicit property of the string type
-  // rather than a literal spread across the conversion paths.
   Text.MaximumByteCount = MaximumInvocationStringBytes;
   Records.push_back(std::move(Text));
   return Records;

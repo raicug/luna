@@ -1,8 +1,3 @@
-// Implementation of deterministic load-once dependency resolution. Every
-// container used for iteration is ordered, every candidate list is sorted by
-// semantic-version precedence with the exact version text as the final key, and
-// every failure produces the canonical dependency path that reached it.
-
 // clang-format off
 #include "state/module/resolution.hpp"
 
@@ -34,7 +29,6 @@ SatisfiesEvery(const SemanticVersion &Candidate,
   return true;
 }
 
-// The first constraint one candidate violates, in canonical constraint order.
 [[nodiscard]] const VersionConstraint *
 FirstViolatedConstraint(const SemanticVersion &Candidate,
                         const std::vector<VersionConstraint> &Constraints) {
@@ -71,7 +65,6 @@ DescribeVersions(const std::vector<const ModuleManifest *> &Candidates) {
   return Text;
 }
 
-// Accumulated state of one identity that entered the graph.
 struct ConstraintRecord final {
   std::vector<VersionConstraint> Constraints;
   ModuleDependencyPath Origin;
@@ -97,8 +90,6 @@ ExtendPath(const ModuleDependencyPath &Origin, std::string Tail) {
   return Path;
 }
 
-// Deterministic depth-first search over the selected graph. Children are
-// visited in canonical dependency order, so the reported cycle path is stable.
 [[nodiscard]] bool
 FindCycle(const ModuleCatalog &Catalog,
           const std::map<std::string, SemanticVersion> &Selected,
@@ -138,7 +129,6 @@ FindCycle(const ModuleCatalog &Catalog,
   return false;
 }
 
-// Dependency-first canonical order of the selected graph.
 void AppendLoadOrder(const ModuleCatalog &Catalog,
                      const std::map<std::string, SemanticVersion> &Selected,
                      const std::string &Identity,
@@ -316,8 +306,6 @@ ModuleResolution ResolveModuleGraph(const ModuleCatalog &Catalog,
 
   std::map<std::string, SemanticVersion> Selected;
   while (true) {
-    // An accumulated constraint added after a selection can invalidate it.
-    // Report that conflict before selecting anything else.
     for (const auto &[Identity, Version] : Selected) {
       const ConstraintRecord &Record = Accumulated[Identity];
       const VersionConstraint *Violated =
@@ -371,8 +359,6 @@ ModuleResolution ResolveModuleGraph(const ModuleCatalog &Catalog,
                          ExtendPath(Record.Origin, Identity));
     }
 
-    // An already loaded module pins its version, so a graph that needs another
-    // version is a conflicting selection rather than a second load.
     const auto Pinned = PinnedVersions.find(Identity);
     if (Pinned != PinnedVersions.end()) {
       const SemanticVersion &LoadedVersion = Pinned->second;

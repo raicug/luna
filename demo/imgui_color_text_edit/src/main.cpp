@@ -1,18 +1,3 @@
-// A playground for Luna's reflection-driven binding surface.
-//
-// The host registers one representative surface through the public API only:
-// root functions, an overload set, optional, defaulted and variadic parameters,
-// two kinds of multiple return, nested namespaces with constants, a scoped
-// enumeration with an alias, a bitflag enumeration, a class hierarchy with a
-// constructor, a factory, methods, a static method, fields, a lazy property and
-// operators, and a versioned module graph with a resolved dependency. Every
-// declaration records the `RegistrationResult` it produced, so a refusal is
-// visible instead of silent.
-//
-// The window then lets you run Luau against that surface, browse the captured
-// reflection, generate the documentation and `.d.lua` artifacts, freeze the
-// State, and read the exact C++ snippet each feature was bound with.
-
 // clang-format off
 #include <luna/luna.hpp>
 
@@ -37,19 +22,10 @@
 
 namespace {
 
-// ---------------------------------------------------------------------------
-// The native model the host exposes
-// ---------------------------------------------------------------------------
-
-// One scoped enumeration. Scoped behaviour is Luna's default, so nothing has to
-// be opted into here.
 enum class Channel : int { Debug = 10, Info = 20, Warning = 30, Error = 40 };
 
-// One scoped enumeration that also declares bitflag behaviour, so a combined
-// mask converts back into the host as one whole value.
 enum class Access : unsigned int { Read = 1, Write = 2, Execute = 4 };
 
-// Compact text for one number, so the demo's own output stays readable.
 [[nodiscard]] std::string NumberText(double Value) {
   std::string Formatted = std::to_string(Value);
   while (Formatted.size() > 1 && Formatted.back() == '0')
@@ -59,7 +35,6 @@ enum class Access : unsigned int { Read = 1, Write = 2, Execute = 4 };
   return Formatted;
 }
 
-// The base of the exposed hierarchy.
 class Entity {
 public:
   Entity() = default;
@@ -71,27 +46,21 @@ public:
   Entity &operator=(Entity &&) = default;
   virtual ~Entity() = default;
 
-  // One read-write property, declared as a getter plus a setter.
   [[nodiscard]] std::string Name() const { return NameValue; }
   void Rename(std::string Renamed) { NameValue = std::move(Renamed); }
 
-  // One instance method.
   [[nodiscard]] std::string Label() const {
     return "entity '" + NameValue + "' #" + std::to_string(Tag);
   }
 
-  // One static method: no receiver at all.
   [[nodiscard]] static std::string Category() { return "entity"; }
 
-  // One field, copied across the member boundary in both directions.
   int Tag = 0;
 
 private:
   std::string NameValue;
 };
 
-// The derived class. It declares its base edge explicitly, which is the only
-// thing that lets a sprite be received as an entity.
 class Sprite final : public Entity {
 public:
   Sprite() = default;
@@ -102,23 +71,18 @@ public:
   double Width = 1.0;
   double Height = 1.0;
 
-  // The lazy property: computed once, then reused.
   [[nodiscard]] double Area() const { return Width * Height; }
 
-  // One method with ordered multiple returns.
   [[nodiscard]] std::pair<double, double> Bounds() const {
     return {Width, Height};
   }
 
-  // One mutating method: a const receiver refuses it before native code runs.
   double Grow(double Factor) {
     Width *= Factor;
     Height *= Factor;
     return Area();
   }
 
-  // The operand of an operator is an ordinary parameter, so it is one of the
-  // supported value types rather than another class.
   [[nodiscard]] double Padded(double Padding) const {
     return (Width + Padding) * (Height + Padding);
   }
@@ -134,22 +98,17 @@ public:
 
   [[nodiscard]] static std::string Category() { return "sprite"; }
 
-  // One factory: returning the class by value states Lua ownership.
   [[nodiscard]] static Sprite Square(std::string Name, double Side) {
     return Sprite(std::move(Name), Side, Side);
   }
 };
 
-// -- root callables ---------------------------------------------------------
-
-// Two candidates of one overload set, selected by declared signature.
 [[nodiscard]] int Measure(std::string Text) {
   return static_cast<int>(Text.size());
 }
 
 [[nodiscard]] int Measure(int Width, int Height) { return Width * Height; }
 
-// One optional parameter: omission and an explicit nil are both empty.
 [[nodiscard]] std::string Greet(std::string Name,
                                 std::optional<std::string> Title) {
   if (Title && !Title->empty())
@@ -157,16 +116,12 @@ public:
   return "Hello, " + Name + ".";
 }
 
-// One defaulted parameter, declared with `WithDefaults` at registration.
 [[nodiscard]] std::string Shorten(std::string Text, int Limit) {
   if (Limit <= 0 || Text.size() <= static_cast<std::size_t>(Limit))
     return Text;
   return Text.substr(0, static_cast<std::size_t>(Limit)) + "...";
 }
 
-// One variadic parameter, in its callback-lifetime form. Every element reports
-// the one-based call position it came from, and every accessor answers from the
-// argument frame Luna opened for this invocation only.
 [[nodiscard]] std::string Join(Luna::ArgumentView Arguments) {
   std::string Joined;
   for (std::size_t Index = 0; Index < Arguments.Size(); ++Index) {
@@ -188,7 +143,6 @@ public:
   return Joined.empty() ? std::string("no variadic arguments") : Joined;
 }
 
-// Ordered multiple returns whose count is fixed by the signature.
 [[nodiscard]] std::tuple<int, int, std::string> Analyze(std::string Text) {
   int Words = Text.empty() ? 0 : 1;
   std::string Upper;
@@ -203,7 +157,6 @@ public:
   return {static_cast<int>(Text.size()), Words, std::move(Upper)};
 }
 
-// Ordered multiple returns whose count is decided by the invocation.
 [[nodiscard]] Luna::ReturnPack Tally(Luna::ArgumentView Arguments) {
   int Numbers = 0;
   double Sum = 0.0;
@@ -221,7 +174,6 @@ public:
   return Pack;
 }
 
-// One host reader of a declared bitflag mask.
 [[nodiscard]] std::string DescribeAccess(int Mask) {
   std::string Described;
   const auto Append = [&Described](std::string_view Name) {
@@ -238,21 +190,12 @@ public:
   return Described.empty() ? std::string("none") : Described;
 }
 
-// -- module callables -------------------------------------------------------
-
 [[nodiscard]] double ToPixels(double Metres) { return Metres * 64.0; }
 
 [[nodiscard]] std::string DescribePasses(int Passes) {
   return "render graph with " + std::to_string(Passes) + " pass(es)";
 }
 
-// ---------------------------------------------------------------------------
-// Stable identities and module manifests
-// ---------------------------------------------------------------------------
-
-// A user-defined leaf is accepted only with an explicit validated stable key,
-// so the identity of an enumeration or a class never derives from an RTTI name
-// or an address.
 [[nodiscard]] Luna::StableTypeKey ChannelKey() {
   return Luna::StableTypeKey("demo.studio.Channel");
 }
@@ -294,8 +237,6 @@ Exported(Luna::SymbolKind Kind, std::string Name, std::string Documentation) {
   return Declared;
 }
 
-// The dependency of the graph. Two versions are made available, so resolution
-// has an actual choice to make.
 [[nodiscard]] Luna::ModuleManifest UnitsManifest(std::string_view VersionText) {
   std::vector<Luna::ModuleExport> Exports;
   Exports.push_back(Exported(Luna::SymbolKind::Namespace, "Units",
@@ -306,8 +247,6 @@ Exported(Luna::SymbolKind Kind, std::string Name, std::string Documentation) {
   return Created ? std::move(*Created) : Luna::ModuleManifest();
 }
 
-// The requested module. Its declared constraint is what makes the resolver
-// select a version rather than a definition.
 [[nodiscard]] Luna::ModuleManifest RenderManifest() {
   std::vector<Luna::ModuleDependency> Dependencies;
   Dependencies.push_back(Dependency("studio.units", ">=1.0.0"));
@@ -325,9 +264,6 @@ Exported(Luna::SymbolKind Kind, std::string Name, std::string Documentation) {
   return Created ? std::move(*Created) : Luna::ModuleManifest();
 }
 
-// One module registration callback. It receives a transaction-attached builder,
-// so everything it stages joins the load's one outermost transaction and
-// nothing here commits on its own.
 void ConfigureUnits(Luna::NamespaceBuilder &Builder) {
   Luna::NamespaceBuilder Units = Builder.RegisterNamespace("Units");
   Units.RegisterConstant("Metre", 1)
@@ -346,10 +282,6 @@ void ConfigureRender(Luna::NamespaceBuilder &Builder) {
       .Attribute("owner", "demo")
       .Example("HostLog(Render.Describe(Render.Passes))");
 }
-
-// ---------------------------------------------------------------------------
-// The bound-with snippets shown in the UI
-// ---------------------------------------------------------------------------
 
 struct BoundFeature final {
   std::string_view Name;
@@ -480,10 +412,6 @@ const Luna::GeneratedArtifact Documentation =
 const Luna::GeneratedArtifact Declarations =
     Luna::GenerateDeclarations(Snapshot, Luna::DeclarationOptions());)"},
 }};
-
-// ---------------------------------------------------------------------------
-// The example scripts the editor can load
-// ---------------------------------------------------------------------------
 
 struct ExampleScript final {
   std::string_view Name;
@@ -640,14 +568,12 @@ void TextView(std::string_view Text) {
   ImGui::TextUnformatted(Text.data(), Text.data() + Text.size());
 }
 
-// One labelled row of the detail view.
 void DetailRow(const char *Label, std::string_view Value) {
   ImGui::TextDisabled("%s", Label);
   ImGui::SameLine();
   TextView(Value);
 }
 
-// One editable path buffer, seeded with its default contents.
 template <std::size_t Count>
 [[nodiscard]] std::array<char, Count> PathBuffer(std::string_view Text) {
   static_assert(Count > 1, "an editable buffer needs room for text");
@@ -658,17 +584,12 @@ template <std::size_t Count>
   return Buffer;
 }
 
-// The canonical text of one module identity and version.
 [[nodiscard]] std::string ModuleKeyOf(const Luna::ModuleRecord &Module) {
   std::string Key(Module.Identity());
   Key.push_back('@');
   Key.append(Module.Version());
   return Key;
 }
-
-// ---------------------------------------------------------------------------
-// The playground window
-// ---------------------------------------------------------------------------
 
 class Playground final {
 public:
@@ -718,8 +639,6 @@ private:
     bool Succeeded = false;
   };
 
-  // -- registration ---------------------------------------------------------
-
   void Build() {
     Log.clear();
     OutputLines.clear();
@@ -749,8 +668,6 @@ private:
                          "names each one.");
   }
 
-  // Root scope: the two spellings of function registration, one overload set,
-  // an optional parameter, a variadic parameter, and both return packs.
   void RegisterRootSurface() {
     Luna::BindingRegistry Registry = State.Bindings();
 
@@ -776,9 +693,6 @@ private:
            Registry.RegisterFunction("Tally", &Tally));
   }
 
-  // One namespace plan: nested namespaces, constants, two enumerations, and a
-  // class hierarchy. Nothing here reaches the virtual machine before `Commit`,
-  // so a single refusal publishes none of it.
   void RegisterStudioSurface() {
     Luna::BindingRegistry Registry = State.Bindings();
     Luna::NamespaceBuilder Studio = Registry.RegisterNamespace("Studio");
@@ -864,8 +778,6 @@ private:
     Record("NamespaceBuilder(\"Studio\")::Commit", Studio.Commit());
   }
 
-  // One versioned module graph. Two dependency versions become available
-  // without loading anything, so the load actually resolves a constraint.
   void RegisterModuleGraph() {
     Luna::BindingRegistry Registry = State.Bindings();
 
@@ -876,8 +788,6 @@ private:
     Record("RegisterModule(studio.render@2.1.0)",
            Registry.RegisterModule(RenderManifest(), &ConfigureRender));
   }
-
-  // -- bookkeeping ----------------------------------------------------------
 
   void Record(std::string Origin, const Luna::RegistrationResult &Result) {
     Record(std::move(Origin), Result.IsSuccess(),
@@ -913,8 +823,6 @@ private:
     Status = std::move(Message);
   }
 
-  // -- actions --------------------------------------------------------------
-
   void RunScript() {
     OutputLines.clear();
     if (!State.IsReady()) {
@@ -940,9 +848,6 @@ private:
                         "' example.");
   }
 
-  // Freeze validates the whole committed model and publishes every runtime
-  // lookup cache. Invocation and reflection keep working afterwards;
-  // registration does not.
   void FreezeSurface() {
     const Luna::RegistrationResult Result = State.Bindings().Freeze();
     Record("BindingRegistry::Freeze", Result);
@@ -956,8 +861,6 @@ private:
     RefreshSnapshot();
   }
 
-  // One extra registration attempt, so the difference between the open and the
-  // frozen lifecycle is something you can watch rather than take on trust.
   void ProbeRegistration() {
     ++ProbeCount;
     const std::string Name = "Probe" + std::to_string(ProbeCount);
@@ -994,8 +897,6 @@ private:
         .WithDocumentation(WithDeclarationDocumentation);
   }
 
-  // Both generators read one captured snapshot and nothing else, so neither one
-  // touches the State they came from.
   void GenerateArtifacts() {
     const Luna::GeneratedArtifact Documented =
         Luna::GenerateDocumentation(Snapshot, DocumentationChoices());
@@ -1029,9 +930,6 @@ private:
                                        "tab shows the diagnostic."));
   }
 
-  // Publication revalidates the complete bytes, writes them to one unpublished
-  // file beside the destination, verifies that file, and only then replaces the
-  // destination. Any refusal leaves a prior destination exactly as it was.
   void PublishArtifacts() {
     const Luna::ArtifactPublication Documented = Luna::PublishDocumentation(
         Snapshot, DocumentationChoices(), DocumentationPath.data());
@@ -1061,8 +959,6 @@ private:
                          : "Publication was refused; the Diagnostics tab names "
                            "the reason.");
   }
-
-  // -- panels ---------------------------------------------------------------
 
   void DrawToolbar() {
     if (ImGui::Button("Run", ImVec2(80.0f, 0.0f)))
@@ -1144,7 +1040,6 @@ private:
     ImGui::EndTabItem();
   }
 
-  // One captured generation, walked in the canonical order it publishes.
   void DrawReflectionTab() {
     if (!ImGui::BeginTabItem("Reflection"))
       return;
@@ -1179,8 +1074,6 @@ private:
     ImGui::EndTabItem();
   }
 
-  // The captured symbols, grouped by the module that contributed them or by
-  // their kind, in the canonical order the snapshot enumerates.
   void DrawSymbolTree() {
     const Luna::ReflectionRecordRange Symbols = Snapshot.Symbols();
     std::vector<std::string> Groups;
@@ -1261,8 +1154,6 @@ private:
     return Found.IsValid() ? std::string(Found.QualifiedName()) : Id.ToString();
   }
 
-  // Everything one reflected record describes, read from the captured
-  // generation alone.
   void DrawSymbolDetail() {
     if (!SelectedSymbol.IsValid()) {
       ImGui::TextDisabled("Select a symbol to read its reflected record.");
@@ -1392,8 +1283,6 @@ private:
       DetailRow("declares type:", Module.TypeName(Index));
   }
 
-  // Every declared parameter, with the disposition and the immutable default
-  // the registration recorded for it.
   void DrawParameterTable(const Luna::ReflectionRecord &Record) {
     if (Record.ParameterCount() == 0) {
       ImGui::TextDisabled("no declared parameters");
@@ -1500,7 +1389,6 @@ private:
     ImGui::EndChild();
   }
 
-  // The point of the whole window: the exact C++ each feature was bound with.
   void DrawSnippetTab() {
     if (!ImGui::BeginTabItem("How this was bound"))
       return;

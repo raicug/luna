@@ -79,8 +79,6 @@ Candidate(std::string QualifiedName, Luna::SymbolId Parent,
       std::move(Signature));
 }
 
-// The pinned algorithm is covered by fixed vectors, so an identity can never
-// silently change with an implementation-defined hash.
 [[nodiscard]] bool VerifyPinnedDigestVectors() {
   if (CanonicalDigest::AlgorithmVersion != 1 ||
       CanonicalDigest::ByteCount != Luna::TypeId::ByteCount)
@@ -91,7 +89,6 @@ Candidate(std::string QualifiedName, Luna::SymbolId Parent,
   if (DigestText("abc") !=
       "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
     return false;
-  // Exactly 56 bytes forces the two-block length-padding path.
   if (DigestText("abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq") !=
       "248d6a61d20638b8e5c026930c3e6039a33ce45964ff2167f6ecedd419db06c1")
     return false;
@@ -103,7 +100,6 @@ Candidate(std::string QualifiedName, Luna::SymbolId Parent,
          "cdc76e5c9914fb9281a1c7e284d73e67f1809a48a497200e046d39ccc7112cd0";
 }
 
-// Every canonical sequence opens with the schema version and its domain tag.
 [[nodiscard]] bool VerifyVersionedRootTags() {
   const std::vector<std::uint8_t> TypeBytes =
       EncodeCanonicalType(Canonical<int>());
@@ -127,12 +123,9 @@ Candidate(std::string QualifiedName, Luna::SymbolId Parent,
           static_cast<std::uint8_t>(Luna::Detail::CanonicalDomain::Symbol))
     return false;
 
-  // A type and a symbol never share an encoding even when their remaining
-  // bytes would otherwise agree.
   return TypeBytes != SymbolBytes;
 }
 
-// Length-delimited components make concatenation ambiguity impossible.
 [[nodiscard]] bool VerifyLengthDelimitedFraming() {
   const Luna::SymbolId Root;
   const SymbolDescriptor SplitLeft =
@@ -163,7 +156,6 @@ Candidate(std::string QualifiedName, Luna::SymbolId Parent,
          SymbolIdentityRegistry::ComputeIdentity(TwoParameters);
 }
 
-// Equal descriptors resolve one identity in every registry, in every order.
 [[nodiscard]] bool VerifyStableTypeResolution() {
   TypeIdentityRegistry First;
   TypeIdentityRegistry Second;
@@ -189,7 +181,6 @@ Candidate(std::string QualifiedName, Luna::SymbolId Parent,
     Forward.push_back(*Resolution.Value);
   }
 
-  // Reverse insertion order resolves exactly the same identities.
   for (std::size_t Index = Descriptors.size(); Index > 0; --Index) {
     const auto Resolution = Second.Resolve(Descriptors[Index - 1]);
     if (!Resolution.IsSuccess() || *Resolution.Value != Forward[Index - 1])
@@ -198,7 +189,6 @@ Candidate(std::string QualifiedName, Luna::SymbolId Parent,
   if (First.Size() != Descriptors.size() || Second.Size() != First.Size())
     return false;
 
-  // Repeated resolution of an equal descriptor is idempotent.
   const auto Repeated = First.Resolve(Canonical<const int &>());
   if (!Repeated.IsSuccess() || *Repeated.Value != Forward[0] ||
       First.Size() != Descriptors.size())
@@ -209,13 +199,11 @@ Candidate(std::string QualifiedName, Luna::SymbolId Parent,
     return false;
   if (First.Find(Luna::TypeId()) != nullptr)
     return false;
-  // A lookup verifies the complete descriptor after the identity match.
   if (!First.Matches(Forward[2], WidgetType()) ||
       First.Matches(Forward[2], Canonical<int>()) ||
       First.Matches(Luna::TypeId(), Canonical<int>()))
     return false;
 
-  // Unequal descriptors never share an identity.
   for (std::size_t Left = 0; Left < Forward.size(); ++Left) {
     for (std::size_t Right = Left + 1; Right < Forward.size(); ++Right) {
       if (Forward[Left] == Forward[Right])
@@ -225,8 +213,6 @@ Candidate(std::string QualifiedName, Luna::SymbolId Parent,
   return true;
 }
 
-// Callable candidates, overload sets, scopes, aliases, members, and
-// module-owned symbols each derive a distinct identity.
 [[nodiscard]] bool VerifySymbolIdentityDerivation() {
   SymbolIdentityRegistry Registry;
   const Luna::SymbolId Root;
@@ -251,7 +237,6 @@ Candidate(std::string QualifiedName, Luna::SymbolId Parent,
       *IntegerCandidate.Value == *DoubleCandidate.Value)
     return false;
 
-  // A candidate under another parent scope is another symbol.
   const auto OtherScope = Registry.Resolve(Luna::Detail::MakeScopeSymbol(
       Luna::SymbolKind::Namespace, "Engine", Root));
   const auto Rehomed = Registry.Resolve(
@@ -260,7 +245,6 @@ Candidate(std::string QualifiedName, Luna::SymbolId Parent,
   if (!Rehomed.IsSuccess() || *Rehomed.Value == *IntegerCandidate.Value)
     return false;
 
-  // A variadic or arity-shape change is an identity change.
   CallableSignatureDescriptor Variadic =
       FreeSignature(Canonical<int>(), {Canonical<int>()});
   Variadic.IsVariadic = true;
@@ -278,8 +262,6 @@ Candidate(std::string QualifiedName, Luna::SymbolId Parent,
       *VariadicCandidate.Value == *DefaultedCandidate.Value)
     return false;
 
-  // Class members identify their declaring receiver type; an inherited view of
-  // one declaration keeps that declaration's identity.
   CallableSignatureDescriptor MethodSignature =
       FreeSignature(Canonical<int>(), {});
   MethodSignature.ReceiverType = WidgetType();
@@ -306,7 +288,6 @@ Candidate(std::string QualifiedName, Luna::SymbolId Parent,
   if (*Method.Value == *ConstMethod.Value || *Method.Value == *Field.Value)
     return false;
 
-  // An enum alias identifies the canonical enumerator it names.
   const auto Alias = Registry.Resolve(Luna::Detail::MakeEnumeratorAliasSymbol(
       "studio.ui.Color.Crimson", *Scope.Value, ColorType(), "Red"));
   const auto OtherAlias =
@@ -316,7 +297,6 @@ Candidate(std::string QualifiedName, Luna::SymbolId Parent,
       *Alias.Value == *OtherAlias.Value)
     return false;
 
-  // Module-owned declarations differ by manifest identity and version.
   const auto Module = Registry.Resolve(Luna::Detail::MakeModuleSymbol(
       "studio.physics", Root, ModuleProvenance{"studio.physics", "1.2.0"}));
   const auto NewerModule = Registry.Resolve(Luna::Detail::MakeModuleSymbol(
@@ -336,7 +316,6 @@ Candidate(std::string QualifiedName, Luna::SymbolId Parent,
          *Owned.Value != *OwnedByNewer.Value;
 }
 
-// Requirement 3.9: an incomplete descriptor never receives an identity.
 [[nodiscard]] bool VerifyIncompleteDescriptorRejection() {
   TypeIdentityRegistry Types;
   SymbolIdentityRegistry Symbols;
@@ -355,30 +334,23 @@ Candidate(std::string QualifiedName, Luna::SymbolId Parent,
     return false;
 
   std::vector<SymbolDescriptor> Incomplete;
-  // Empty and malformed qualified names.
   Incomplete.push_back(
       Luna::Detail::MakeScopeSymbol(Luna::SymbolKind::Namespace, "", Root));
   Incomplete.push_back(Luna::Detail::MakeScopeSymbol(
       Luna::SymbolKind::Namespace, "Studio..Physics", Root));
   Incomplete.push_back(Luna::Detail::MakeScopeSymbol(
       Luna::SymbolKind::Namespace, "1Studio", Root));
-  // A candidate without a signature.
   Incomplete.push_back(Luna::Detail::MakeScopeSymbol(
       Luna::SymbolKind::FunctionCandidate, "Studio.Add", Root));
-  // A candidate whose signature names an unsupported type.
   Incomplete.push_back(
       Candidate("Studio.Add", Root,
                 FreeSignature(Canonical<int>(), {Canonical<long>()})));
-  // A class member without its owning type.
   Incomplete.push_back(Luna::Detail::MakeScopeSymbol(Luna::SymbolKind::Field,
                                                      "Widget.Size", Root));
-  // An alias without its canonical enumerator.
   Incomplete.push_back(Luna::Detail::MakeEnumeratorAliasSymbol(
       "studio.ui.Color.Crimson", Root, ColorType(), ""));
-  // A module without manifest provenance.
   Incomplete.push_back(Luna::Detail::MakeScopeSymbol(Luna::SymbolKind::Module,
                                                      "studio.physics", Root));
-  // A scope that carries callable metadata it can never own.
   Incomplete.push_back(Luna::Detail::MakeCallableCandidateSymbol(
       Luna::SymbolKind::Namespace, "Studio", Root,
       FreeSignature(Canonical<int>(), {})));
@@ -398,7 +370,6 @@ Candidate(std::string QualifiedName, Luna::SymbolId Parent,
   return Symbols.Size() == 0;
 }
 
-// Injected digest collisions are rejected instead of reassigned.
 [[nodiscard]] bool VerifyCollisionRejection() {
   const Luna::TypeDescriptor FirstType = Canonical<int>();
   const Luna::TypeDescriptor SecondType = Canonical<std::vector<int>>();
@@ -421,7 +392,6 @@ Candidate(std::string QualifiedName, Luna::SymbolId Parent,
   if (Collided.Diagnostic->Category() != Luna::ErrorCategory::Internal ||
       Collided.Diagnostic->Message().empty())
     return false;
-  // No fallback identity is assigned and the stored descriptor is untouched.
   if (Types.Size() != 1)
     return false;
   const Luna::TypeDescriptor *Stored = Types.Find(*FirstResolution.Value);
@@ -430,15 +400,12 @@ Candidate(std::string QualifiedName, Luna::SymbolId Parent,
   if (Types.CollisionInjection().Pending() != 0)
     return false;
 
-  // Once the hook is exhausted the ordinary digest resolves normally, proving
-  // the rejection never consumed the colliding descriptor's real identity.
   const auto Recovered = Types.Resolve(SecondType);
   if (!Recovered.IsSuccess() ||
       Recovered.Value != TypeIdentityRegistry::ComputeIdentity(SecondType) ||
       Types.Size() != 2)
     return false;
 
-  // The same forced identity for one equal descriptor stays idempotent.
   TypeIdentityRegistry Idempotent;
   Idempotent.CollisionInjection().Inject(2);
   const auto Once = Idempotent.Resolve(FirstType);
@@ -447,8 +414,6 @@ Candidate(std::string QualifiedName, Luna::SymbolId Parent,
       Idempotent.Size() != 1)
     return false;
 
-  // The diagnostic is deterministic: an identical replay produces identical
-  // text, independent of resolution order.
   TypeIdentityRegistry Replay;
   Replay.CollisionInjection().Inject(2);
   if (!Replay.Resolve(FirstType).IsSuccess())
@@ -458,7 +423,6 @@ Candidate(std::string QualifiedName, Luna::SymbolId Parent,
       ReplayCollided.Diagnostic->Message() != Collided.Diagnostic->Message())
     return false;
 
-  // Symbol identities use the same rule.
   SymbolIdentityRegistry Symbols;
   const Luna::SymbolId Root;
   Symbols.CollisionInjection().Inject(2);
@@ -474,8 +438,6 @@ Candidate(std::string QualifiedName, Luna::SymbolId Parent,
   if (Symbols.Size() != 1)
     return false;
 
-  // An explicit forced identity is honored so a chosen collision can target a
-  // specific stored identity.
   SymbolIdentityRegistry Targeted;
   const SymbolDescriptor Namespace = Luna::Detail::MakeScopeSymbol(
       Luna::SymbolKind::Namespace, "Studio", Root);

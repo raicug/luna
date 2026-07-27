@@ -1,10 +1,5 @@
 #pragma once
 
-// Stable Luna-owned reflection identity. Every identity is a fixed 256-bit
-// value derived from a canonical descriptor, so it is portable across States,
-// executions, and generated artifacts and never depends on an RTTI name, an
-// address, a registration order, a locale, or a process-random value.
-
 // clang-format off
 #include <array>
 #include <compare>
@@ -17,8 +12,6 @@
 
 namespace Luna {
 
-// Kind of one reflected symbol. The kind participates in canonical symbol
-// identity, so a value is never reused for a different concept.
 enum class SymbolKind {
   Namespace,
   Module,
@@ -82,8 +75,6 @@ SymbolKindText(SymbolKind Kind) noexcept {
 
 namespace Detail {
 
-// Distinct tags keep type and symbol identities separate types even though they
-// share one representation and one canonical formatting rule.
 struct TypeIdentityTag {};
 struct SymbolIdentityTag {};
 
@@ -104,7 +95,6 @@ public:
     return Identity;
   }
 
-  // Parses the canonical lowercase hexadecimal form produced by ToString.
   [[nodiscard]] static std::optional<StableIdentity>
   Parse(std::string_view Text) noexcept {
     if (Text.size() != TextLength)
@@ -124,8 +114,6 @@ public:
     return BytesValue;
   }
 
-  // Canonical lowercase 256-bit hexadecimal text, built without any
-  // locale-sensitive formatting.
   [[nodiscard]] std::string ToString() const {
     std::string Text;
     Text.reserve(TextLength);
@@ -136,7 +124,6 @@ public:
     return Text;
   }
 
-  // A default-constructed identity is the reserved unresolved value.
   [[nodiscard]] constexpr bool IsValid() const noexcept {
     for (const std::uint8_t Byte : BytesValue) {
       if (Byte != 0)
@@ -192,13 +179,10 @@ private:
 
 } // namespace Detail
 
-// Stable identity of one canonical normalized type.
 using TypeId = Detail::StableIdentity<Detail::TypeIdentityTag>;
 
-// Stable identity of one reflected symbol.
 using SymbolId = Detail::StableIdentity<Detail::SymbolIdentityTag>;
 
-// Hasher for any Luna canonical value that exposes a deterministic Hash.
 struct CanonicalHash {
   template <class Canonical>
   [[nodiscard]] std::size_t operator()(const Canonical &Value) const {

@@ -28,8 +28,6 @@ struct RestoreRequest final {
   return 0;
 }
 
-// Reading a path may run a metamethod and taking a protected reference may
-// allocate, so the capture itself runs inside a protected call.
 [[nodiscard]] int CaptureValue(lua_State *State) {
   auto *Request = static_cast<CaptureRequest *>(lua_tolightuserdata(State, 1));
   if (!Request || !Request->Path || !Request->Saved)
@@ -48,8 +46,6 @@ struct RestoreRequest final {
   if (!Request || !Request->Path)
     return RaiseLiteral(State, "Internal error: invalid restore request.");
 
-  // The nil reference pushes nil, which restores the absence of the path
-  // exactly rather than leaving a stale value behind.
   lua_getref(State, Request->Reference);
   lua_setglobal(State, Request->Path);
   return 0;
@@ -145,8 +141,6 @@ void ReleaseSavedValue(lua_State *State, SavedVmValue &Saved) noexcept {
   if (State && Saved.IsCaptured)
     lua_unref(State, Saved.Reference);
 
-  // The recorded kind survives the release so a finished journal still reports
-  // what each path held; only the protected reference is given up.
   Saved.Reference = 0;
   Saved.IsCaptured = false;
 }

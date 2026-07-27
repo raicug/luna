@@ -1,14 +1,3 @@
-// The lifecycle-facing public API, compiled in a consumer that links only
-// `Luna::Luna`: creating, moving, and destroying a State, loading and providing
-// modules, declaring and invalidating the lifetime of a borrowed object, and
-// retaining one reflection snapshot across a State's whole life all compile
-// without a Luau include path, declaration, pointer, macro, or link.
-//
-// Dispatch indirection is entirely private. Nothing here can name a dispatch
-// slot, a dispatch generation, a dispatch table, or a retention; nothing here
-// can reach the virtual machine the State owns; and every lifecycle-facing
-// declaration answers with an ordinary Luna or standard-library value.
-
 // clang-format off
 #include <luna/luna.hpp>
 
@@ -23,10 +12,6 @@
 
 namespace {
 
-// Whether one consumer-facing type exposes any accessor a lifecycle operation
-// would need if dispatch storage or the machine itself were public. Each of
-// these must stay unavailable: a consumer names symbols and canonical paths,
-// and Luna alone names the storage behind them.
 template <typename T, typename = void>
 struct ExposesDispatchStorage : std::false_type {};
 template <typename T>
@@ -76,8 +61,6 @@ static_assert(!ExposesMachine<Luna::BindingRegistry>::value &&
                   !ExposesHandle<Luna::BindingRegistry>::value,
               "A registry must never hand out direct machine access.");
 
-// Everything a lifecycle-facing consumer operation answers with is an ordinary
-// Luna value: an outcome, a snapshot, or a standard-library type.
 static_assert(
     std::is_same_v<
         decltype(std::declval<Luna::BindingRegistry &>().RegisterModule(
@@ -100,9 +83,6 @@ static_assert(
 static_assert(std::is_copy_constructible_v<Luna::ReflectionSnapshot>,
               "A retained snapshot must outlive the State that published it.");
 
-// The one lifetime statement a consumer makes about a borrowed native object.
-// It is a Luna-owned counter, never an address, never a machine reference, and
-// never a dispatch generation.
 static_assert(std::is_copy_constructible_v<Luna::LifetimeHandle> &&
                   std::is_nothrow_move_constructible_v<Luna::LifetimeHandle>,
               "A lifetime handle must remain an ordinary copyable value.");
@@ -160,10 +140,6 @@ ConsumerManifest(std::string Identity, std::string_view VersionText) {
 
 } // namespace
 
-// One consumer that exercises the whole lifecycle-facing surface: a State is
-// created, populated through modules and scoped builders, executed against,
-// moved, and destroyed, while one lifetime statement and one retained snapshot
-// outlive it - all with Luna's public headers alone.
 void VerifyLifecycleConsumerBoundaryCompiles() {
   Luna::LifetimeHandle Borrowed;
   Luna::ReflectionSnapshot Retained;
@@ -189,8 +165,6 @@ void VerifyLifecycleConsumerBoundaryCompiles() {
     [[maybe_unused]] const Luna::ExecutionResult Executed =
         Owner.Execute("return LifecycleScale(21)");
 
-    // A borrowed object's lifetime is declared, compared, and ended entirely
-    // through Luna values; nothing here names storage of any kind.
     const Luna::LifetimeHandle Copied = Borrowed;
     [[maybe_unused]] const bool SameLifetime = Borrowed.RefersToSame(Copied) &&
                                                Borrowed.IsDeclared() &&
@@ -201,16 +175,12 @@ void VerifyLifecycleConsumerBoundaryCompiles() {
 
     Retained = Registry.Reflection();
 
-    // Transferring ownership of the machine is an ordinary consumer move, and
-    // the moved-to State keeps answering the same lifecycle questions.
     Luna::State Moved = std::move(Owner);
     [[maybe_unused]] const bool Ready = Moved.IsReady();
     [[maybe_unused]] const Luna::ExecutionResult Again =
         Moved.Execute("return LifecycleScale(20)");
   }
 
-  // The State, its machine, and every closure it installed are gone; the
-  // lifetime statement and the snapshot are still ordinary consumer values.
   Borrowed.Invalidate();
   Borrowed.Invalidate();
   [[maybe_unused]] const bool Ended = !Borrowed.IsValid();

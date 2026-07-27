@@ -1,13 +1,3 @@
-// Focused coverage of the freeze and cache refusal surface.
-//
-// Three things are checked here that no equivalence property observes directly:
-// the precedence a wrong-thread refusal takes over every other refusal on every
-// virtual-machine-backed public operation, the determinism and recoverability
-// of a refused freeze - a metadata contradiction and an injected
-// cache-allocation failure - and the complete matrix of registration and module
-// operations a frozen State rejects, including builders that were opened before
-// freeze.
-
 // clang-format off
 #include <luna/binding/binding_registry.hpp>
 #include <luna/binding/class_builder.hpp>
@@ -62,16 +52,12 @@ void Check(bool Condition, std::string_view Description) {
              : std::string("<no diagnostic>");
 }
 
-// One expected success, whose diagnostic is reported when it unexpectedly
-// refuses, so a failing check names the refusal instead of only its intent.
 [[nodiscard]] bool Succeeded(const Luna::RegistrationResult &Result) {
   if (Result.IsSuccess())
     return true;
   std::cerr << "  unexpected refusal: " << MessageOf(Result) << '\n';
   return false;
 }
-
-// -- the representative model ------------------------------------------------
 
 enum class Mode { Off = 0, On = 1 };
 
@@ -105,9 +91,6 @@ void ConfigureTools(Luna::NamespaceBuilder &Builder) {
   static_cast<void>(Tools.RegisterConstant("Slots", 4));
 }
 
-// One fully populated Ready State: an overload-free callable, a nested
-// namespace with a constant, a scoped enumeration, a class with a field and one
-// explicitly lazy property, and one loaded module.
 [[nodiscard]] Luna::RegistrationResult RegisterModel(Luna::State &Owner) {
   Luna::BindingRegistry Registry = Owner.Bindings();
   if (auto Function = Registry.Register("Increment", &Increment);
@@ -131,8 +114,6 @@ void ConfigureTools(Luna::NamespaceBuilder &Builder) {
   return Registry.RegisterModule(ToolsManifest(), &ConfigureTools);
 }
 
-// Everything one foreign thread attempted, so the refusals are compared on the
-// owner thread after that thread has joined.
 struct ForeignOutcome final {
   Luna::RegistrationResult Duplicate = Luna::RegistrationResult::Success();
   Luna::RegistrationResult Malformed = Luna::RegistrationResult::Success();
@@ -167,10 +148,6 @@ void AttemptEverythingFromForeignThread(Luna::State &Owner,
                                         ForeignOutcome &Observed) {
   Luna::BindingRegistry Registry = Owner.Bindings();
 
-  // A name that is already registered and a name that is malformed: the
-  // established root-scope spelling validates the identifier first, so the
-  // malformed name reports its own grammar failure, while the well-formed
-  // duplicate reports the thread instead of the duplicate.
   Observed.Duplicate = Registry.Register("Increment", &Increment);
   Observed.Malformed = Registry.Register("9Invalid", &Increment);
 
@@ -200,8 +177,6 @@ void AttemptEverythingFromForeignThread(Luna::State &Owner,
     Observed.ExecutionMessage = std::string(Executed.Diagnostic()->Message());
   }
 
-  // Owning immutable reflection is readable from any thread, which is exactly
-  // what makes it safe to refuse everything above.
   const Luna::ReflectionSnapshot Snapshot = Registry.Reflection();
   Observed.SnapshotNames = OrderedNames(Snapshot);
   Observed.SnapshotGeneration = Snapshot.Generation();
@@ -281,8 +256,6 @@ void CheckWrongThreadRefusalPrecedesEveryOtherRefusal() {
         "the owner thread registers, executes, and freezes afterwards");
 }
 
-// -- refused freeze ----------------------------------------------------------
-
 void CheckRefusedFreezeIsDeterministicAndRecoverable() {
   Luna::State Owner;
   Luna::BindingRegistry Registry = Owner.Bindings();
@@ -293,9 +266,6 @@ void CheckRefusedFreezeIsDeterministicAndRecoverable() {
   const std::size_t Bindings = Hooks::BindingCount(Owner);
   const auto EntryDepth = Hooks::ObserveRootStackDepth(Owner);
 
-  // An injected cache-allocation failure: every attempt reports the same
-  // deterministic result, publishes nothing, and leaves the Ready State exactly
-  // as it was.
   Hooks::InjectFault(Owner, FaultPoint::FreezePreparation, 2);
   const Luna::RegistrationResult First = Registry.Freeze();
   const Luna::RegistrationResult Second = Registry.Freeze();
@@ -316,8 +286,6 @@ void CheckRefusedFreezeIsDeterministicAndRecoverable() {
   Check(Owner.Execute("assert(Increment(1) == 2)").IsSuccess(),
         "the State keeps executing after a refused freeze");
 
-  // The recovered freeze publishes exactly the cache a State that never failed
-  // publishes, so a failed attempt leaves no trace in the cache contents.
   Check(Succeeded(Registry.Freeze()),
         "freeze succeeds once the transient failure is gone");
   const Luna::Detail::FreezeCacheObservation Recovered =
@@ -372,15 +340,11 @@ void CheckMetadataContradictionRefusesDeterministically() {
         "the Ready State and its stack survive the refused freeze");
 }
 
-// -- the frozen rejection matrix --------------------------------------------
-
 void CheckFrozenStateRejectsEveryRegistrationAndModuleOperation() {
   Luna::State Owner;
   Luna::BindingRegistry Registry = Owner.Bindings();
   Check(Succeeded(RegisterModel(Owner)), "the representative model registers");
 
-  // Two builders opened while the State was still Ready: neither may commit
-  // after freeze, and neither may stage anything either.
   Luna::NamespaceBuilder Opened = Registry.RegisterNamespace("Opened");
   static_cast<void>(Opened.RegisterConstant("Slots", 2));
   Luna::ClassBuilder<Widget> OpenedClass = Registry.RegisterClass<Widget>(
@@ -438,8 +402,6 @@ void CheckFrozenStateRejectsEveryRegistrationAndModuleOperation() {
                    NotReady, "frozen"),
         "loading a module is rejected while frozen");
 
-  // Every repeated freeze returns one identical already-frozen result and
-  // republishes nothing.
   const Luna::RegistrationResult Repeated = Registry.Freeze();
   const Luna::RegistrationResult Again = Registry.Freeze();
   Check(FailedWith(Repeated, NotReady, "already frozen") &&

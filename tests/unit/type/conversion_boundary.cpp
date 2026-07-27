@@ -1,8 +1,3 @@
-// Focused coverage of the public Luau-free conversion boundary: transient views
-// that cannot outlive or escape their frame, probes that are separated from
-// committing conversion, and writers that reserve and validate every resource
-// before publishing anything.
-
 // clang-format off
 #include <luna/binding/conversion.hpp>
 #include <luna/binding/value.hpp>
@@ -44,8 +39,6 @@ void Check(bool Condition, std::string_view Description) {
   std::cerr << "conversion boundary check failed: " << Description << '\n';
 }
 
-// A transient view is a plain storable Luna token: there is nothing in it to
-// turn into an address, a stack position, or a registry reference.
 static_assert(std::is_trivially_copyable_v<ValueView>,
               "A transient view must remain a plain Luna-owned token.");
 static_assert(std::is_trivially_copyable_v<ConversionContext>,
@@ -54,8 +47,6 @@ static_assert(std::is_default_constructible_v<ValueView> &&
                   std::is_default_constructible_v<ConversionContext>,
               "An inert view and context must be ordinary default values.");
 
-// A probe receives a const context, so the type system alone denies it every
-// mutating operation on the boundary.
 template <class Type>
 concept ReservesThroughConstContext =
     requires(const Type &Context, const ValueReservation &Request) {
@@ -81,8 +72,6 @@ static_assert(!PublishesThroughConstContext<ConversionContext>,
 static_assert(!PublishesPackThroughConstContext<ConversionContext>,
               "Publishing a pack must be unavailable through a probe.");
 
-// One nested value: four elements whose last element is a table with a `Key`
-// field, which is exactly the `argument 2[4].Key` shape diagnostics report.
 [[nodiscard]] OwnedValue NestedSource() {
   OwnedValue Leaf = OwnedValue::Table();
   Leaf.SetField("Key", OwnedValue::Text("text"));
@@ -105,9 +94,6 @@ struct Point final {
 
 namespace Luna {
 
-// A consumer converter written entirely against the boundary: it names no
-// virtual-machine type, keeps probing free of every mutation, and reserves
-// before it publishes.
 template <> class TypeConverter<Point> {
 public:
   [[nodiscard]] ConversionProbe Probe(ValueView Source,
@@ -185,12 +171,10 @@ void CheckTransientViewsExposeShapeOnly() {
             std::string("Callable 'Studio.Draw' argument 2 expected a table."),
         "a diagnostic names the callable, the position, and the reason");
 
-  // Out-of-range and unknown lookups answer inert instead of failing.
   Check(!Root.Element(4).IsActive() && Root.Element(4).IsNil() == false,
         "an out-of-range element view is inert");
   Check(!Root.Field("Missing").IsActive(), "an unknown field view is inert");
 
-  // Copying out of the frame is the only retention, and it is exact.
   Check(Root.ToOwned() == Source,
         "copying a view out of the frame reproduces the value");
 }
@@ -235,8 +219,6 @@ void CheckProbesCannotCommitOrMutate() {
   Check(!Writing.CommitContext().IsProbing(),
         "a committing context is separated from probing");
 
-  // A converter that casts away constness still cannot mutate or publish: the
-  // frame refuses the operation and records the violation.
   ConversionContext Escaped = Probing;
   const WriteResult Reserved = Escaped.Reserve(ValueReservation{});
   Check(Reserved.Status == WriteStatus::ProbeViolation,
@@ -295,8 +277,6 @@ void CheckProbeRankingIsSeparateAndDeterministic() {
                         "X and Y."),
         "a rejection names the callable, the position, and the reason");
 
-  // The committing read of the selected candidate runs only through the
-  // committing context.
   ConversionContext Committing = Reading.CommitContext();
   const ConversionResult<Point> Result =
       Luna::ReadValue<Point>(Root, Committing);
@@ -354,7 +334,6 @@ void CheckWritersReserveBeforePublishing() {
 }
 
 void CheckWriterPolicyAndShapeValidation() {
-  // Reading frames never publish.
   {
     Frame Reading(ConversionDirection::Read, "Studio.Draw", 1);
     static_cast<void>(Reading.Open(OwnedValue::Nil()));
@@ -364,7 +343,6 @@ void CheckWriterPolicyAndShapeValidation() {
           "a reading frame refuses publication");
   }
 
-  // An unnamed aggregate field is an incomplete aggregate.
   {
     OwnedValue Incomplete = OwnedValue::Table();
     Incomplete.SetField("", OwnedValue::Number(1.0));
@@ -381,7 +359,6 @@ void CheckWriterPolicyAndShapeValidation() {
           "a refused aggregate publishes no partial table");
   }
 
-  // The inherited per-string byte policy is reported with both sizes.
   {
     const std::size_t Permitted = Luna::MaximumConversionStringBytes();
     Check(Permitted == 1'048'576,

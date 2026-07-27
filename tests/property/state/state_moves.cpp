@@ -80,9 +80,7 @@ void DestroySlot(std::array<std::optional<Luna::State>, SlotCount> &Actual,
 } // namespace
 
 int RunStateOwnershipTransitionsProperties() {
-  // **Validates: Requirements 1.2, 1.3, 1.5, 1.6, 1.7, 1.9**
   // clang-format off
-  // Feature: luau-binding-foundation, Property 1: State ownership follows the move-only model
   const bool Passed = rc::check(
       // clang-format on
       "State ownership follows the move-only model",

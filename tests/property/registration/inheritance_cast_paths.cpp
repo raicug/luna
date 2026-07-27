@@ -1,38 +1,3 @@
-// Property 29: inheritance and casts agree with unique accessible paths.
-//
-// Two halves are generated together, and both are compared with an independent
-// path-counting model written here rather than with Luna's own accounting.
-//
-// The first half generates whole candidate relationship graphs as values,
-// because every question registration asks about a relationship is decidable
-// without a virtual machine at all: how many nodes there are, which of them are
-// registered classes, which declared edges really are base edges, which are
-// publicly reachable, which carry a pointer adjustment, which are declared
-// twice, which close a cycle, which pairs are connected by two paths, and which
-// safe downcasts mirror one registered accessible path. The model counts simple
-// paths over the generated adjacency itself and predicts the earliest refusal
-// in the documented order, the number of accessible paths of every ordered
-// pair, the reachable base set of every class, and how many bases declare one
-// inherited name.
-//
-// Every graph the model accepts is then published, and the published graph is
-// compared with the same model again: the conversion kind of every ordered
-// pair, the composed pointer adjustment of every unique accessible path, and
-// the outcome of every safe downcast against a generated dynamic type. Whether
-// one object is a value of the target class is carried by the object itself,
-// never by where it happens to be stored, so recycled storage can never inherit
-// another object's dynamic type. A rejected compatibility check is required to
-// perform no committing conversion and to reach no native target at all.
-//
-// The second half takes a generated slice through real registration, so what
-// the graph decides is observable exactly as a consumer sees it: the acceptance
-// of a whole plan, the one contextual diagnostic of each refusal family, the
-// adjusted pointer each base view of a derived object receives, the safe
-// downcast that delivers a compatible object and refuses an incompatible one
-// before native code, the ordinary receiver validation and overload ranking a
-// base member reached with a derived receiver still goes through, and the exact
-// stack depth every outcome restores.
-
 // clang-format off
 #include <luna/binding/binding_registry.hpp>
 #include <luna/binding/class_builder.hpp>
@@ -75,8 +40,6 @@ using Luna::Detail::OwnershipModel;
 using Luna::Detail::RelationshipCandidate;
 using Luna::Detail::RelationshipFailure;
 
-// Deterministic byte source. Equal bytes always drive the equal graph, so a
-// shrunk counterexample replays exactly the same relationships.
 class ByteCursor final {
 public:
   explicit ByteCursor(const std::vector<std::uint8_t> &Bytes) noexcept
@@ -97,11 +60,6 @@ private:
   const std::vector<std::uint8_t> *BytesValue;
   std::size_t IndexValue = 0;
 };
-
-// ---------------------------------------------------------------------------
-// The generated graph, described entirely by node indices so nothing about it
-// depends on Luna's own identities.
-// ---------------------------------------------------------------------------
 
 constexpr std::size_t NodePoolSize = 6;
 constexpr std::size_t AdjustmentCount = 4;
@@ -126,8 +84,6 @@ constexpr std::size_t MemberNamePoolSize = 2;
   return std::string(Names[Index % MemberNamePoolSize]);
 }
 
-// One generated base edge: the class that declares it, the class it names, and
-// the declared C++ facts the declaration would have captured.
 struct GeneratedBase final {
   std::size_t Derived = 0;
   std::size_t Base = 0;
@@ -137,8 +93,6 @@ struct GeneratedBase final {
   std::size_t Adjustment = 0;
 };
 
-// One generated safe downcast: the class it targets, the class it starts at,
-// and whether the declaration named an identified non-mutating policy.
 struct GeneratedCast final {
   std::size_t Target = 0;
   std::size_t Source = 0;
@@ -164,14 +118,6 @@ struct ReferenceGraph final {
   return false;
 }
 
-// ---------------------------------------------------------------------------
-// The independent path-counting model.
-// ---------------------------------------------------------------------------
-
-// Every simple path of registered classes that leads from one class to another,
-// counted over the generated adjacency alone. A declared edge that names no
-// registered class connects nothing, and a class is never revisited, so a cycle
-// contributes no path of its own.
 void CountPaths(const ReferenceGraph &Graph, std::size_t Current,
                 std::size_t Target, std::vector<std::size_t> &Visited,
                 std::size_t &Found) {
@@ -201,7 +147,6 @@ void CountPaths(const ReferenceGraph &Graph, std::size_t Current,
   return Found;
 }
 
-// The ordered pointer adjustments of the one path a pair is connected by.
 [[nodiscard]] bool FindPathOffsets(const ReferenceGraph &Graph,
                                    std::size_t Current, std::size_t Target,
                                    std::vector<std::size_t> &Visited,
@@ -222,7 +167,6 @@ void CountPaths(const ReferenceGraph &Graph, std::size_t Current,
   return false;
 }
 
-// The base classes one class reaches, as a set.
 [[nodiscard]] std::vector<std::size_t>
 ReferenceReachableBases(const ReferenceGraph &Graph, std::size_t Source) {
   std::vector<std::size_t> Reached;
@@ -252,8 +196,6 @@ ReferenceReachableBases(const ReferenceGraph &Graph, std::size_t Source) {
   return Owners;
 }
 
-// Why one generated graph is refused. The order of the enumerators is the order
-// the model asks its questions in, which is the order the requirements state.
 enum class ReferenceFailure : std::uint8_t {
   None,
   UndeclaredBase,
@@ -297,8 +239,6 @@ ReferenceFailureText(ReferenceFailure Failure) noexcept {
   return "unsafe_cast_policy";
 }
 
-// The failure Luna reports, named in the model's own vocabulary, so the two are
-// compared as outcomes rather than as one enumeration cast to the other.
 [[nodiscard]] std::string_view NamedFailure(RelationshipFailure Failure) {
   return Luna::Detail::RelationshipFailureText(Failure);
 }
@@ -366,17 +306,6 @@ ReferenceFailureText(ReferenceFailure Failure) noexcept {
   return ReferenceFailure::None;
 }
 
-
-// ---------------------------------------------------------------------------
-// The published graph, and the objects its conversions are applied to.
-//
-// A node of a generated graph has no C++ type of its own, so one base edge is
-// represented by a distinct pure pointer adjustment and one safe downcast by a
-// distinct non-mutating compatibility check. Nothing is ever dereferenced
-// through an adjusted pointer: the model composes the same offsets itself and
-// the two results are compared.
-// ---------------------------------------------------------------------------
-
 template <std::size_t Offset> [[nodiscard]] void *AdjustForward(void *Object) {
   return static_cast<void *>(static_cast<std::byte *>(Object) + Offset);
 }
@@ -399,9 +328,6 @@ AdjustmentFor(std::size_t Index) {
   return &AdjustForward<32>;
 }
 
-// One object of a generated graph. Its dynamic class is carried by the object
-// itself, so no compatibility decision is ever keyed by storage address and
-// recycled storage never inherits another object's dynamic type.
 struct alignas(8) Subject final {
   std::uint32_t DynamicTag = 0;
   std::uint32_t Reserved = 0;
@@ -484,10 +410,6 @@ DowncastFor(std::size_t Target) {
   return &DowncastSubject<5>;
 }
 
-// ---------------------------------------------------------------------------
-// Building the candidate graph Luna validates, from the generated description.
-// ---------------------------------------------------------------------------
-
 [[nodiscard]] std::array<Luna::TypeId, NodePoolSize> NodeIdentities() {
   std::array<Luna::TypeId, NodePoolSize> Types;
   for (std::size_t Index = 0; Index < NodePoolSize; ++Index)
@@ -541,19 +463,11 @@ BuildCandidate(const ReferenceGraph &Graph,
   return Candidate;
 }
 
-// ---------------------------------------------------------------------------
-// The one gate every conversion of a generated graph is taken through: the
-// non-mutating check first, the committing adjustment only after it accepted,
-// and the native target only after that.
-// ---------------------------------------------------------------------------
-
 struct GateOutcome final {
   bool Accepted = false;
   void *Delivered = nullptr;
 };
 
-// Pointer identity, compared as a plain answer so no address is ever printed
-// into a counterexample.
 [[nodiscard]] bool Delivers(const void *Delivered, const void *Expected) {
   return Delivered != nullptr && Delivered == Expected;
 }
@@ -571,8 +485,6 @@ struct GateOutcome final {
   const void *const Checked =
       Luna::Detail::ProbeClassConversion(Resolved, &Value);
   if (Checked == nullptr) {
-    // A refused object never reaches a committing conversion, and never reaches
-    // a native target at all.
     RC_ASSERT(CommittedDowncasts == CommitsBefore);
     RC_ASSERT(NativeTargetCalls == CallsBefore);
     return Outcome;
@@ -580,8 +492,6 @@ struct GateOutcome final {
 
   Outcome.Delivered = Luna::Detail::ApplyClassConversion(Resolved, &Value);
   RC_ASSERT(!DeliversNothing(Outcome.Delivered));
-  // A checked conversion commits exactly the view its check accepted; a
-  // conversion that needs no check reports the storage it was offered.
   if (Resolved.RequiresCompatibilityCheck())
     RC_ASSERT(Delivers(Outcome.Delivered, Checked));
   else
@@ -591,15 +501,12 @@ struct GateOutcome final {
   return Outcome;
 }
 
-
 [[nodiscard]] ReferenceGraph GenerateGraph(ByteCursor &Cursor) {
   ReferenceGraph Graph;
   Graph.NodeCount = 2 + Cursor.Pick(NodePoolSize - 1);
   for (std::size_t Index = 0; Index < Graph.NodeCount; ++Index)
     Graph.Registered[Index] = true;
 
-  // One node of the pool is sometimes left unregistered, so an edge that names
-  // it names a class this State never registered at all.
   if (Graph.NodeCount >= 3 && Cursor.Pick(6) == 0)
     Graph.Registered[Cursor.Pick(Graph.NodeCount - 1)] = false;
 
@@ -609,9 +516,6 @@ struct GateOutcome final {
       Derivable.push_back(Index);
   }
 
-  // Edges normally lead from a higher node to a lower one, which keeps most
-  // graphs acyclic and lets diamonds appear on their own; the remaining shapes
-  // are an edge onto the class itself and an edge that points back down.
   const std::size_t EdgeCount = Derivable.empty() ? 0 : Cursor.Pick(7);
   for (std::size_t Step = 0; Step < EdgeCount; ++Step) {
     if (!Graph.Bases.empty() && Cursor.Pick(14) == 0) {
@@ -632,8 +536,6 @@ struct GateOutcome final {
     Edge.HasAdjustment = Cursor.Pick(18) != 0;
     Edge.Adjustment = Cursor.Pick(AdjustmentCount);
 
-    // A duplicate edge is only ever the deliberate one above, so the graphs
-    // that reach the accepted-and-published half stay plentiful.
     bool Repeated = false;
     for (const GeneratedBase &Existing : Graph.Bases) {
       if (Existing.Derived == Edge.Derived && Existing.Base == Edge.Base)
@@ -652,8 +554,6 @@ struct GateOutcome final {
 
     GeneratedCast Edge;
     if (!Graph.Bases.empty() && Cursor.Pick(4) != 0) {
-      // A downcast that mirrors one declared base edge, which is the only shape
-      // registration is able to accept.
       const GeneratedBase &Mirrored =
           Graph.Bases[Cursor.Pick(Graph.Bases.size())];
       Edge.Target = Mirrored.Derived;
@@ -684,10 +584,6 @@ struct GateOutcome final {
   }
   return Graph;
 }
-
-// ---------------------------------------------------------------------------
-// Every accepted graph, published and resolved.
-// ---------------------------------------------------------------------------
 
 void VerifyPublishedConversions(
     const ReferenceGraph &Graph,
@@ -757,8 +653,6 @@ void VerifyPublishedConversions(
       const ClassConversion Resolved =
           Published.Resolve(Types[Source], Types[Target]);
 
-      // The dynamic class of this object, carried by the object itself. One
-      // generated value names no registered class at all.
       Subject Value;
       Value.DynamicTag =
           static_cast<std::uint32_t>(Cursor.Pick(NodePoolSize + 1));
@@ -801,8 +695,6 @@ void VerifyPublishedConversions(
       }
 
       if (!Declared) {
-        // No registered accessible path and no registered policy: the pair is
-        // unrelated, so nothing is checked, adjusted, or invoked.
         RC_ASSERT(Resolved.Kind == ClassConversionKind::Unrelated);
         RC_ASSERT(!Resolved.IsViable());
         const GateOutcome Outcome = RunConversionGate(Resolved, Value);
@@ -828,7 +720,6 @@ void VerifyPublishedConversions(
       else
         RC_ASSERT(DeliversNothing(First.Delivered));
 
-      // The same object decides the same way every time it is offered.
       const GateOutcome Second = RunConversionGate(Resolved, Value);
       RC_ASSERT(Second.Accepted == First.Accepted);
       RC_ASSERT(Delivers(Second.Delivered, First.Delivered) ||
@@ -838,16 +729,10 @@ void VerifyPublishedConversions(
   }
 }
 
-// ---------------------------------------------------------------------------
-// The generated graph half.
-// ---------------------------------------------------------------------------
-
 void VerifyGeneratedRelationshipGraph(ByteCursor &Cursor) {
   const ReferenceGraph Graph = GenerateGraph(Cursor);
   const std::array<Luna::TypeId, NodePoolSize> Types = NodeIdentities();
 
-  // Every node owns one canonical identity of its own, derived from its stable
-  // key alone.
   for (std::size_t Index = 0; Index < NodePoolSize; ++Index) {
     RC_ASSERT(Types[Index].IsValid());
     RC_ASSERT(Types[Index] ==
@@ -868,7 +753,6 @@ void VerifyGeneratedRelationshipGraph(ByteCursor &Cursor) {
   if (Diagnostic)
     RC_ASSERT(!Diagnostic->Message().empty());
 
-  // Declaration order inside one plan never changes the outcome.
   const RelationshipCandidate Reversed = BuildCandidate(Graph, Types, true);
   RC_ASSERT(Luna::Detail::ClassifyRelationshipCandidate(Reversed) == Reported);
 
@@ -908,12 +792,6 @@ void VerifyGeneratedRelationshipGraph(ByteCursor &Cursor) {
   RC_TAG(std::string("graph: ") + std::string(ReferenceFailureText(Expected)));
 }
 
-
-// ---------------------------------------------------------------------------
-// The real registration slice: one generated scenario per case, taken through
-// the public builder and the ordinary access gate.
-// ---------------------------------------------------------------------------
-
 struct Vehicle {
   virtual ~Vehicle() = default;
   int Wheels = 4;
@@ -925,8 +803,6 @@ struct Vehicle {
   }
 };
 
-// A second base, so a derived-to-base adjustment of it is a real pointer
-// adjustment rather than the identity.
 struct Painted {
   int Coats = 2;
 
@@ -1147,10 +1023,6 @@ ReadAs(Luna::State &Owner, const std::string &Path,
   return Hooks::AccessClassUserdata(Owner, Request);
 }
 
-// One accepted model, exercised through the ordinary gate and the real virtual
-// machine: every base view of a derived object, one class no path leads to, the
-// safe downcast of a generated dynamic type, and the receiver validation and
-// overload ranking a base member still goes through.
 void ExerciseAcceptedModel(Luna::State &Owner, bool WithCast,
                            ByteCursor &Cursor) {
   std::uint64_t Lifetime = 1;
@@ -1172,8 +1044,6 @@ void ExerciseAcceptedModel(Luna::State &Owner, bool WithCast,
   RC_ASSERT(AsVehicle.ReachedNativeCode);
   RC_ASSERT(AsVehicle.DeliveredExpectedObject);
 
-  // The second base of this value really is at another offset, so this is the
-  // check that a path is composed rather than assumed to be the identity.
   RC_ASSERT(!Delivers(static_cast<Painted *>(&Value), &Value));
   const auto AsPainted = ReadAs(Owner, "TruckValue", "Studio.Painted",
                                 static_cast<Painted *>(&Value));
@@ -1196,8 +1066,6 @@ void ExerciseAcceptedModel(Luna::State &Owner, bool WithCast,
   RC_ASSERT(Hooks::ObserveIntegerGlobal(Owner, "Result") ==
             std::optional<int>(3));
 
-  // A base member reached with a derived receiver still selects its candidate
-  // by the ordinary conversion ranking of one canonical overload set.
   RC_ASSERT(Hooks::OverloadCandidateCount(Owner, "Studio.Vehicle.Describe") ==
             2);
   RC_ASSERT(Owner.Execute("Result = Studio.Vehicle.Describe(TruckValue, 3)")
@@ -1210,8 +1078,6 @@ void ExerciseAcceptedModel(Luna::State &Owner, bool WithCast,
   RC_ASSERT(Hooks::ObserveIntegerGlobal(Owner, "Result") ==
             std::optional<int>(1004));
 
-  // One object exposed as a value of its base, whose dynamic class is
-  // generated.
   const bool ReallyDerived = Cursor.Pick(2) == 0;
   Truck Actual;
   Actual.Wheels = 8;
@@ -1230,8 +1096,6 @@ void ExerciseAcceptedModel(Luna::State &Owner, bool WithCast,
     RC_ASSERT(AsDerived.ReachedNativeCode);
     RC_ASSERT(AsDerived.DeliveredExpectedObject);
   } else {
-    // Either no policy was registered at all, or the registered non-mutating
-    // check refused this object before any committing conversion.
     RC_ASSERT(!AsDerived.ReachedNativeCode);
     RC_ASSERT(!AsDerived.Diagnostic.empty());
     RC_ASSERT(AsDerived.Failure == (WithCast ? "incompatible_userdata_object"
@@ -1267,8 +1131,6 @@ void VerifyRegistrationSlice(ByteCursor &Cursor) {
   RC_ASSERT(Reported);
   RC_ASSERT(Contains(Diagnostic->Message(), Traits.Phrase));
 
-  // The refusal is one deterministic diagnostic, not a property of the State it
-  // happened in.
   Luna::State Elsewhere;
   const Luna::RegistrationResult Again = RegisterScenario(Elsewhere, Which);
   RC_ASSERT(!Again.IsSuccess());
@@ -1276,8 +1138,6 @@ void VerifyRegistrationSlice(ByteCursor &Cursor) {
   RC_ASSERT(ReportedAgain);
   RC_ASSERT(Again.Diagnostic()->Message() == Diagnostic->Message());
 
-  // Nothing was published, so the same State still registers the whole accepted
-  // model and every conversion it owns.
   RC_ASSERT(RegisterScenario(Owner, Scenario::AcceptedWithCast).IsSuccess());
   ExerciseAcceptedModel(Owner, true, Cursor);
   RC_TAG(std::string("registration: ") + Traits.Name);
@@ -1287,7 +1147,6 @@ void VerifyRegistrationSlice(ByteCursor &Cursor) {
 
 int RunInheritanceAndCastPathProperties() {
   // clang-format off
-  // **Validates: Requirements 14.1, 14.2, 14.3, 14.4, 14.8, 14.9**
   // Feature: reflection-driven-binding-system, Property 29: Inheritance and casts agree with unique accessible paths
   const bool Passed = rc::check(
       // clang-format on

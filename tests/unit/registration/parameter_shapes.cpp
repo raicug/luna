@@ -1,11 +1,3 @@
-// Declared parameter shapes: optional, defaulted, and variadic parameters.
-//
-// The checks here cover the registration half of the shape - what the adapter
-// describes, what the canonical signature carries, which shapes registration
-// refuses, and what reflection would report - plus the two Luna-owned variadic
-// forms and their lifetimes. Invocation through the real virtual machine is
-// covered by the declared-parameter integration case.
-
 // clang-format off
 #include <luna/binding/argument_pack.hpp>
 #include <luna/binding/binding_registry.hpp>
@@ -53,7 +45,6 @@ using Luna::ValueKind;
 
 [[nodiscard]] int Offset(int Value, int Amount) { return Value + Amount; }
 
-// A required parameter after an optional one is a shape registration refuses.
 [[nodiscard]] int Misordered(std::optional<int> First, int Second) {
   return (First ? *First : 0) + Second;
 }
@@ -75,7 +66,6 @@ static_assert(Luna::SupportedCallable<decltype(&CountedPack)>,
 static_assert(Luna::SupportedCallable<decltype(&Misordered)>,
               "a misordered shape compiles and is refused at registration");
 
-// At most one variadic parameter, and only as the final one.
 static_assert(!Luna::SupportedCallable<int (*)(Luna::ArgumentView, int)>,
               "a variadic parameter is never followed by another parameter");
 static_assert(
@@ -175,7 +165,6 @@ void CheckAdapterDescribesDeclaredShapes() {
             PackParameters[1].Retains(),
         "the owning pack is one final variadic parameter that retains");
 
-  // A foundation callable keeps describing itself exactly as before.
   const auto FoundationDescriptor =
       Luna::Detail::MakeErasedCallableDescriptor(&Offset);
   Check(!FoundationDescriptor.Metadata().HasRichParameters() &&

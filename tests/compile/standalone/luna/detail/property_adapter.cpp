@@ -7,9 +7,6 @@
 
 namespace {
 
-// The declared shape of every accepted and rejected accessor is decided from
-// this header alone: no other Luna header, no Luau include path, and nothing
-// but the standard library.
 struct StandaloneGadget final {
   int Charge = 0;
   const int Serial = 1;
@@ -35,8 +32,6 @@ using ReadShape = Luna::Detail::MemberReadShape<StandaloneGadget, Target>;
 template <class Target>
 using WriteShape = Luna::Detail::MemberWriteShape<StandaloneGadget, Target>;
 
-// A const accessor reads through a const view; every other accepted getter form
-// states what it needs instead.
 static_assert(
     ReadShape<int (StandaloneGadget::*)() const>::IsSupported &&
         !ReadShape<int (StandaloneGadget::*)() const>::RequiresMutableReceiver,
@@ -58,7 +53,6 @@ static_assert(
     std::is_same_v<typename ReadShape<int StandaloneGadget::*>::Declared, int>,
     "A field's declared value type is the type it holds.");
 
-// A mutator, a mutable data member, and a callable of the class are setters.
 static_assert(WriteShape<void (StandaloneGadget::*)(int)>::IsSupported,
               "A mutator of the class is a setter.");
 static_assert(WriteShape<int StandaloneGadget::*>::IsSupported,
@@ -66,7 +60,6 @@ static_assert(WriteShape<int StandaloneGadget::*>::IsSupported,
 static_assert(WriteShape<decltype(&StandaloneWrite)>::IsSupported,
               "A callable taking the class and one value is a setter.");
 
-// Every other form is rejected by the shape a registration is constrained on.
 static_assert(!ReadShape<void (StandaloneGadget::*)(int)>::IsSupported,
               "A setter is no getter.");
 static_assert(!ReadShape<int (*)(int)>::IsSupported,
@@ -78,8 +71,6 @@ static_assert(!WriteShape<int (StandaloneGadget::*)() const>::IsSupported,
 static_assert(!WriteShape<void (*)(int)>::IsSupported,
               "A callable that names no receiver is no setter.");
 
-// A declared value type Luna cannot copy across the member boundary is refused
-// by the value constraint rather than exposed.
 static_assert(
     !Luna::SupportedValue<
         typename ReadShape<float (StandaloneGadget::*)() const>::Declared>,

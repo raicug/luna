@@ -45,8 +45,6 @@ constexpr std::array AllSymbolKinds{
     Luna::SymbolKind::Field,        Luna::SymbolKind::Operator,
     Luna::SymbolKind::Type};
 
-// Deterministic byte source. Equal bytes always drive equal generation plans,
-// so a shrunk counterexample rebuilds the exact same commit sequence.
 class ByteCursor final {
 public:
   explicit ByteCursor(std::span<const std::uint8_t> Bytes) noexcept
@@ -91,8 +89,6 @@ private:
   return Text.size() < 2 ? "0" + Text : Text;
 }
 
-// Independent expected model of one committed generation. It stores only what
-// a snapshot must report, and it never shares an object with Luna's storage.
 struct ModelParameter final {
   std::string Name;
   Luna::ParameterDisposition Disposition = Luna::ParameterDisposition::Required;
@@ -173,8 +169,6 @@ CanonicalModules(std::vector<ModelModule> Modules) {
   return Modules;
 }
 
-// Plan one additional symbol for the next candidate generation. Every planned
-// symbol is internally consistent, so a valid plan always commits.
 void AppendSymbol(ByteCursor &Cursor, Builder &Candidate,
                   ModelGeneration &Model, std::size_t &SymbolCounter,
                   std::size_t &TypeCounter) {
@@ -191,8 +185,6 @@ void AppendSymbol(ByteCursor &Cursor, Builder &Candidate,
   const std::size_t Position = ++SymbolCounter;
   const std::size_t Choice = Cursor.Pick(10);
 
-  // A candidate signature joins an existing overload set; everything else
-  // nests under an existing namespace or module scope.
   if (Choice >= 8 && !Sets.empty()) {
     const ModelRecord &Set = Model.Records[Sets[Cursor.Pick(Sets.size())]];
     RecordFields Fields;
@@ -249,7 +241,6 @@ void AppendSymbol(ByteCursor &Cursor, Builder &Candidate,
     return;
   }
 
-  // A module symbol carries its own immutable provenance entry.
   if (Choice == 7) {
     RecordFields Fields;
     Fields.Kind = Luna::SymbolKind::Module;
@@ -316,8 +307,6 @@ void AppendSymbol(ByteCursor &Cursor, Builder &Candidate,
   Candidate.AddRecord(std::move(Fields));
   Model.Records.push_back(std::move(Expected));
 
-  // Canonical types are published by the same generation, so a snapshot must
-  // enumerate them in canonical order too.
   if (Cursor.Pick(3) == 0) {
     const std::size_t TypePosition = ++TypeCounter;
     Luna::Detail::ReflectionTypeFields Type;
@@ -340,7 +329,6 @@ void VerifyRecord(const Luna::ReflectionRecord &Observed,
   RC_ASSERT(Observed.Documentation() == Expected.Documentation);
   RC_ASSERT(Observed.Scope() == Expected.Scope);
   RC_ASSERT(Observed.OverloadSet() == Expected.OverloadSet);
-  // A record without an explicit declaration owner declares itself.
   RC_ASSERT(Observed.Declaration() == Expected.Id);
   RC_ASSERT(Observed.Returns() == Expected.Returns);
   RC_ASSERT(Observed.ReturnCount() == Expected.ReturnCount);
@@ -360,9 +348,6 @@ void VerifyRecord(const Luna::ReflectionRecord &Observed,
     RC_ASSERT(Observed.Module().Identity() == *Expected.ModuleIdentity);
 }
 
-// One snapshot observes exactly one complete generation: its enumeration,
-// lookups, types, and modules all agree with that generation's model, and no
-// symbol of any other generation is reachable from it.
 void VerifyGeneration(const Luna::ReflectionSnapshot &Snapshot,
                       const ModelGeneration &Model,
                       const ModelGeneration &Final) {
@@ -381,8 +366,6 @@ void VerifyGeneration(const Luna::ReflectionSnapshot &Snapshot,
     VerifyRecord(Symbols.At(Index), Ordered[Index]);
   RC_ASSERT(!Symbols.At(Ordered.size()).IsValid());
 
-  // Identity lookup reaches the same record; qualified-name lookup reaches the
-  // first record of that name in canonical order.
   for (const ModelRecord &Expected : Ordered) {
     VerifyRecord(Snapshot.Find(Expected.Id), Expected);
     const auto First = std::find_if(
@@ -439,7 +422,6 @@ void VerifyGeneration(const Luna::ReflectionSnapshot &Snapshot,
     RC_ASSERT(Modules.At(Index).Symbol() == OrderedModules[Index].Symbol);
   }
 
-  // Nothing published by a later generation is reachable from this one.
   for (const ModelRecord &Later : Final.Records) {
     const bool Present = std::find_if(Ordered.begin(), Ordered.end(),
                                       [&Later](const ModelRecord &Record) {
@@ -474,8 +456,6 @@ void VerifyRetained(const std::vector<Luna::ReflectionSnapshot> &Retained,
     VerifyGeneration(Retained[Index], Models[Index], Final);
 }
 
-// A rejected candidate publishes nothing, so the committed generation and every
-// retained snapshot stay exactly as they were.
 void VerifyRejectionPublishesNothing(Database &Reflection,
                                      const ModelGeneration &Committed) {
   Builder Rejected = Reflection.BeginGeneration();
@@ -497,7 +477,6 @@ void VerifyRejectionPublishesNothing(Database &Reflection,
 } // namespace
 
 int RunOwningReflectionSnapshotProperties() {
-  // **Validates: Requirements 3.2, 3.4, 3.5, 3.6, 3.7, 3.8**
   // clang-format off
   // Feature: reflection-driven-binding-system, Property 20: Reflection snapshots retain one complete immutable generation
   const bool Passed = rc::check(
@@ -520,7 +499,6 @@ int RunOwningReflectionSnapshotProperties() {
           Database *Reflection = Hooks::ReflectionDatabaseOf(Origin);
           RC_ASSERT(Reflection != nullptr);
 
-          // Every State starts by observing one empty generation.
           RC_ASSERT(Hooks::ReflectionGeneration(Origin) == 0);
           const Luna::ReflectionSnapshot Initial =
               Origin.Bindings().Reflection();
@@ -549,8 +527,6 @@ int RunOwningReflectionSnapshotProperties() {
                       Current.Generation);
             RC_ASSERT(Reflection->Count() == Current.Records.size());
 
-            // A query without an explicit snapshot captures exactly one
-            // committed generation before it is evaluated.
             Retained.push_back(Origin.Bindings().Reflection());
             Models.push_back(Current);
             VerifyRetained(Retained, Models, Current);
@@ -560,9 +536,6 @@ int RunOwningReflectionSnapshotProperties() {
               VerifyRetained(Retained, Models, Current);
             }
 
-            // Republishing the identical committed generation is the closest
-            // lifecycle transition the current code exposes; a real freeze
-            // transition arrives with the frozen-State milestone.
             if (Actions.Pick(3) == 0) {
               RC_ASSERT(Reflection->Publish(Reflection->Capture()));
               RC_ASSERT(Reflection->Generation() == Current.Generation);
@@ -570,9 +543,6 @@ int RunOwningReflectionSnapshotProperties() {
             }
           }
 
-          // A move transfers the exact committed generation, leaves the
-          // moved-from State non-ready with an empty model, and never disturbs
-          // a retained snapshot.
           Luna::State Moved = std::move(Origin);
           RC_ASSERT(!Origin.IsReady());
           RC_ASSERT(Hooks::ReflectionGeneration(Origin) == 0);
@@ -587,12 +557,8 @@ int RunOwningReflectionSnapshotProperties() {
           Models.push_back(Current);
         }
 
-        // Every retained snapshot outlives destruction of every originating
-        // State, unchanged and still readable.
         VerifyRetained(Retained, Models, Current);
 
-        // An owning snapshot holds no VM or mutable State storage, so another
-        // thread may read it after acquisition.
         const Luna::ReflectionSnapshot &Last = Retained.back();
         const std::vector<ModelRecord> Expected =
             CanonicalRecords(Current.Records);

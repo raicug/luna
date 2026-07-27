@@ -25,7 +25,6 @@ struct ReturnWriteObservation final {
   ReturnWriteResult Result;
   std::optional<Value> WrittenValue;
 
-  // The ordered values one published pack left in the result positions.
   std::vector<Value> WrittenValues;
   int StackDepth = 0;
 };

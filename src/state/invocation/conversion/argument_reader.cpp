@@ -31,8 +31,6 @@ ArgumentReadResult ReadArgument(const TypeGeneration &Types, lua_State *State,
     if (!Record || !Record->IsReadable || !Record->Read)
       return InternalFailure();
 
-    // One committing conversion, counted before it runs. Only the selected
-    // candidate of an overload set ever reaches this point.
     RecordCommittingArgumentRead();
     return Record->Read(State, StackIndex);
   } catch (...) {
@@ -52,8 +50,6 @@ ArgumentReadResult ReadArgument(lua_State *State, int StackIndex,
 }
 
 const char *ValueKindName(ValueKind Kind) noexcept {
-  // The foundation generation is immortal, so its public names outlive every
-  // diagnostic that borrows them.
   const std::shared_ptr<const TypeGeneration> Types =
       TypeGeneration::Foundation();
   if (!Types)

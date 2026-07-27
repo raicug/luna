@@ -24,8 +24,6 @@
 namespace Luna::Detail {
 namespace {
 
-// The foundation's own subject wording, for the branches that report before any
-// metadata is known at all.
 [[nodiscard]] std::string CallableContext(std::string_view GlobalName) {
   return DescribeConversionSubject(SubjectForCallable(GlobalName, false));
 }
@@ -42,9 +40,6 @@ namespace {
   return Stream.str();
 }
 
-// Metadata is consistent when the captured type generation describes every
-// declared parameter type in the reading direction and the declared return type
-// in the writing direction, with `void` as the only valueless return.
 [[nodiscard]] bool MetadataIsConsistent(const CallableMetadata &Metadata,
                                         const TypeGeneration &Types) {
   for (const ValueKind Kind : Metadata.ParameterTypes()) {
@@ -52,9 +47,6 @@ namespace {
       return false;
   }
 
-  // One instance member additionally reads the object it operates on, so the
-  // captured generation must describe that class in the reading direction
-  // before the member is invoked at all.
   if (const ReceiverMetadata *Receiver = Metadata.Receiver()) {
     if (!Receiver->IsDeclared() ||
         !Types.IsAvailableForRead(TypeDescriptor::ForClass(Receiver->Class())))
@@ -66,9 +58,6 @@ namespace {
     return Return.Kind() &&
            Types.IsAvailableForWrite(CanonicalValueType(*Return.Kind()));
 
-  // An ordered pack publishes one value per element, so consistency is the
-  // writability of every element type its shape declares. A dynamic pack
-  // declares none and is validated element by element at publication.
   if (Return.Disposition() == ReturnDisposition::Pack) {
     if (Return.Kind())
       return false;
@@ -79,8 +68,6 @@ namespace {
     return true;
   }
 
-  // One value of one registered class: the captured generation must describe
-  // that class in the writing direction, exactly as it must describe a scalar.
   if (Return.Disposition() == ReturnDisposition::Instance) {
     if (Return.Kind())
       return false;
@@ -163,9 +150,6 @@ ValidatedInvocation ValidateInvocation(lua_State *State,
       return Result;
     }
 
-    // From here on the callable's own metadata is known, so every diagnostic
-    // names it the way it describes itself: one instance member names its class
-    // and member, every other callable keeps the foundation's wording.
     const ConversionSubject Subject = InvocationSubject(GlobalName, Metadata);
     const std::string Named = DescribeConversionSubject(Subject);
 

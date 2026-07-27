@@ -1,28 +1,3 @@
-// Integration coverage of freeze through the real Luau compiler and virtual
-// machine.
-//
-// One representative fully populated State is built through the public API
-// alone: the established `Register` spelling, an explicit two-candidate
-// overload set, nested namespaces with constants, a scoped enumeration, a class
-// with a constructor, a method, a field, and one explicitly lazy property, and
-// one loaded module. The same battery of real script runs - successes and
-// refusals - is then executed three times: on the Ready State, after a refused
-// freeze, and after a successful freeze.
-//
-// What that combination proves, which no unit case can:
-//
-//   * Freeze changes nothing a script or a query can observe: every value,
-//   every
-//     diagnostic, and every reflected record is byte-for-byte what the unfrozen
-//     State produced.
-//   * A refused freeze is fully recoverable: the same battery runs identically
-//     afterwards, and a later freeze still succeeds.
-//   * Root stack depth returns to exactly where it started after freeze itself,
-//     after every script run, and after every refusal.
-//   * The established `Register` behavior - accepted forms, first-failure
-//     diagnostics, and exception translation - survives freeze unchanged, while
-//     every registration and module mutation is rejected.
-
 // clang-format off
 #include <luna/luna.hpp>
 
@@ -54,8 +29,6 @@ void Check(bool Condition, std::string_view Description) {
   std::cerr << "frozen state integration check failed: " << Description << '\n';
 }
 
-// -- the model under test ----------------------------------------------------
-
 enum class Mode { Off = 0, On = 1 };
 
 std::size_t LevelReads = 0;
@@ -80,11 +53,6 @@ struct Widget final {
 [[nodiscard]] int Measure(int Value) { return Value + 1; }
 [[nodiscard]] int Measure(int Value, int Scale) { return Value * Scale; }
 
-// One variadic tail and one fixed multiple-return shape. Both reflect canonical
-// shapes the type registry deliberately never describes as convertible types -
-// the owning public value of a variadic tail, and the ordered return pack of a
-// declared tuple - so freezing this model is what proves the frozen caches
-// accept every shape registration accepted.
 [[nodiscard]] int Tally(Luna::ArgumentView Arguments) {
   return static_cast<int>(Arguments.Size());
 }
@@ -123,7 +91,6 @@ void ConfigureUnits(Luna::NamespaceBuilder &Builder) {
 [[nodiscard]] bool RegisterModel(Luna::State &Owner) {
   Luna::BindingRegistry Registry = Owner.Bindings();
 
-  // The established spelling, unchanged, next to the explicit one.
   if (!Registry.Register("Increment", &Increment).IsSuccess())
     return false;
   if (!Registry.Register("Failing", &Failing).IsSuccess())
@@ -164,10 +131,6 @@ void ConfigureUnits(Luna::NamespaceBuilder &Builder) {
   return Registry.RegisterModule(UnitsManifest(), &ConfigureUnits).IsSuccess();
 }
 
-// -- the script battery ------------------------------------------------------
-
-// One script step: either an integer the script computed or the deterministic
-// diagnostic a refusal produced. Nothing here reads Luna's private storage.
 [[nodiscard]] std::string Value(Luna::State &Owner, const std::string &Source) {
   const Luna::ExecutionResult Result = Owner.Execute(Source);
   if (!Result.IsSuccess()) {
@@ -191,8 +154,6 @@ void ConfigureUnits(Luna::NamespaceBuilder &Builder) {
                     : std::string("<no diagnostic>");
 }
 
-// Every observable outcome of one complete run through the real compiler and
-// virtual machine, in one deterministic order.
 [[nodiscard]] std::vector<std::string> RunBattery(Luna::State &Owner) {
   std::vector<std::string> Observed;
 
@@ -282,8 +243,6 @@ void CheckFreezePreservesEveryObservableOutcome() {
   const Luna::ReflectionSnapshot Reflected = Registry.Reflection();
   const std::vector<std::string> Declared = OrderedNames(Reflected);
 
-  // A refused freeze is fully recoverable: the same battery answers identically
-  // afterwards, and the reflected metadata is untouched.
   Hooks::InjectFault(Owner, FaultPoint::FreezePreparation);
   const Luna::RegistrationResult Refused = Registry.Freeze();
   Check(!Refused.IsSuccess() && Refused.Diagnostic() != nullptr &&
@@ -318,9 +277,6 @@ void CheckFreezePreservesEveryObservableOutcome() {
   Check(Hooks::ObserveRootStackDepth(Owner) == EntryDepth,
         "every frozen script run and refusal restores the root stack depth");
 
-  // Existing `Register` compatibility: the accepted forms keep invoking, the
-  // first-failure diagnostics keep their wording, and a thrown standard
-  // exception is still translated - but no registration is accepted any more.
   Check(!Registry.Register("Later", &Increment).IsSuccess() &&
             !Registry.RegisterModule(UnitsManifest(), &ConfigureUnits)
                  .IsSuccess() &&

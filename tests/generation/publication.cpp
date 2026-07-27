@@ -1,11 +1,3 @@
-// Focused coverage for atomic artifact publication: a complete artifact is
-// revalidated, written to one unpublished file beside the destination, verified
-// byte for byte, and only then moved over the destination in one step. Every
-// refusal - an incomplete artifact, non-canonical bytes, an unusable
-// destination, or a failure while creating, writing, flushing, verifying, or
-// replacing - exposes no partial artifact, leaves no unpublished file behind,
-// and preserves any prior destination byte for byte.
-
 // clang-format off
 #include <luna/binding/binding_registry.hpp>
 #include <luna/binding/namespace_builder.hpp>
@@ -42,8 +34,6 @@ void Check(bool Condition, std::string_view Description) {
   std::cerr << "artifact publication check failed: " << Description << '\n';
 }
 
-// One private directory per test run, removed again when the test ends, so no
-// temporary file survives the suite.
 class ScratchDirectory final {
 public:
   explicit ScratchDirectory(std::string_view Name) {
@@ -73,8 +63,6 @@ public:
     return PathValue / std::filesystem::path(std::string(Name));
   }
 
-  // Every name the directory currently holds, so a leftover unpublished file
-  // cannot pass unnoticed.
   [[nodiscard]] std::vector<std::string> Names() const {
     std::vector<std::string> Found;
     std::error_code Error;
@@ -113,7 +101,6 @@ ReadBytes(const std::filesystem::path &Path) {
   return std::filesystem::exists(Path, Error);
 }
 
-// One artifact whose bytes are canonical and stable.
 [[nodiscard]] Luna::GeneratedArtifact Artifact(std::string Bytes) {
   return Luna::GeneratedArtifact::Complete(std::move(Bytes));
 }
@@ -128,8 +115,6 @@ ReadBytes(const std::filesystem::path &Path) {
   return Registry.Reflection();
 }
 
-// Requirement 16.6: a complete artifact replaces the destination exactly, and
-// publication leaves nothing but the destination behind.
 void CheckCompleteArtifactReplacesTheDestinationExactly() {
   const ScratchDirectory Scratch("complete");
   const std::filesystem::path Destination = Scratch.File("api.md");
@@ -163,8 +148,6 @@ void CheckCompleteArtifactReplacesTheDestinationExactly() {
         "an empty but complete artifact publishes as an empty destination");
 }
 
-// Requirements 16.5, 16.6: a rejected generation and non-canonical bytes both
-// refuse publication before the destination is touched.
 void CheckRefusedArtifactsPreserveThePriorDestination() {
   const ScratchDirectory Scratch("artifact");
   const std::filesystem::path Destination = Scratch.File("api.md");
@@ -213,8 +196,6 @@ void CheckRefusedArtifactsPreserveThePriorDestination() {
         "a default publication is the reserved unspecified outcome");
 }
 
-// Requirement 16.6: a destination that cannot name a replaceable file is
-// refused, and no partial artifact appears anywhere.
 void CheckUnusableDestinationsAreRefused() {
   const ScratchDirectory Scratch("destination");
   const std::filesystem::path Directory = Scratch.File("nested");
@@ -246,8 +227,6 @@ void CheckUnusableDestinationsAreRefused() {
         "a missing destination directory is never created");
 }
 
-// Requirement 16.6: every stage after the artifact is accepted can fail, and
-// each failure preserves the prior destination byte for byte.
 void CheckEveryDestinationStageFailurePreservesThePriorDestination() {
   using Luna::Detail::ArtifactPublicationFault;
   using Luna::Detail::ScopedArtifactPublicationFault;
@@ -288,7 +267,6 @@ void CheckEveryDestinationStageFailurePreservesThePriorDestination() {
   Failing(ArtifactPublicationFault::Replacement,
           "a failed replacement refuses publication");
 
-  // A destination that never existed must still not exist after a failure.
   const ScratchDirectory Scratch("absent");
   const std::filesystem::path Destination = Scratch.File("api.md");
   const ScopedArtifactPublicationFault Injected(
@@ -301,8 +279,6 @@ void CheckEveryDestinationStageFailurePreservesThePriorDestination() {
         "a failed publication exposes no partial artifact at all");
 }
 
-// Requirement 16.6: the injection is scoped, so a later publication succeeds
-// exactly as it would have without it.
 void CheckInjectedFailuresDoNotOutliveTheirScope() {
   using Luna::Detail::ArtifactPublicationFault;
   using Luna::Detail::ScopedArtifactPublicationFault;
@@ -327,9 +303,6 @@ void CheckInjectedFailuresDoNotOutliveTheirScope() {
         "the destination holds the last published artifact");
 }
 
-// Requirements 16.5, 16.6: generating and publishing in one step publishes the
-// same bytes generation returns, and a generation rejection never touches the
-// destination.
 void CheckSnapshotPublicationMatchesGeneration() {
   const ScratchDirectory Scratch("snapshot");
   Luna::State Owner;
@@ -358,8 +331,6 @@ void CheckSnapshotPublicationMatchesGeneration() {
                 Luna::GenerateDeclarations(Snapshot, Declarations).Bytes()),
         "the destination holds exactly the generated declarations");
 
-  // Metadata that cannot be encoded canonically rejects generation, so the
-  // prior destination keeps its bytes.
   const std::string Prior = *ReadBytes(DocumentationPath);
   Luna::State Malformed;
   Luna::BindingRegistry Registry = Malformed.Bindings();

@@ -58,9 +58,7 @@ constexpr std::string_view MessageCharacters =
 } // namespace
 
 int RunStandardExceptionTranslationProperties() {
-  // **Validates: Requirements 5.13**
   // clang-format off
-  // Feature: luau-binding-foundation, Property 12: Standard exceptions are translated with context
   const bool Passed = rc::check(
       // clang-format on
       "Standard exceptions are translated with context",

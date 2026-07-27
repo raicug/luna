@@ -38,9 +38,6 @@ CompareText(std::string_view Left, std::string_view Right) noexcept {
   return std::strong_ordering::equal;
 }
 
-// A category installs a value at a canonical virtual-machine path only when it
-// owns one; a reflection record, a canonical type, and a dispatch target do
-// not touch the virtual machine at all.
 [[nodiscard]] constexpr bool RequiresVmPath(PlanEntryKind Category) noexcept {
   switch (Category) {
   case PlanEntryKind::Function:
@@ -101,8 +98,6 @@ bool DescriptorPlanEntry::IsValid() const {
   case PlanEntryKind::ReflectionRecord:
     return Record.has_value();
   case PlanEntryKind::ClassMember:
-    // One member is one reflected symbol plus the generated descriptors of the
-    // directions it permits, so a member with neither is never complete.
     return Record.has_value() && ClassMember.has_value() &&
            (ClassMember->Read != nullptr || ClassMember->Write != nullptr);
   default:
@@ -112,8 +107,6 @@ bool DescriptorPlanEntry::IsValid() const {
 
 CallableSignatureDescriptor
 CanonicalFoundationSignature(const CallableMetadata &Metadata) {
-  // A declared optional, defaulted, or variadic shape is described by the same
-  // canonical signature, through the two fields the model reserves for it.
   if (Metadata.HasRichParameters())
     return CanonicalDeclaredSignature(Metadata);
 
@@ -121,8 +114,6 @@ CanonicalFoundationSignature(const CallableMetadata &Metadata) {
   for (const ValueKind Parameter : Metadata.ParameterTypes())
     Signature.ParameterTypes.push_back(CanonicalValueType(Parameter));
 
-  // The foundation accepts only required scalar parameters and no variadic
-  // tail, so the canonical shape follows from the metadata alone.
   Signature.RequiredParameterCount = Signature.ParameterTypes.size();
   Signature.IsVariadic = false;
 
@@ -141,8 +132,6 @@ DescriptorPlanEntry MakeFunctionPlanEntry(std::string QualifiedName,
       CanonicalFoundationSignature(Callable.Metadata());
   const std::string LocalName = std::string(FinalSegment(QualifiedName));
 
-  // The overload set of the qualified name. Its identity depends only on the
-  // name and the parent scope, never on which candidate declared it first.
   const SymbolDescriptor SetSymbol =
       MakeOverloadSetSymbol(QualifiedName, Parent);
   SymbolId SetIdentity;
@@ -165,9 +154,6 @@ DescriptorPlanEntry MakeFunctionPlanEntry(std::string QualifiedName,
     Entry.OverloadSetRecord = std::move(SetRecord);
   }
 
-  // The candidate's own record: its ordered parameters with their dispositions
-  // and immutable defaults, its returned values, its return shape, and the
-  // overload set it belongs to.
   ReflectionRecordFields Record;
   Record.Kind = SymbolKind::FunctionCandidate;
   Record.Id = Entry.Identity;
@@ -195,9 +181,6 @@ void ApplyDeclaredAnnotations(DescriptorPlanEntry &Entry,
                               std::string_view Documentation,
                               std::vector<ReflectionAttributeFields> Attributes,
                               std::vector<std::string> Examples) {
-  // A declaration that reflects nothing has nothing to annotate, so a metatable
-  // identity or a dispatch target is never given documentation it could not
-  // publish.
   if (!Entry.Record)
     return;
   Entry.Record->Documentation = std::string(Documentation);
@@ -228,8 +211,6 @@ DescriptorPlanEntry MakeTypePlanEntry(std::string QualifiedName,
   Fields.Name = std::move(QualifiedName);
   Fields.Descriptor = Type.Descriptor;
 
-  // The declaring symbol is named only once a reflection record describes it;
-  // a type declaration on its own contributes no record to point at.
   Entry.TypeFields = std::move(Fields);
 
   Entry.TypeConversion = std::move(Type);
@@ -296,8 +277,6 @@ std::size_t PlannedReflectionRecordCount(const DescriptorPlan &Plan) noexcept {
     if (Entry.Record)
       ++Result;
 
-    // The overload set of a callable is one further record, and only the
-    // declaration that opens the set carries it.
     if (Entry.OverloadSetRecord)
       ++Result;
   }

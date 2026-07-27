@@ -68,9 +68,7 @@ std::string VerificationSource(const std::vector<std::string> &Names) {
 } // namespace
 
 int RunFailedRegistrationTransactionsProperties() {
-  // **Validates: Requirements 3.4, 3.7, 3.9**
   // clang-format off
-  // Feature: luau-binding-foundation, Property 4: Failed registration is transactional
   const bool Passed = rc::check(
       // clang-format on
       "Failed registration is transactional",

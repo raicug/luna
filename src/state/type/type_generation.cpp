@@ -20,12 +20,9 @@
 namespace Luna::Detail {
 namespace {
 
-// Classification of one candidate against one already accepted declaration.
 [[nodiscard]] TypeDeclarationStatus Compare(const TypeRecord &Existing,
                                             const TypeRecord &Candidate) {
   if (Existing.Descriptor == Candidate.Descriptor) {
-    // One canonical descriptor has exactly one identity. A second identity for
-    // the same descriptor contradicts the canonical model.
     if (Existing.Identity != Candidate.Identity)
       return TypeDeclarationStatus::DescriptorCollision;
     if (!HasSameConverters(Existing, Candidate))
@@ -35,8 +32,6 @@ namespace {
     return TypeDeclarationStatus::IdempotentDuplicate;
   }
 
-  // An identity match with an unequal descriptor is a collision, never an
-  // order-dependent reassignment.
   if (Existing.Identity == Candidate.Identity)
     return TypeDeclarationStatus::DescriptorCollision;
 
@@ -95,8 +90,6 @@ ClassifyTypeDeclaration(const TypeGeneration &Current,
       return Status;
   }
 
-  // Every nested type a declaration is built from must already be available:
-  // a converter can never recurse into a type the registry does not describe.
   for (const TypeId &Nested : Candidate.NestedTypes) {
     if (!KnowsIdentity(Current, Pending, Nested))
       return TypeDeclarationStatus::UnavailableNestedType;
@@ -134,8 +127,6 @@ TypeGeneration::Build(std::vector<TypeRecord> Records,
     Accepted.push_back(std::move(Candidate));
   }
 
-  // Canonical order, never declaration order: an equivalent declaration set
-  // always produces one identical generation.
   std::sort(Accepted.begin(), Accepted.end(), TypeRecordPrecedes);
 
   std::shared_ptr<TypeGeneration> Built(new TypeGeneration());
@@ -174,6 +165,21 @@ TypeGeneration::Derive(const TypeGeneration &Current,
   std::shared_ptr<TypeGeneration> Next(new TypeGeneration());
   Next->GenerationValue = Current.GenerationValue + 1;
   Next->Records = std::move(Records);
+  return Next;
+}
+
+std::shared_ptr<const TypeGeneration>
+TypeGeneration::Retain(const TypeGeneration &Current,
+                       std::vector<TypeRecord> Retained,
+                       TypeDeclarationStatus &Status) {
+  std::shared_ptr<const TypeGeneration> Built =
+      Build(std::move(Retained), Status);
+  if (!Built)
+    return nullptr;
+
+  std::shared_ptr<TypeGeneration> Next(new TypeGeneration());
+  Next->GenerationValue = Current.GenerationValue + 1;
+  Next->Records = Built->Records;
   return Next;
 }
 

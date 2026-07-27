@@ -1,9 +1,3 @@
-// Focused coverage of the conversion registry edges the type, boundary, and
-// structural suites do not already own: the ordered exact/safe/user rank
-// categories, nullability of every declared type, deterministic refusal of
-// unsupported and unavailable types, empty aggregates, enumeration and class
-// identity, and the one real resource bound a publication has to reserve.
-
 // clang-format off
 #include <luna/binding/conversion.hpp>
 #include <luna/binding/value.hpp>
@@ -83,8 +77,6 @@ ArgumentMessage(const Luna::Detail::StructuredDiagnostic &Diagnostic,
                                    Position, Diagnostic);
 }
 
-// The registry's rank category and the public rank a converter author reports
-// are one ordered vocabulary, so the private and public spellings must agree.
 [[nodiscard]] Luna::ConversionRank PublicRankOf(ConversionRankCategory Rank) {
   switch (Rank) {
   case ConversionRankCategory::Exact:
@@ -97,9 +89,6 @@ ArgumentMessage(const Luna::Detail::StructuredDiagnostic &Diagnostic,
   return Luna::ConversionRank::User;
 }
 
-// One consumer type per rank category. Nothing but the reported rank differs,
-// so a rank is observably a converter's own declaration rather than a score
-// Luna derives.
 struct ExactHandle final {
   double Value = 0.0;
 };
@@ -222,8 +211,6 @@ public:
 
 namespace {
 
-// The three categories are one ordered vocabulary in both spellings, and
-// ordering is by category position rather than by any accumulated score.
 static_assert(static_cast<int>(ConversionRankCategory::Exact) <
                       static_cast<int>(ConversionRankCategory::SafeBuiltIn) &&
                   static_cast<int>(ConversionRankCategory::SafeBuiltIn) <
@@ -260,8 +247,6 @@ void CheckDeclaredRanksFollowTheirConversion() {
   if (!BuiltIn)
     return;
 
-  // A foundation conversion is exact; so is null, which is the one value its
-  // own type describes.
   for (const FixedTypeKey Key :
        {FixedTypeKey::Void, FixedTypeKey::Boolean, FixedTypeKey::Int32,
         FixedTypeKey::Double, FixedTypeKey::String, FixedTypeKey::Null}) {
@@ -270,7 +255,6 @@ void CheckDeclaredRanksFollowTheirConversion() {
           "a foundation type and null convert exactly");
   }
 
-  // A representation-changing built-in scalar is a safe built-in conversion.
   for (const FixedTypeKey Key :
        {FixedTypeKey::Float, FixedTypeKey::StringView, FixedTypeKey::CString}) {
     const TypeRecord *Record = BuiltIn->Find(Fixed(Key));
@@ -279,16 +263,12 @@ void CheckDeclaredRanksFollowTheirConversion() {
           "a planned built-in scalar converts as a safe built-in");
   }
 
-  // No registry-owned declaration ever claims the user category: that rank
-  // belongs to a consumer's own converter.
   bool AnyUserRank = false;
   for (const TypeRecord &Record : BuiltIn->All())
     AnyUserRank = AnyUserRank || Record.Rank == ConversionRankCategory::User;
   Check(!AnyUserRank,
         "the user rank category is reserved for consumer converters");
 
-  // A structural aggregate is a safe built-in conversion, and an optional
-  // inherits the rank of the type it wraps rather than inventing one.
   const struct AggregateCase final {
     TypeDescriptor Type;
     ConversionRankCategory Rank;
@@ -318,8 +298,6 @@ void CheckDeclaredRanksFollowTheirConversion() {
 }
 
 void CheckConsumerConvertersReportTheirOwnRank() {
-  // The frame token vocabulary is the public read/write direction, which is
-  // separate from the argument/return direction diagnostics report.
   Frame Reading(Luna::ConversionDirection::Read, "Studio.Draw", 1);
   const Luna::ValueView Number = Reading.Open(Luna::OwnedValue::Number(2.5));
   const Luna::ConversionContext Probing = Reading.ProbeContext();
@@ -340,8 +318,6 @@ void CheckConsumerConvertersReportTheirOwnRank() {
             static_cast<int>(Safe.Rank) < static_cast<int>(User.Rank),
         "three viable candidates order exact before safe built-in before user");
 
-  // The same value, the same generation, and the same policy probe identically
-  // every time.
   Check(Luna::ProbeValue<UserHandle>(Number, Probing).Rank == User.Rank &&
             Luna::ProbeValue<ExactHandle>(Number, Probing).Rank == Exact.Rank,
         "ranking the same value twice is deterministic");
@@ -385,7 +361,6 @@ void CheckNullabilityIsDeclaredAndEnforced() {
   Check(SequenceRecord != nullptr && !SequenceRecord->IsNullable,
         "an aggregate is not nullable");
 
-  // Enforcement matches the declaration in both directions.
   const auto ScalarNil =
       Hooks::Read(ScriptValue::Nil(), Fixed(FixedTypeKey::Int32));
   Check(!ScalarNil.Accepted &&
@@ -420,8 +395,6 @@ void CheckUnsupportedAndUnavailableTypesAreRefused() {
   if (!BuiltIn)
     return;
 
-  // An invalid canonical descriptor is never declared, and the refusal names
-  // it.
   std::vector<TypeRecord> Declared;
   TypeDescriptor Blocking;
   Check(Luna::Detail::DeclareStructuralTypes(
@@ -431,8 +404,6 @@ void CheckUnsupportedAndUnavailableTypesAreRefused() {
   Check(Declared.empty() && Blocking == TypeDescriptor::Unsupported(),
         "a refused declaration adds nothing and names the blocking type");
 
-  // A structural type over an aggregate of unsupported children is refused the
-  // same way, before any child record is added.
   std::vector<TypeDescriptor> BadChildren;
   BadChildren.push_back(TypeDescriptor::Unsupported());
   Check(Luna::Detail::DeclareStructuralTypes(
@@ -442,8 +413,6 @@ void CheckUnsupportedAndUnavailableTypesAreRefused() {
         "an aggregate over an unsupported child is refused");
   Check(Declared.empty(), "a refused aggregate declares no child record");
 
-  // An unregistered class or enumeration leaf is available only once its own
-  // registration declares it.
   const TypeDescriptor UnknownClass =
       TypeDescriptor::ForClass(StableTypeKey("Studio.Unregistered"));
   Check(Luna::Detail::DeclareStructuralTypes(
@@ -460,8 +429,6 @@ void CheckUnsupportedAndUnavailableTypesAreRefused() {
             StructuralDeclarationStatus::UnavailableLeaf,
         "an unregistered enumeration leaf is unavailable");
 
-  // Conversion through a type the captured generation cannot describe is one
-  // deterministic internal refusal rather than a guess.
   Check(Hooks::GenerationFor(TypeDescriptor::Unsupported()) == nullptr,
         "an unsupported type never enters a generation");
   const auto Read =
@@ -509,7 +476,6 @@ void CheckEnumerationAndClassIdentity() {
             Enumeration.Descriptor.Key() == Class.Descriptor.Key(),
         "both leaves keep the same stable key and their own kind");
 
-  // A different key is a different type, and both remain complete declarations.
   const TypeRecord Other = Luna::Detail::DeclareEnumerationTypeRecord(
       StableTypeKey("Studio.Anchor"), "Studio.Anchor");
   Check(Other.Identity != Enumeration.Identity,
@@ -545,7 +511,6 @@ void CheckEmptyAggregatesConvertAndPublish() {
           "an empty aggregate publishes one empty table and round-trips");
   }
 
-  // An empty return pack is the ordered-multiple-value shape with no values.
   const auto EmptyPack = Hooks::PublishReturn(
       StructuredValue::List({}), Luna::Detail::ReturnPackTypeOf({}));
   Check(EmptyPack.Accepted && EmptyPack.PublishedCount == 0 &&
@@ -554,8 +519,6 @@ void CheckEmptyAggregatesConvertAndPublish() {
 }
 
 void CheckPublicationReservesRealStackCapacity() {
-  // A homogeneous return pack has no Luna-chosen element cap, so a large pack
-  // publishes its ordered values.
   const TypeDescriptor Pack =
       Luna::Detail::ReturnPackTypeOf({Fixed(FixedTypeKey::Int32)});
 
@@ -568,9 +531,6 @@ void CheckPublicationReservesRealStackCapacity() {
             Published.RoundTripMatches,
         "a large return pack publishes every ordered value");
 
-  // The one remaining bound is the capacity the virtual machine can actually
-  // reserve. Reserving it fails before anything is published, and the refusal
-  // reports the number of slots the publication needed.
   constexpr std::size_t Unreservable = 8'192;
   std::vector<StructuredValue> Refused;
   for (std::size_t Element = 0; Element < Unreservable; ++Element)

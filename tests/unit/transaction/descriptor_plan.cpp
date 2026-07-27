@@ -107,7 +107,6 @@ void CheckFoundationPlanEntry() {
             "an int parameter maps to the canonical int32 type");
   }
 
-  // Equal requests describe one identity; a different signature does not.
   const DescriptorPlanEntry Same = MakeFunctionPlanEntry("Add", IntegerAdder());
   const DescriptorPlanEntry Other = MakeFunctionPlanEntry("Add", TextLength());
   Check(Same.Identity == Entry.Identity,
@@ -115,7 +114,6 @@ void CheckFoundationPlanEntry() {
   Check(Other.Identity != Entry.Identity,
         "a different signature plans a different identity");
 
-  // Void returns map to the canonical void type rather than a value type.
   const DescriptorPlanEntry Sink = MakeFunctionPlanEntry(
       "Sink", Luna::Detail::MakeErasedCallableDescriptor([](int) {}));
   Check(Sink.Symbol.Signature.has_value() &&
@@ -123,7 +121,6 @@ void CheckFoundationPlanEntry() {
                 Luna::TypeDescriptor::ForFixed(Luna::FixedTypeKey::Void),
         "a void return maps to the canonical void type");
 
-  // An entry without its required payload is incomplete.
   DescriptorPlanEntry Incomplete = MakeFunctionPlanEntry("Add", IntegerAdder());
   Incomplete.Callable.reset();
   Check(!Incomplete.IsValid(),
@@ -297,7 +294,6 @@ void CheckSymbolViewAndTransaction() {
   Check(Transaction.Status() == Luna::Detail::TransactionStatus::RolledBack,
         "a poisoned transaction rolls back");
 
-  // Nested submissions join the active outer transaction.
   RegistrationTransaction Outer(GenerationSet::Initial());
   RegistrationTransaction Nested(GenerationSet::Initial());
   RegistrationTransaction *Active = nullptr;
@@ -350,7 +346,6 @@ void CheckStateOwnsTheGenerationSet() {
   Check(OtherIdentity.has_value() && *OtherIdentity != *Identity,
         "two States never share one logical identity");
 
-  // Registration keeps its observable behavior while routing through the plan.
   const auto Registration = Owner.Bindings().Register("Add", &AddIntegers);
   Check(Registration.IsSuccess(), "registration still succeeds");
   Check(!Hooks::HasActiveTransaction(Owner),

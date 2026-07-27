@@ -1,29 +1,3 @@
-// Integration coverage of the whole typed class-member surface through the real
-// Luau compiler and virtual machine.
-//
-// Nothing here reaches a member through a private hook: every object is created
-// by script through a declared constructor, every method is called from script,
-// and every property and field is read and written as ordinary script syntax.
-// What that combination proves, which no unit case can:
-//
-//   * A class living two namespace levels down publishes its whole member
-//     surface in one transaction, and the class table a script reaches its
-//     members through is the same value the object reaches them through.
-//   * A member-pointer target declared on a base class operates on the derived
-//     object the call site supplied, and a virtual one dispatches on that
-//     object rather than on the class the pointer was declared in.
-//   * Every `PropertyPolicy` mode behaves as declared from script: an immediate
-//     read, a computed read that never reuses anything, a lazy read that reuses
-//     exactly one successful result per object, and every direction refusal.
-//   * The lazy cache is driven entirely through script reads and writes: a
-//     failing getter records nothing, a successful write invalidates, and a
-//     generation change invalidates by mismatch.
-//   * A setter that mutates its object and then throws leaves the mutation
-//     readable through a field, because Luna promises virtual-machine rollback
-//     after user code starts and nothing more.
-//   * Two States that registered the same surface in different orders report
-//     byte-for-byte identical diagnostics.
-
 // clang-format off
 #include <luna/luna.hpp>
 
@@ -52,12 +26,6 @@ void Check(bool Condition, std::string_view Description) {
   std::cerr << "class member integration check failed: " << Description << '\n';
 }
 
-// -- the model under test ---------------------------------------------------
-
-// How often each declared target ran. A lazy getter that produced a value once
-// must not run again while that value is still valid, and a refused access must
-// not run its target at all, so these counters are the direct observation of
-// both.
 std::size_t LevelReads = 0;
 std::size_t ChargeCalls = 0;
 std::size_t SideReads = 0;
@@ -86,9 +54,6 @@ void ResetCounters() {
   MarkCalls = 0;
 }
 
-// The base class. Its members are declared here and registered on the derived
-// class, so a base-declared member pointer and a virtual one both operate on
-// the object the call site supplied.
 struct Container {
   virtual ~Container() = default;
 
@@ -110,10 +75,6 @@ struct Container {
   }
 };
 
-// The registered class. Its own accessors carry every property mode and both
-// field forms, and the failure of its lazy getter is a per-object policy the
-// getter reads rather than anything keyed by storage - a script sets it through
-// an ordinary writable field.
 struct Crate final : Container {
   int Slots = 5;
   const int Serial = 42;
@@ -158,8 +119,6 @@ struct Crate final : Container {
     return Slots + First + Second;
   }
 
-  // The setter that makes the side-effect boundary observable from script: it
-  // changes the object first and only then refuses.
   void Mark(int Value) {
     ++MarkCalls;
     Trace = Value;
@@ -177,8 +136,6 @@ struct Crate final : Container {
   }
 };
 
-// One explicit wrapper member: it states the object it operates on through its
-// first parameter rather than through a member pointer.
 [[nodiscard]] int SumOf(const Crate &Source) {
   ++SumCalls;
   return Source.Slots + Source.Energy;
@@ -190,8 +147,6 @@ struct Crate final : Container {
 
 constexpr std::string_view CrateName = "Studio.Physics.Crate";
 
-// The whole member surface of one class two namespace levels down, published as
-// one plan.
 [[nodiscard]] bool RegisterModel(Luna::State &Owner) {
   Luna::BindingRegistry Registry = Owner.Bindings();
   Luna::NamespaceBuilder Studio = Registry.RegisterNamespace("Studio");
@@ -201,9 +156,6 @@ constexpr std::string_view CrateName = "Studio.Physics.Crate";
 
   Luna::ClassBuilder<Crate> &WithConstructor = Class.Constructor<>();
 
-  // Methods: two base-declared member pointers, one virtual member, one
-  // explicit wrapper, one overload set selected without a macro, one throwing
-  // member, and one static member.
   Luna::ClassBuilder<Crate> &WithMethods =
       WithConstructor.Method("Level", &Container::Level)
           .Method("Charge", &Container::Charge)
@@ -215,7 +167,6 @@ constexpr std::string_view CrateName = "Studio.Physics.Crate";
           .Method("Fail", &Crate::Fail)
           .StaticMethod("Faces", &Crate::Faces);
 
-  // Properties: both default forms plus every explicit policy.
   Luna::ClassBuilder<Crate> &WithProperties =
       WithMethods.Property("Capacity", &Crate::Capacity, &Crate::SetCapacity)
           .Property("Weight", &Crate::Weight)
@@ -234,8 +185,6 @@ constexpr std::string_view CrateName = "Studio.Physics.Crate";
                     &Crate::Capacity, &Crate::SetCapacity)
           .Property("Marked", Luna::PropertyPolicy::WriteOnly(), &Crate::Mark);
 
-  // Fields: writable, const, explicitly read-only, and both explicit policy
-  // factories.
   Luna::ClassBuilder<Crate> &WithFields =
       WithProperties
           .Field("Slots", &Crate::Slots, Luna::FieldPolicy::ReadWrite())
@@ -252,10 +201,6 @@ constexpr std::string_view CrateName = "Studio.Physics.Crate";
   return Studio.Commit().IsSuccess();
 }
 
-// Exactly the same surface, declared in a different order: the fields first,
-// then the properties, then the methods, then the constructor, with the deeper
-// namespace opened before a sibling one. A diagnostic that depends on
-// registration order cannot survive this.
 [[nodiscard]] bool RegisterPermutedModel(Luna::State &Owner) {
   Luna::BindingRegistry Registry = Owner.Bindings();
   Luna::NamespaceBuilder Studio = Registry.RegisterNamespace("Studio");
@@ -307,8 +252,6 @@ constexpr std::string_view CrateName = "Studio.Physics.Crate";
   return Studio.Commit().IsSuccess();
 }
 
-// -- helpers ----------------------------------------------------------------
-
 [[nodiscard]] bool Succeeds(Luna::State &Owner, std::string_view Source) {
   const Luna::ExecutionResult Result = Owner.Execute(Source);
   if (Result.IsSuccess())
@@ -331,7 +274,6 @@ constexpr std::string_view CrateName = "Studio.Physics.Crate";
   return Text.find(Needle) != std::string_view::npos;
 }
 
-// One integer the script computed, read back without any conversion of its own.
 [[nodiscard]] int ScriptResult(Luna::State &Owner, const std::string &Source) {
   if (!Succeeds(Owner, Source))
     return -1;
@@ -339,7 +281,6 @@ constexpr std::string_view CrateName = "Studio.Physics.Crate";
   return Observed ? *Observed : -1;
 }
 
-// The callback checkpoint a refused access restores exactly.
 [[nodiscard]] bool RestoredCheckpoint(const Luna::State &Owner) {
   const auto Observation = Hooks::ObserveLastCallbackStackRestoration(Owner);
   return Observation.has_value() &&
@@ -347,8 +288,6 @@ constexpr std::string_view CrateName = "Studio.Physics.Crate";
          Observation->ErrorDepth == Observation->RestoredDepth + 1;
 }
 
-// One refused member dispatch, described by the step that decided it and the
-// half of the side-effect boundary that step belongs to.
 [[nodiscard]] bool RefusedAt(const Luna::State &Owner,
                              MemberDispatchStage Stage,
                              std::string_view Boundary) {
@@ -365,7 +304,6 @@ constexpr std::string_view CrateName = "Studio.Physics.Crate";
          Observed->EntryDepth == Observed->RestoredDepth;
 }
 
-// The reflected record of one member candidate of one qualified name.
 [[nodiscard]] Luna::ReflectionRecord
 CandidateOf(const Luna::ReflectionSnapshot &Taken, Luna::SymbolKind Kind,
             std::string_view QualifiedName, std::size_t ParameterCount) {
@@ -383,8 +321,6 @@ CandidateOf(const Luna::ReflectionSnapshot &Taken, Luna::SymbolKind Kind,
 [[nodiscard]] std::string MemberPath(std::string_view Member) {
   return std::string(CrateName) + "." + std::string(Member);
 }
-
-// -- the reflected surface --------------------------------------------------
 
 void CheckTheWholeSurfaceIsReflectedAsDeclared() {
   ResetCounters();
@@ -407,8 +343,6 @@ void CheckTheWholeSurfaceIsReflectedAsDeclared() {
             Class.Documentation() == "One storage crate.",
         "the nested class is reflected under its canonical qualified name");
 
-  // A base-declared const member pointer reflects a const receiver of the
-  // registered class, not of the class it was declared in.
   const Luna::ReflectionRecord Level =
       CandidateOf(Snapshot, Luna::SymbolKind::Method, MemberPath("Level"), 0);
   Check(Level.IsValid() && Contains(Level.Signature(), "IntegrationCrate") &&
@@ -429,7 +363,6 @@ void CheckTheWholeSurfaceIsReflectedAsDeclared() {
             Hooks::OverloadCandidateCount(Owner, MemberPath("Combine")) == 2,
         "two selected method overloads form one canonical overload set");
 
-  // Every property mode reflects exactly the policy it declared.
   struct Expectation final {
     std::string_view Member;
     std::string_view Access;
@@ -463,7 +396,6 @@ void CheckTheWholeSurfaceIsReflectedAsDeclared() {
         "a property declared with a non-const getter needs a mutable "
         "receiver");
 
-  // Fields reflect their declared direction and their copied ownership.
   const Luna::ReflectionRecord Slots = Snapshot.Find(MemberPath("Slots"));
   const Luna::ReflectionRecord Serial = Snapshot.Find(MemberPath("Serial"));
   const Luna::ReflectionRecord Label = Snapshot.Find(MemberPath("Label"));
@@ -478,8 +410,6 @@ void CheckTheWholeSurfaceIsReflectedAsDeclared() {
         "registration records no cached value at all");
 }
 
-// -- methods through the virtual machine ------------------------------------
-
 void CheckMethodsRunOnTheSuppliedObject() {
   ResetCounters();
   Luna::State Owner;
@@ -488,8 +418,6 @@ void CheckMethodsRunOnTheSuppliedObject() {
   Check(Succeeds(Owner, "Value = Studio.Physics.Crate.New()"),
         "a script constructs one object of the nested class");
 
-  // The three spellings of one member call are one call, and the member value
-  // reached through the object is the member value the class declares.
   Check(ScriptResult(Owner, "Result = Value:Level()") == 6,
         "a base-declared const method reads the object it was called on");
   Check(ScriptResult(Owner, "Result = Value.Level(Value)") == 6,
@@ -503,19 +431,14 @@ void CheckMethodsRunOnTheSuppliedObject() {
                      "= 1 end") == 1,
         "an instance reaches exactly the member value its class declares");
 
-  // A virtual member declared through the base dispatches on the object the
-  // call site supplied.
   Check(ScriptResult(Owner, "Result = Value:Sides()") == 6,
         "a virtual member dispatches through the supplied object");
   Check(SideReads == 1, "the override ran exactly once");
 
-  // A non-const base-declared method mutates exactly its own object, and the
-  // change is visible through the const-declared reader.
   Check(ScriptResult(Owner, "Value:Charge(4)\nResult = Value:Level()") == 14,
         "a non-const base-declared method mutates the supplied object");
   Check(ChargeCalls == 1, "the mutating member ran exactly once");
 
-  // An explicit wrapper and a selected overload set are ordinary members.
   Check(ScriptResult(Owner, "Result = Value:Sum()") == 12,
         "an explicit wrapper member reads the object through its first "
         "parameter");
@@ -527,9 +450,6 @@ void CheckMethodsRunOnTheSuppliedObject() {
             FaceCalls == 1,
         "a static method is called without any instance at all");
 
-  // A dot call without a receiver fails receiver validation before any
-  // ordinary-argument decision, and an ordinary argument keeps its own
-  // one-based position.
   const std::string Missing =
       Refusal(Owner, "return Studio.Physics.Crate.Charge(4)");
   Check(Contains(Missing, "receiver") && !Contains(Missing, "argument 1"),
@@ -541,8 +461,6 @@ void CheckMethodsRunOnTheSuppliedObject() {
   Check(RestoredCheckpoint(Owner),
         "a refused member call restores the callback checkpoint exactly");
 
-  // A throwing member is translated with the foundation's own wording, and the
-  // State keeps calling members afterwards.
   const std::string Thrown = Refusal(Owner, "return Value:Fail()");
   Check(Contains(Thrown, "the crate refused") && FailCalls == 1,
         "a throwing member is translated and ran exactly once");
@@ -552,8 +470,6 @@ void CheckMethodsRunOnTheSuppliedObject() {
         "every member call and refusal restores the root stack depth");
 }
 
-// -- every property mode and both field forms -------------------------------
-
 void CheckEveryMemberModeBehavesAsDeclared() {
   ResetCounters();
   Luna::State Owner;
@@ -562,7 +478,6 @@ void CheckEveryMemberModeBehavesAsDeclared() {
   Check(Succeeds(Owner, "Value = Studio.Physics.Crate.New()"),
         "a script constructs one object of the nested class");
 
-  // Immediate reads and writes, through a property and through a field.
   Check(ScriptResult(Owner, "Result = Value.Capacity") == 10 &&
             CapacityReads == 1,
         "an immediate read-write property reads through its declared getter");
@@ -579,12 +494,10 @@ void CheckEveryMemberModeBehavesAsDeclared() {
             ScriptResult(Owner, "Result = Value.Slots") == 3,
         "a write-only property writes through its declared setter");
 
-  // A non-const getter reads through the mutable view a script value carries.
   Check(Succeeds(Owner, "Result = Value.Weight") && WeightReads == 1,
         "a property declared with a non-const getter reads through a mutable "
         "view");
 
-  // A computed property runs its getter on every read and never reuses one.
   const std::size_t ComputedBefore = ExpensiveReads;
   Check(ScriptResult(Owner, "Result = Value.Computed") == 103 &&
             ScriptResult(Owner, "Result = Value.Computed") == 103 &&
@@ -598,8 +511,6 @@ void CheckEveryMemberModeBehavesAsDeclared() {
             CapacityReads == PairReads + 1,
         "a computed read-write property writes and recomputes");
 
-  // Directions are decided before the target: a read-only field, a const data
-  // member, and a write-only property all refuse before any accessor runs.
   const std::size_t WritesBefore = CapacityWrites;
   const std::string Constant = Refusal(Owner, "Value.Serial = 1");
   Check(Contains(Constant, "Member 'Studio.Physics.Crate.Serial' permits no "
@@ -620,8 +531,6 @@ void CheckEveryMemberModeBehavesAsDeclared() {
             Succeeds(Owner, "Result = Value.Label"),
         "both read-only forms still read");
 
-  // A value the declared type does not accept is refused before the setter, and
-  // a name the class never declared is refused before anything at all.
   const std::string Mistyped = Refusal(Owner, "Value.Slots = 'nine'");
   Check(Contains(Mistyped, "Member 'Studio.Physics.Crate.Slots' value") &&
             Contains(Mistyped, "expected signed 32-bit integer"),
@@ -636,9 +545,6 @@ void CheckEveryMemberModeBehavesAsDeclared() {
   Check(RestoredCheckpoint(Owner),
         "the last refused access restored the callback checkpoint exactly");
 
-  // A setter that mutates its object and then throws: the virtual machine is
-  // restored and the exception is translated, and the mutation stays - read
-  // back through a field, entirely from script.
   Check(ScriptResult(Owner, "Result = Value.Trace") == 0,
         "the object starts unmarked");
   const std::string Marked = Refusal(Owner, "Value.Marked = 7");
@@ -658,8 +564,6 @@ void CheckEveryMemberModeBehavesAsDeclared() {
         "the State keeps reading members after every refusal");
 }
 
-// -- the lazy cache, driven entirely from script ----------------------------
-
 void CheckLazyValuesAreCachedAndInvalidatedFromScript() {
   ResetCounters();
   Luna::State Owner;
@@ -671,7 +575,6 @@ void CheckLazyValuesAreCachedAndInvalidatedFromScript() {
   Check(Hooks::LazyMemberCacheEntryCount(Owner) == 0,
         "a constructed value starts with no cached member value");
 
-  // The first read produces the value; the second reuses it.
   Check(ScriptResult(Owner, "Result = First.Cached") == 105 &&
             ExpensiveReads == 1,
         "the first read of a lazy property runs its declared getter");
@@ -685,12 +588,10 @@ void CheckLazyValuesAreCachedAndInvalidatedFromScript() {
   Check(Reused && Reused->Succeeded && Reused->ServedFromCache,
         "the reused read is served from the cache rather than from the getter");
 
-  // Another object of the same class has its own value.
   Check(ScriptResult(Owner, "Result = Second.Cached") == 105 &&
             ExpensiveReads == 2 && Hooks::LazyMemberCacheNodeCount(Owner) == 2,
         "a lazy value is recorded per object, not per member");
 
-  // A successful write invalidates the values of exactly its own object.
   Check(Succeeds(Owner, "First.Slots = 6"), "a script writes a field");
   Check(Hooks::LazyMemberCacheEntryCount(Owner) == 1,
         "a successful field write invalidates the values of its own object");
@@ -701,8 +602,6 @@ void CheckLazyValuesAreCachedAndInvalidatedFromScript() {
             ExpensiveReads == 3,
         "the other object's recorded value was never invalidated");
 
-  // A successful property setter invalidates the same way, and a lazy
-  // read-write property is reused between writes.
   Check(ScriptResult(Owner, "Result = First.CachedPair") == 12 &&
             ScriptResult(Owner, "Result = First.CachedPair") == 12 &&
             CapacityReads == 1,
@@ -712,15 +611,11 @@ void CheckLazyValuesAreCachedAndInvalidatedFromScript() {
             CapacityReads == 2,
         "a successful setter invalidates the value its getter recorded");
 
-  // A refused write invalidates nothing, because nothing about the object
-  // changed.
   const std::size_t EntriesBefore = Hooks::LazyMemberCacheEntryCount(Owner);
   Check(!Refusal(Owner, "First.Slots = 'six'").empty() &&
             Hooks::LazyMemberCacheEntryCount(Owner) == EntriesBefore,
         "a refused write invalidates nothing at all");
 
-  // A getter that fails records nothing. The failure is a per-object policy the
-  // getter reads, and the script sets it through an ordinary writable field.
   const std::size_t LiveBeforeWrite =
       Hooks::LiveLazyMemberCacheEntryCount(Owner);
   Check(Succeeds(Owner, "Second.Fragile = true"),
@@ -748,8 +643,6 @@ void CheckLazyValuesAreCachedAndInvalidatedFromScript() {
             ScriptResult(Owner, "Result = Second.Cached") == 105,
         "the object's own policy decides when its getter succeeds again");
 
-  // A generation change invalidates every earlier entry by mismatch, and the
-  // next script read records its own value in place of the stale one.
   Check(Hooks::LiveLazyMemberCacheEntryCount(Owner) > 0,
         "there are live recorded values before the generation changes");
   Check(Hooks::AdvanceLifecycleGeneration(Owner),
@@ -772,8 +665,6 @@ void CheckLazyValuesAreCachedAndInvalidatedFromScript() {
   Check(Owner.IsReady(),
         "the State remains usable after every lazy failure and invalidation");
 }
-
-// -- deterministic diagnostics across registration orders -------------------
 
 void CheckDiagnosticsNeverDependOnRegistrationOrder() {
   ResetCounters();
@@ -807,7 +698,6 @@ void CheckDiagnosticsNeverDependOnRegistrationOrder() {
           "the same failure reports the same message however often it happens");
   }
 
-  // Both States keep working afterwards, and the successful surface agrees too.
   Check(ScriptResult(First, "Value = Studio.Physics.Crate.New()\n"
                             "Value.Capacity = 4\n"
                             "Result = Value:Sides() + Value.Slots") == 10,

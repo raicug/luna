@@ -13,12 +13,6 @@
 
 namespace Luna::Detail {
 
-// One supported operator of a registered class: the Luna-owned member segment
-// its candidate is published under, the metatable field it answers, and the
-// call shape the metamethod forwards.
-//
-// `Metamethod` is empty for the two operators Luna's own reserved dispatch
-// answers, because those never occupy a metatable field of their own.
 struct ClassOperatorDescriptor final {
   ClassOperator Selected = ClassOperator::Call;
   std::string_view Segment;
@@ -34,7 +28,6 @@ ClassOperatorDescriptors() noexcept;
 [[nodiscard]] const ClassOperatorDescriptor *
 FindClassOperator(ClassOperator Selected) noexcept;
 
-// Which Luna-owned behaviour a reserved metamethod carries.
 enum class ReservedMetamethodRole : std::uint8_t {
   Identity,
   Dispatch,
@@ -57,7 +50,6 @@ ReservedMetamethods() noexcept;
 [[nodiscard]] const ReservedMetamethod *
 FindReservedMetamethod(std::string_view Name) noexcept;
 
-// One published operator of a registered class.
 struct RegisteredOperator final {
   ClassOperator Selected = ClassOperator::Call;
   std::string Segment;

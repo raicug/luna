@@ -1,11 +1,3 @@
-// Overload probing and selection benchmark scenario.
-//
-// The corpus is registered once per mode, outside the measured region, so a
-// sample times only what a call site pays: probing every candidate of one
-// overload set, ranking them, and selecting one. Root overload sets and member
-// overload sets are measured separately, because a member call additionally
-// validates its receiver at rank position zero.
-
 // clang-format off
 #include <luna/luna.hpp>
 
@@ -28,8 +20,6 @@ using LunaBenchmark::ScenarioModel;
   return First + Second + Third;
 }
 
-// The measured class and the base it declares, so the registered class graph is
-// a connected one like a real corpus.
 struct Panel {
   double Depth = 1.0;
 

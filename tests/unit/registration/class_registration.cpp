@@ -35,8 +35,6 @@ void Check(bool Condition, std::string_view Description) {
   std::cerr << "class registration check failed: " << Description << '\n';
 }
 
-// One ordinary value type, one type with a virtual destructor, and one type
-// Luna could never release.
 struct Vector3 final {
   double X = 0.0;
   double Y = 0.0;
@@ -67,7 +65,6 @@ private:
   return Kind ? *Kind : std::string("<unavailable>");
 }
 
-// One registered class inside one namespace, committed as a unit.
 [[nodiscard]] Luna::RegistrationResult
 RegisterVector3(Luna::BindingRegistry &Registry) {
   Luna::NamespaceBuilder Studio = Registry.RegisterNamespace("Studio");
@@ -114,8 +111,6 @@ void CheckClassPublishesTypeSymbolAndMetatableIdentity() {
   Check(Snapshot.FindType(Class.Type()).IsValid(),
         "a class contributes one canonical type to the generation");
 
-  // The per-State half: one registered class with one cached metatable
-  // identity, and no second identity for the same class.
   Check(Hooks::RegisteredClassCount(Owner) == 1,
         "one class declaration registers exactly one class");
   Check(Hooks::ClassIsRegistered(Owner, "Studio.Vector3"),
@@ -129,8 +124,6 @@ void CheckClassPublishesTypeSymbolAndMetatableIdentity() {
   Check(Hooks::IssuedMetatableIdentityCount(Owner) == 1,
         "one class registration issues exactly one metatable identity");
 
-  // The metatable identity is Luna's own: it is not reachable as a value at any
-  // canonical path.
   Check(PathKind(Owner, "Studio.Vector3.__LunaMetatable") == "absent",
         "the metatable identity installs no virtual-machine value");
   Check(!Snapshot.Find("Studio.Vector3.__LunaMetatable").IsValid(),
@@ -152,8 +145,6 @@ void CheckClassesAreOnePerStateAndStableAcrossStates() {
   Check(FirstType && SecondType && *FirstType == *SecondType,
         "the canonical class type is the same value in both States");
 
-  // Metatable identity is state-local, so it identifies one class of one State
-  // and never travels between them.
   Check(Hooks::ClassMetatableIdentityOf(First, "Studio.Vector3") &&
             Hooks::ClassMetatableIdentityOf(Second, "Studio.Vector3"),
         "each State caches its own metatable identity for the class");
@@ -242,7 +233,6 @@ void CheckRefusedClassesLeaveNothingBehind() {
   }
 
   {
-    // An uncommitted builder has no effect at all.
     Luna::State Owner;
     Luna::BindingRegistry Registry = Owner.Bindings();
     {
@@ -309,8 +299,6 @@ void CheckClassIdentityIsPreservedAcrossStateMoves() {
         "across a State move");
 }
 
-// The header is the only thing Luna trusts inside a userdata block, so its
-// layout and origin checks are exact.
 void CheckUserdataHeaderLayoutAndAccessState() {
   Luna::Detail::UserdataHeader Header;
   Check(Header.HasCanonicalLayout(),
@@ -334,8 +322,6 @@ void CheckUserdataHeaderLayoutAndAccessState() {
   Check(!Header.HasLiveLifetime(),
         "an invalidated value permits no native access");
 
-  // A block that does not carry Luna's marker and layout version is never read
-  // as a Luna userdata.
   Luna::Detail::UserdataHeader Foreign;
   Foreign.Magic = 0;
   Check(!Foreign.HasCanonicalLayout(),
@@ -357,8 +343,6 @@ void CheckUserdataHeaderLayoutAndAccessState() {
 
 void CheckClassScopesRejectForeignAndStaleUse() {
   {
-    // A script-created table at the class path is a collision, never an
-    // adoption.
     Luna::State Owner;
     Luna::BindingRegistry Registry = Owner.Bindings();
     Check(Owner.Execute("Vector3 = {}").IsSuccess(),
@@ -374,8 +358,6 @@ void CheckClassScopesRejectForeignAndStaleUse() {
   }
 
   {
-    // A builder whose State was destroyed fails deterministically instead of
-    // touching anything.
     Luna::Detail::ClassStaging Staged;
     {
       Luna::State Owner;

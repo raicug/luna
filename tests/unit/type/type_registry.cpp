@@ -60,8 +60,6 @@ void Check(bool Condition, std::string_view Description) {
   return Diagnostic && Diagnostic->Message().find(Text) != std::string::npos;
 }
 
-// Two distinct converters for the declarations under test. They are never
-// invoked here; only their identity as converters matters.
 [[nodiscard]] Luna::Detail::ArgumentReadResult FirstReader(lua_State *, int) {
   return {.Status = Luna::Detail::ArgumentReadStatus::InternalFailure};
 }
@@ -82,7 +80,6 @@ void Check(bool Condition, std::string_view Description) {
                                             std::move(Children));
 }
 
-// One complete declaration of a nested type built on the foundation int32.
 [[nodiscard]] TypeRecord
 SequenceRecord(Luna::Detail::TypeReadFunction Read = &FirstReader,
                Luna::Detail::TypeWriteFunction Write = &FirstWriter,
@@ -176,7 +173,6 @@ void CheckFoundationGeneration() {
             !Void->ValueRepresentation,
         "void carries no value and no converter");
 
-  // Value-kind lookup answers with the same records the descriptors do.
   Check(Types->Find(Luna::ValueKind::Integer) ==
             Types->Find(
                 Luna::TypeDescriptor::ForFixed(Luna::FixedTypeKey::Int32)),
@@ -189,8 +185,6 @@ void CheckFoundationGeneration() {
             Types->PublicNameOf(Luna::ValueKind::String) == "string",
         "diagnostics read every foundation name from the registry");
 
-  // Availability is a registry question, with direction and void handled
-  // explicitly.
   Check(Types->IsAvailableForRead(
             Luna::TypeDescriptor::ForFixed(Luna::FixedTypeKey::Int32)),
         "int32 is available for reading");
@@ -267,8 +261,6 @@ void CheckDeclarationClassification() {
             TypeDeclarationStatus::IncompatibleDuplicate,
         "an incompatible duplicate declaration is rejected");
 
-  // A second identity for one canonical descriptor, and one identity shared by
-  // two unequal descriptors, are both collisions.
   TypeRecord Renamed = SequenceRecord();
   Renamed.Identity = *Luna::Detail::TypeIdentityRegistry::ComputeIdentity(
       Luna::TypeDescriptor::ForFixed(Luna::FixedTypeKey::Float));
@@ -361,8 +353,6 @@ void CheckTransactionalRejection() {
   if (!Reflection)
     return;
 
-  // One accepted declaration validates, prepares, and produces a candidate
-  // generation that nothing observes yet.
   {
     RegistrationTransaction Transaction(*Capture);
     DescriptorPlanEntry Entry =
@@ -394,8 +384,6 @@ void CheckTransactionalRejection() {
           "preparation publishes nothing");
   }
 
-  // A conflicting converter is rejected at validation, in the same precedence
-  // step as type availability.
   {
     RegistrationTransaction Transaction(*Capture);
     static_cast<void>(Transaction.Append(
@@ -419,8 +407,6 @@ void CheckTransactionalRejection() {
           "a converter conflict is an internal refusal");
   }
 
-  // An incompatible duplicate declaration and a descriptor collision are
-  // rejected the same way.
   {
     RegistrationTransaction Transaction(*Capture);
     static_cast<void>(Transaction.Append(
@@ -461,8 +447,6 @@ void CheckTransactionalRejection() {
           "a canonical-descriptor collision is rejected");
   }
 
-  // Preparation is the transactional backstop: a plan that reaches it with a
-  // conflict is rejected before installation, and nothing is published.
   {
     RegistrationTransaction Transaction(*Capture);
     static_cast<void>(Transaction.Append(
@@ -482,8 +466,6 @@ void CheckTransactionalRejection() {
           "a rejected plan leaves the committed type generation unchanged");
   }
 
-  // The State remains usable, and an ordinary registration still publishes a
-  // generation set carrying the foundation types.
   const auto Registration = Owner.Bindings().Register(
       "Add", +[](int Left, int Right) { return Left + Right; });
   Check(Registration.IsSuccess(),

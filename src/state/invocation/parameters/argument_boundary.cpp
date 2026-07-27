@@ -1,10 +1,3 @@
-// The public variadic boundary, answered by the private argument frame.
-//
-// Every accessor resolves the view's Luna-owned token first. An unknown or
-// ended token answers as an inert empty view and the attempt is recorded, so a
-// retained view is detectable rather than dangerous, and no accessor can reach
-// a virtual-machine stack, pointer, index, or registry reference.
-
 // clang-format off
 #include <luna/binding/argument_pack.hpp>
 

@@ -7,9 +7,7 @@
 // clang-format on
 
 int RunStateRegistrationIsolationProperties() {
-  // **Validates: Requirements 8.7**
   // clang-format off
-  // Feature: luau-binding-foundation, Property 17: Registrations are isolated by State
   const bool Passed = rc::check(
       // clang-format on
       "Registrations are isolated by State",

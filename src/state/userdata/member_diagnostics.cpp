@@ -12,9 +12,6 @@
 namespace Luna::Detail {
 namespace {
 
-// The half of the member boundary one failure belongs to, spelled the way the
-// declaration itself spells it: a property or field reads through a getter and
-// writes through a setter.
 [[nodiscard]] std::string_view TargetText(bool Reading) noexcept {
   return Reading ? "getter" : "setter";
 }

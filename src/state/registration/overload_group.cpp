@@ -28,8 +28,6 @@ std::string_view OverloadJoinStatusText(OverloadJoinStatus Status) noexcept {
 
 bool SignaturesAreDistinguishable(const CallableSignatureDescriptor &Left,
                                   const CallableSignatureDescriptor &Right) {
-  // A receiver is part of the call shape: an instance member and a static one
-  // of the same name are told apart by the receiver alone.
   if (Left.ReceiverType.has_value() != Right.ReceiverType.has_value())
     return true;
   if (Left.ReceiverType && !(*Left.ReceiverType == *Right.ReceiverType))
@@ -37,8 +35,6 @@ bool SignaturesAreDistinguishable(const CallableSignatureDescriptor &Left,
   if (Left.ReceiverType && Left.ReceiverIsConst != Right.ReceiverIsConst)
     return true;
 
-  // The arity window and the variadic tail are shape rules, so a difference in
-  // either lets some received argument count select between the two.
   if (Left.IsVariadic != Right.IsVariadic)
     return true;
   if (Left.RequiredParameterCount != Right.RequiredParameterCount)
@@ -51,8 +47,6 @@ bool SignaturesAreDistinguishable(const CallableSignatureDescriptor &Left,
       return true;
   }
 
-  // Everything a call site can express is identical. The return type is
-  // deliberately not compared: a Luau call site never names it.
   return false;
 }
 
@@ -67,8 +61,6 @@ ClassifyOverloadJoin(const SymbolView &Symbols, std::string_view QualifiedName,
     if (Entry.Category != PlanEntryKind::Function)
       return OverloadJoinStatus::OtherCategory;
 
-    // A callable symbol without a canonical signature cannot be compared, so
-    // the declaration is treated as indistinguishable rather than admitted.
     if (!Entry.Symbol || !Entry.Symbol->Signature)
       return OverloadJoinStatus::IndistinguishableCandidate;
 

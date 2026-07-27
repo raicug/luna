@@ -24,9 +24,6 @@ namespace {
 
 [[nodiscard]] std::string PositionText(ConversionDirection Direction,
                                        std::size_t OneBasedPosition) {
-  // The receiver owns rank position zero of its call, so it is named instead of
-  // numbered; the single value a property or field carries has no call position
-  // at all; every other direction keeps exactly the foundation's wording.
   if (Direction == ConversionDirection::Receiver)
     return " receiver";
   if (Direction == ConversionDirection::MemberValue)
@@ -107,8 +104,6 @@ StructuredValue StructuredValue::Map(std::vector<StructuredValue> Items) {
 StructuredValue StructuredValue::Handle(void *Storage, bool PermitsMutation) {
   StructuredValue Staged;
 
-  // A handle without a validated object is no handle at all, so it stays the
-  // absent value instead of pretending native code may be reached.
   if (Storage == nullptr)
     return Staged;
   Staged.KindValue = StructuredKind::Handle;
@@ -120,11 +115,6 @@ StructuredValue StructuredValue::Handle(void *Storage, bool PermitsMutation) {
 StructuredValue StructuredValue::ExposedHandle(
     void *Storage, bool PermitsMutation,
     std::shared_ptr<const ClassExposureIntent> Intent) {
-  // An exposure without the ownership statement that says how the object will
-  // be owned is no exposure at all. An exposure of an object that does not
-  // exist yet is a different thing entirely: it is a construction, and the
-  // semantic allocator protocol inside the statement is what creates the
-  // object.
   if (!Intent)
     return StructuredValue();
   if (Storage == nullptr && !DeclaresObjectConstruction(*Intent))

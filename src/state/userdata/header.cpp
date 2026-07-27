@@ -15,14 +15,11 @@ MakeUserdataHeader(const UserdataHeaderRequest &Request) noexcept {
   Header.LayoutVersion = UserdataLayoutVersion;
   Header.Ownership = Request.Ownership;
 
-  // A new header is never published: it starts at the first state of the
-  // release machine, so nothing can mistake a staged value for a live one.
   Header.Lifetime = LifetimeState::Allocated;
   Header.Access = Request.Access;
   Header.Origin = Request.Origin;
   Header.DynamicType = Request.DynamicType;
 
-  // A value exposed without an explicit base view is viewed as its own type.
   Header.DeclaredViewType = Request.DeclaredViewType.IsValid()
                                 ? Request.DeclaredViewType
                                 : Request.DynamicType;

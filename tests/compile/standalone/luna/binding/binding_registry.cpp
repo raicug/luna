@@ -7,9 +7,6 @@
 
 namespace {
 
-// The freeze-facing public API is complete in this header alone: freezing a
-// State and querying it afterwards need no other Luna header, no Luau
-// declaration, and no include path beyond Luna's own.
 static_assert(
     std::is_same_v<decltype(std::declval<Luna::BindingRegistry &>().Freeze()),
                    Luna::RegistrationResult>,

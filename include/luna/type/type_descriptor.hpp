@@ -1,11 +1,5 @@
 #pragma once
 
-// Canonical normalized type model. A descriptor is an immutable value
-// describing exactly one normalized C++/Luau type: references and top-level
-// cv-qualifiers are already removed, while pointer depth, pointee
-// cv-qualification, array extent, semantic wrappers, enum identity, class
-// identity, and the ordered structural child types are all preserved.
-
 // clang-format off
 #include <luna/type/stable_type_key.hpp>
 
@@ -22,8 +16,6 @@
 
 namespace Luna {
 
-// Fixed Luna-owned leaves. Their keys are reserved by Luna, never supplied by a
-// consumer, and never derived from RTTI or process state.
 enum class FixedTypeKey {
   Void,
   Boolean,
@@ -38,7 +30,6 @@ enum class FixedTypeKey {
   ValuePack
 };
 
-// Type constructors of the canonical model.
 enum class TypeKind {
   Unsupported,
   Fixed,
@@ -57,8 +48,6 @@ enum class TypeKind {
   ReturnPack
 };
 
-// Retained qualification of a pointee or array element. Top-level
-// cv-qualification is normalized away before a descriptor is built.
 enum class CvQualification { None, Const, Volatile, ConstVolatile };
 
 [[nodiscard]] constexpr std::string_view
@@ -141,8 +130,6 @@ CvQualificationText(CvQualification Qualification) noexcept {
   return "none";
 }
 
-// Canonical arity of every type constructor. A tuple, argument pack, or return
-// pack accepts any child count; no arbitrary upper bound is imposed.
 [[nodiscard]] constexpr bool
 TypeKindAcceptsChildCount(TypeKind Kind, std::size_t ChildCount) noexcept {
   switch (Kind) {
@@ -251,7 +238,6 @@ public:
     return ChildrenValue ? ChildrenValue->size() : 0;
   }
 
-  // Number of pointer constructors between this descriptor and its pointee.
   [[nodiscard]] std::size_t PointerDepth() const {
     std::size_t Depth = 0;
     const TypeDescriptor *Current = this;
@@ -284,8 +270,6 @@ public:
     return true;
   }
 
-  // Deterministic structural hash. It never mixes an address, a registration
-  // order, or a process-random seed.
   [[nodiscard]] std::size_t Hash() const {
     std::uint64_t Accumulator = 0xcbf29ce484222325ULL;
     MixHash(Accumulator, static_cast<std::uint64_t>(KindValue));

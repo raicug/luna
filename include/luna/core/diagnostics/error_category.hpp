@@ -12,4 +12,4 @@ enum class ErrorCategory {
   Internal
 };
 
-} // namespace Luna
+}

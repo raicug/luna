@@ -272,8 +272,6 @@ HasContexts(const Observation &Result,
 }
 
 [[nodiscard]] bool TestAmbiguousAndSuppressedReturnMetadata() {
-  // Suppress is the defensive representation for a return that cannot be
-  // classified unambiguously as value-producing or void.
   const auto AmbiguousReturn =
       PrimitiveHooks::Write(Luna::ReturnMetadata::Suppressed(),
                             Luna::InvocationOutcome::WithValue(41), 0, 0, 0, 6);

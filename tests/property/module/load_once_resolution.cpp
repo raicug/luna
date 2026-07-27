@@ -32,8 +32,6 @@ namespace {
 
 using Hooks = Luna::Detail::StateTestHooks;
 
-// Deterministic byte source. Equal bytes always rebuild the exact same
-// scenario, so a shrunk counterexample replays the same load sequence.
 class ByteCursor final {
 public:
   explicit ByteCursor(std::span<const std::uint8_t> Bytes) noexcept
@@ -55,26 +53,14 @@ private:
   std::size_t IndexValue = 0;
 };
 
-// ---------------------------------------------------------------------------
-// The independent model's vocabulary. Nothing below calls Luna's resolver, its
-// registry, or its semantic-version comparison: precedence, satisfaction,
-// selection, ordering, and the load state machine are all reimplemented here
-// from the acceptance criteria, so an agreement is real evidence.
-// ---------------------------------------------------------------------------
-
 constexpr std::size_t IdentityCount = 4;
 
-// Canonical sorted identity order is exactly index order, so the model can walk
-// identities by index wherever resolution walks them by sorted name.
 constexpr std::array<std::string_view, IdentityCount> IdentityTexts{
     "luna.alpha", "luna.bravo", "luna.charlie", "luna.delta"};
 
 constexpr std::array<std::string_view, IdentityCount> NamespaceNames{
     "Alpha", "Bravo", "Charlie", "Delta"};
 
-// One available version, described structurally so the model never reparses
-// text. `1.1.0-rc.1` is the prerelease that makes `>=1.0.0` and `>=1.1.0`
-// disagree, which is the standard precedence rule Requirement 10.3 names.
 struct VersionPoolEntry final {
   std::string_view Text;
   std::uint64_t Major = 0;
@@ -98,9 +84,6 @@ enum class ModelComparator {
   GreaterOrEqual
 };
 
-// One constraint, in the canonical order Luna sorts constraints into:
-// comparator first, then version precedence. A subset of this pool taken in
-// ascending index order is therefore already canonically ordered.
 struct ConstraintPoolEntry final {
   std::string_view Text;
   ModelComparator Comparator = ModelComparator::Equal;
@@ -120,8 +103,6 @@ constexpr std::array<ConstraintPoolEntry, 8> ConstraintPool{
 constexpr std::array<std::string_view, 3> DocumentationPool{
     {"", "Documents one module.", "Documents another module."}};
 
-// Each identity exports its namespace and its constant. Canonical export order
-// is qualified name order, which is again this pool's index order.
 constexpr std::size_t ExportPoolSize = 2;
 
 [[nodiscard]] std::string ExportName(std::size_t Identity, std::size_t Slot) {
@@ -135,7 +116,6 @@ constexpr std::size_t ExportPoolSize = 2;
   return Slot == 1 ? Luna::SymbolKind::Constant : Luna::SymbolKind::Namespace;
 }
 
-// One structural version, and the standard precedence comparison over it.
 struct ModelVersion final {
   std::uint64_t Major = 0;
   std::uint64_t Minor = 0;
@@ -177,9 +157,6 @@ struct ModelVersion final {
   });
 }
 
-// Standard semantic-version precedence: the core triple numerically, a
-// prerelease below its release, numeric identifiers numerically, alphanumeric
-// identifiers by ASCII, and a longer identifier set above its shorter prefix.
 [[nodiscard]] int ComparePrecedence(const ModelVersion &Left,
                                     const ModelVersion &Right) {
   if (Left.Major != Right.Major)
@@ -223,8 +200,6 @@ struct ModelVersion final {
   return ComparePrecedence(ModelVersionOf(Left), ModelVersionOf(Right));
 }
 
-// Constraint satisfaction is pure precedence, so a prerelease candidate is
-// admitted or rejected by its prerelease rules rather than by its text.
 [[nodiscard]] bool Satisfies(std::size_t Candidate,
                              const ConstraintPoolEntry &Constraint) {
   const int Order = ComparePool(Candidate, Constraint.Version);
@@ -245,8 +220,6 @@ struct ModelVersion final {
   return false;
 }
 
-// One accumulated constraint. The root request contributes an equality
-// constraint on the exact requested version, which no pool entry can express.
 struct ModelConstraint final {
   ModelComparator Comparator = ModelComparator::Equal;
   std::size_t Version = 0;
@@ -281,11 +254,6 @@ struct ModelConstraint final {
 
 namespace {
 
-// One normalized module definition in the model. Every field is already in the
-// canonical form `ModuleManifest::Create` normalizes to - dependencies sorted
-// and unique by identity, constraint and export sets sorted and deduplicated -
-// so two equal model definitions build two equal manifests, and two unequal
-// model definitions build two unequal manifests.
 struct ModelDependency final {
   std::size_t Identity = 0;
   std::vector<std::size_t> Constraints;
@@ -305,7 +273,6 @@ struct ModelManifest final {
                                        const ModelManifest &) = default;
 };
 
-// Every available version of every identity, ascending by precedence.
 using ModelCatalog = std::array<std::vector<ModelManifest>, IdentityCount>;
 
 [[nodiscard]] std::string ModelKey(std::size_t Identity, std::size_t Version) {
@@ -348,10 +315,6 @@ enum class ModelAddStatus { Added, Duplicate, Conflicting };
     Total += Versions.size();
   return Total;
 }
-
-// ---------------------------------------------------------------------------
-// The independent resolver.
-// ---------------------------------------------------------------------------
 
 enum class ModelResolutionStatus {
   Resolved,
@@ -399,8 +362,6 @@ struct ModelResolution final {
   }
 };
 
-// One identity that entered the graph: every constraint accumulated for it, and
-// the canonical path that first reached it.
 struct ModelRecord final {
   std::vector<ModelConstraint> Constraints;
   std::vector<std::string> Origin;
@@ -412,8 +373,6 @@ struct ModelRecord final {
   return Origin;
 }
 
-// Deterministic depth-first search over the selected graph. Children are
-// visited in canonical dependency order, so a reported cycle is stable.
 [[nodiscard]] bool FindCycle(const ModelCatalog &Catalog,
                              const std::map<std::size_t, std::size_t> &Selected,
                              std::size_t Identity,
@@ -453,7 +412,6 @@ struct ModelRecord final {
   return false;
 }
 
-// Dependency-first canonical order of the selected graph.
 void AppendLoadOrder(const ModelCatalog &Catalog,
                      const std::map<std::size_t, std::size_t> &Selected,
                      std::size_t Identity, std::set<std::size_t> &Visited,
@@ -474,10 +432,6 @@ void AppendLoadOrder(const ModelCatalog &Catalog,
   Order.push_back(Identity);
 }
 
-// Resolves the graph rooted at one request: accumulate constraints by identity,
-// visit identities in canonical order, and select the highest available version
-// satisfying every accumulated constraint. An already loaded version acts as an
-// equality pin.
 [[nodiscard]] ModelResolution
 Resolve(const ModelCatalog &Catalog, const ModelManifest &Request,
         const std::array<std::optional<ModelManifest>, IdentityCount> &Loaded) {
@@ -491,7 +445,6 @@ Resolve(const ModelCatalog &Catalog, const ModelManifest &Request,
   Accumulated[Request.Identity].Constraints.push_back(std::move(Root));
 
   while (true) {
-    // An accumulated constraint added after a selection can invalidate it.
     for (const auto &[Identity, Version] : Resolution.Selected) {
       const ModelRecord &Record = Accumulated[Identity];
       const bool Violated = !SatisfiesEvery(Version, Record.Constraints);
@@ -537,8 +490,6 @@ Resolve(const ModelCatalog &Catalog, const ModelManifest &Request,
       return Resolution;
     }
 
-    // A loaded module pins its version, so a graph that needs another version
-    // is a conflicting selection rather than a second load.
     if (Loaded[Identity]) {
       const std::size_t Pinned = Loaded[Identity]->Version;
       if (!SatisfiesEvery(Pinned, Record.Constraints)) {
@@ -598,10 +549,6 @@ Resolve(const ModelCatalog &Catalog, const ModelManifest &Request,
 
 namespace {
 
-// ---------------------------------------------------------------------------
-// The independent load state machine.
-// ---------------------------------------------------------------------------
-
 struct ModelState final {
   ModelCatalog Available;
   std::array<std::optional<ModelManifest>, IdentityCount> Loaded;
@@ -618,8 +565,6 @@ struct ModelState final {
   return Total;
 }
 
-// What one load request must do. `Published` is the only outcome that changes
-// anything at all.
 enum class ExpectedOutcome {
   Published,
   Idempotent,
@@ -631,8 +576,6 @@ enum class ExpectedOutcome {
 struct ExpectedLoad final {
   ExpectedOutcome Outcome = ExpectedOutcome::Published;
   bool Succeeds = false;
-  // Callbacks that ran, in the order they ran. A failed attempt may still have
-  // executed part of the graph inside the transaction it poisons.
   std::vector<std::size_t> Executed;
   ModelResolution Resolution;
   std::vector<std::pair<std::size_t, ModelManifest>> Selections;
@@ -644,7 +587,6 @@ struct ExpectedLoad final {
                                     std::size_t PoisonIdentity) {
   ExpectedLoad Expected;
 
-  // Load-once classification against the committed registry.
   if (State.Loaded[Request.Identity]) {
     const ModelManifest &Loaded = *State.Loaded[Request.Identity];
     const bool SameVersion = ComparePool(Loaded.Version, Request.Version) == 0;
@@ -657,8 +599,6 @@ struct ExpectedLoad final {
     return Expected;
   }
 
-  // An unequal definition of an available identity and version is a conflict,
-  // never a replacement.
   if (const ModelManifest *Available =
           FindAvailable(State.Available, Request.Identity, Request.Version)) {
     if (!(*Available == Request)) {
@@ -681,7 +621,6 @@ struct ExpectedLoad final {
       Expected.Selections.emplace_back(Identity, *Selected);
   }
 
-  // Dependency-first canonical order, skipping everything already loaded.
   std::vector<std::size_t> Order;
   for (const std::size_t Identity : Expected.Resolution.LoadOrder) {
     if (Identity != Request.Identity && State.Loaded[Identity])
@@ -689,8 +628,6 @@ struct ExpectedLoad final {
     Order.push_back(Identity);
   }
 
-  // A callback that poisons its attempt stops the graph where it ran; a
-  // requested callback that throws is contained after the whole graph ran.
   const auto Poisoned = std::find(Order.begin(), Order.end(), PoisonIdentity);
   if (Poisoned != Order.end()) {
     Expected.Outcome = ExpectedOutcome::CallbackFailure;
@@ -719,10 +656,6 @@ void ApplyLoad(ModelState &State, const ModelManifest &Request,
   static_cast<void>(AddAvailable(State.Available, Request));
   ++State.Generation;
 }
-
-// ---------------------------------------------------------------------------
-// Canonical enumeration, from reflection and from the model.
-// ---------------------------------------------------------------------------
 
 [[nodiscard]] std::string
 ObservedEnumeration(const Luna::ReflectionSnapshot &Snapshot) {
@@ -789,10 +722,6 @@ ConstraintText(const std::vector<std::size_t> &Constraints) {
   return Text;
 }
 
-// ---------------------------------------------------------------------------
-// The real State, driven through the public surface only.
-// ---------------------------------------------------------------------------
-
 [[nodiscard]] int AddIntegers(int Left, int Right) { return Left + Right; }
 
 [[nodiscard]] Luna::ModuleManifest BuildManifest(const ModelManifest &Model) {
@@ -828,9 +757,6 @@ ConstraintText(const std::vector<std::size_t> &Constraints) {
   return Created ? std::move(*Created) : Luna::ModuleManifest();
 }
 
-// One module's registration callback. Every identity declares its own namespace
-// and one constant inside it, so a published module is observable through the
-// real virtual machine and an unpublished one leaves its path absent.
 struct ModuleCallback final {
   std::size_t Identity = 0;
   bool Poison = false;
@@ -844,8 +770,6 @@ struct ModuleCallback final {
         Builder.RegisterNamespace(NamespaceNames[Identity]);
     static_cast<void>(
         Scope.RegisterConstant("Tag", static_cast<int>(Identity) + 1));
-    // A deliberately invalid segment is a deterministic staging failure whose
-    // result this callback drops, which still poisons the whole load.
     if (Poison)
       static_cast<void>(Builder.RegisterNamespace("not a name"));
     if (ThrowKind == 1)
@@ -859,10 +783,6 @@ struct ModuleCallback final {
 
 namespace {
 
-// ---------------------------------------------------------------------------
-// One generated scenario.
-// ---------------------------------------------------------------------------
-
 struct ScenarioRequest final {
   ModelManifest Manifest;
   std::size_t ThrowKind = 0;
@@ -871,8 +791,6 @@ struct ScenarioRequest final {
 struct Scenario final {
   std::vector<ModelManifest> Definitions;
   std::vector<ScenarioRequest> Requests;
-  // The identity whose callback poisons its attempt, or `IdentityCount` when no
-  // callback misbehaves.
   std::size_t PoisonIdentity = IdentityCount;
 };
 
@@ -883,9 +801,6 @@ struct Scenario final {
   Model.Identity = Identity;
   Model.Version = Version;
 
-  // Dependencies are generated in ascending identity order, which is exactly
-  // the canonical order a manifest normalizes them into. Any identity may
-  // depend on any other, so generated graphs include cycles.
   for (std::size_t Other = 0; Other < IdentityCount; ++Other) {
     if (Other == Identity)
       continue;
@@ -916,11 +831,6 @@ struct Scenario final {
 [[nodiscard]] Scenario MakeScenario(ByteCursor &Cursor) {
   Scenario Case;
 
-  // Available definitions, generated per identity so a graph usually has
-  // something to select and sometimes has nothing at all. Two definitions of
-  // one identity and version would make the winner depend on provision order,
-  // so each identity and version appears at most once here and the
-  // unequal-definition conflict is probed explicitly later.
   for (std::size_t Identity = 0; Identity < IdentityCount; ++Identity) {
     std::size_t Count = Cursor.Pick(3);
     if (Count == 0 && Cursor.Pick(3) != 0)
@@ -948,8 +858,6 @@ struct Scenario final {
                      });
 
     ScenarioRequest Request;
-    // Either the exact available definition, or an independently generated one
-    // that may collide unequally with what is already available.
     if (Provided != Case.Definitions.end() && Cursor.Pick(3) != 0)
       Request.Manifest = *Provided;
     else
@@ -964,10 +872,6 @@ struct Scenario final {
   Case.PoisonIdentity = Poison < IdentityCount ? Poison : IdentityCount;
   return Case;
 }
-
-// ---------------------------------------------------------------------------
-// What the real State must observe after every operation.
-// ---------------------------------------------------------------------------
 
 void VerifyObservations(
     Luna::State &Owner, Luna::BindingRegistry &Registry,
@@ -987,8 +891,6 @@ void VerifyObservations(
     if (IsLoaded)
       RC_ASSERT(*Version == VersionPool[Model.Loaded[Identity]->Version].Text);
 
-    // A published module owns its namespace path; an unpublished one leaves it
-    // exactly as absent as it was before the attempt.
     const auto Kind = Hooks::ObserveVmPathValueKind(
         Owner, std::string(NamespaceNames[Identity]));
     RC_ASSERT(Kind.has_value());
@@ -1025,8 +927,6 @@ void VerifyProvision(Luna::State &Owner, Luna::BindingRegistry &Registry,
                      0, &Log});
 
   RC_ASSERT(Result.IsSuccess() == Succeeds);
-  // Availability is pure Luna-side metadata: it runs no callback and publishes
-  // nothing at all.
   RC_ASSERT(Log.empty());
   RC_ASSERT(Hooks::GenerationsOf(Owner) == Generations);
   if (Succeeds)
@@ -1050,8 +950,6 @@ void VerifyLoad(Luna::State &Owner, Luna::BindingRegistry &Registry,
                      ThrowKind, &Log});
 
   RC_ASSERT(Result.IsSuccess() == Expected.Succeeds);
-  // Dependency callbacks run dependency-first in canonical order inside the one
-  // transaction, and an idempotent repeat reruns none of them.
   RC_ASSERT(Log == Expected.Executed);
   for (const std::size_t Identity : Log)
     ++Observed[Identity];
@@ -1067,7 +965,6 @@ void VerifyLoad(Luna::State &Owner, Luna::BindingRegistry &Registry,
       std::string Status("module resolution ");
       Status.append(ModelResolutionStatusText(Expected.Resolution.Status));
       RC_ASSERT(Message.find(Status) != std::string::npos);
-      // Every rejection carries the canonical dependency path that reached it.
       const std::string Path = Expected.Resolution.PathText();
       RC_ASSERT(!Path.empty());
       RC_ASSERT(Message.find("(dependency path: " + Path + ")") !=
@@ -1075,9 +972,6 @@ void VerifyLoad(Luna::State &Owner, Luna::BindingRegistry &Registry,
     }
   }
 
-  // Only a published load derives a new committed bundle. Every other outcome
-  // keeps the exact immutable symbol, reflection, and type generation the
-  // attempt started from.
   if (Expected.Outcome != ExpectedOutcome::Published)
     RC_ASSERT(Hooks::GenerationsOf(Owner) == Generations);
 
@@ -1085,8 +979,6 @@ void VerifyLoad(Luna::State &Owner, Luna::BindingRegistry &Registry,
   VerifyObservations(Owner, Registry, Model, EntryDepth, Observed);
 }
 
-// Drives one generated scenario through the public surface and returns the
-// canonical module enumeration it published.
 [[nodiscard]] std::string RunScenario(const Scenario &Case,
                                       bool ReversedProvision) {
   Luna::State Owner;
@@ -1097,7 +989,6 @@ void VerifyLoad(Luna::State &Owner, Luna::BindingRegistry &Registry,
   RC_ASSERT(Depth.has_value());
   const int EntryDepth = *Depth;
 
-  // One committed binding every load in this scenario must preserve.
   RC_ASSERT(Registry.Register("Seeded", &AddIntegers).IsSuccess());
 
   ModelState Model;
@@ -1119,9 +1010,6 @@ void VerifyLoad(Luna::State &Owner, Luna::BindingRegistry &Registry,
     VerifyLoad(Owner, Registry, Model, Request.Manifest, Request.ThrowKind,
                Case.PoisonIdentity, EntryDepth, Log, Observed);
 
-  // Re-registering a loaded module: the identical definition is idempotent, a
-  // same-version unequal definition conflicts, and a different version of a
-  // loaded identity conflicts too.
   for (std::size_t Identity = 0; Identity < IdentityCount; ++Identity) {
     if (!Model.Loaded[Identity])
       continue;
@@ -1142,8 +1030,6 @@ void VerifyLoad(Luna::State &Owner, Luna::BindingRegistry &Registry,
                EntryDepth, Log, Observed);
   }
 
-  // Every published module is usable through the real virtual machine, the
-  // pre-load binding still dispatches, and the State still accepts work.
   std::string Script("assert(Seeded(2, 3) == 5)");
   for (std::size_t Identity = 0; Identity < IdentityCount; ++Identity) {
     if (!Model.Loaded[Identity])
@@ -1164,7 +1050,6 @@ void VerifyLoad(Luna::State &Owner, Luna::BindingRegistry &Registry,
 } // namespace
 
 int RunLoadOnceModuleResolutionProperties() {
-  // **Validates: Requirements 10.3, 10.4, 10.5, 10.6, 10.7, 10.8, 10.10**
   // clang-format off
   // Feature: reflection-driven-binding-system, Property 23: Load-once module resolution follows the semantic-version transaction model
   const bool Passed = rc::check(
@@ -1176,9 +1061,6 @@ int RunLoadOnceModuleResolutionProperties() {
         const Scenario Case = MakeScenario(Cursor);
         RC_ASSERT(!Case.Requests.empty());
 
-        // Availability never depends on provision order, so the same scenario
-        // provided forward and reversed must publish the same canonically
-        // ordered graph.
         const std::string Forward = RunScenario(Case, false);
         const std::string Reversed = RunScenario(Case, true);
         RC_ASSERT(Forward == Reversed);

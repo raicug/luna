@@ -24,7 +24,6 @@ namespace {
   }
 }
 
-// Only these kinds describe one reflected value of their own.
 [[nodiscard]] bool PermitsValue(SymbolKind Kind) noexcept {
   switch (Kind) {
   case SymbolKind::Constant:
@@ -50,8 +49,6 @@ namespace {
   }
 }
 
-// Only a member of a class describes a receiver, access directions, and an
-// evaluation policy of its own.
 [[nodiscard]] bool PermitsMemberPolicy(SymbolKind Kind) noexcept {
   switch (Kind) {
   case SymbolKind::Property:
@@ -65,8 +62,6 @@ namespace {
   }
 }
 
-// A property and a field are the two kinds whose whole meaning is their
-// declared directions, so one that permits neither describes nothing at all.
 [[nodiscard]] bool RequiresMemberDirection(SymbolKind Kind) noexcept {
   return Kind == SymbolKind::Property || Kind == SymbolKind::Field;
 }
@@ -78,8 +73,6 @@ namespace {
          !Fields.MemberOwnershipText.empty();
 }
 
-// The local name must be the final canonical segment of the qualified name, so
-// a record can never claim a name its qualified path does not contain.
 [[nodiscard]] bool NameMatchesQualifiedName(std::string_view Name,
                                             std::string_view QualifiedName) {
   if (Name.size() > QualifiedName.size())
@@ -111,8 +104,6 @@ CompareText(std::string_view Left, std::string_view Right) noexcept {
   return Left.Symbol < Right.Symbol;
 }
 
-// Canonical dependency order of one module: required identity, then the
-// resolved version, then the declared constraint text.
 [[nodiscard]] bool
 ModuleDependencyPrecedes(const ReflectionModuleDependencyFields &Left,
                          const ReflectionModuleDependencyFields &Right) {
@@ -126,7 +117,6 @@ ModuleDependencyPrecedes(const ReflectionModuleDependencyFields &Left,
          std::strong_ordering::less;
 }
 
-// Canonical export order of one module: qualified name, then symbol kind.
 [[nodiscard]] bool
 ModuleExportPrecedes(const ReflectionModuleExportFields &Left,
                      const ReflectionModuleExportFields &Right) {
@@ -141,9 +131,6 @@ ModuleExportPrecedes(const ReflectionModuleExportFields &Left,
   return CompareText(Left, Right) == std::strong_ordering::less;
 }
 
-// Canonical enumeration of one module. Dependencies, exports, namespaces, and
-// types are sorted and deduplicated here, so enumeration never depends on
-// manifest declaration order, resolution order, or load order.
 [[nodiscard]] ReflectionGenerationStatus
 NormalizeModule(ReflectionModuleFields &Fields) {
   std::stable_sort(Fields.Dependencies.begin(), Fields.Dependencies.end(),
@@ -227,10 +214,6 @@ ValidateReturns(const ReflectionRecordFields &Fields) {
       return ReflectionGenerationStatus::InconsistentReturns;
     break;
   case ReturnShape::Multiple:
-    // A statically declared pack names every value it publishes, so it carries
-    // at least two. A dynamic return pack decides its element count and element
-    // types per call and therefore declares no per-value record at all; what it
-    // never does is claim exactly one value while reporting the multiple shape.
     if (Fields.ReturnValues.size() == 1)
       return ReflectionGenerationStatus::InconsistentReturns;
     break;
@@ -307,8 +290,6 @@ ReflectionStorage::Build(std::uint64_t Generation,
     }
   }
 
-  // Canonical module order first, then remap every record's provenance index so
-  // ordering never depends on submission order.
   std::vector<std::size_t> ModulePermutation(Modules.size());
   {
     std::vector<std::size_t> Order(Modules.size());
@@ -337,8 +318,6 @@ ReflectionStorage::Build(std::uint64_t Generation,
   auto Storage = std::shared_ptr<ReflectionStorage>(new ReflectionStorage());
   Storage->GenerationValue = Generation;
 
-  // Records are validated in canonical order, so the first rejection reason is
-  // independent of how the candidate generation was assembled.
   for (std::size_t Index = 0; Index < Records.size(); ++Index) {
     const ReflectionRecordFields &Fields = Records[Index];
     if (!Fields.Id.IsValid()) {
@@ -354,8 +333,6 @@ ReflectionStorage::Build(std::uint64_t Generation,
       Status = ReflectionGenerationStatus::IncompleteMetadata;
       return nullptr;
     }
-    // Only a constant, an enumerator, or an enumerator alias carries a value,
-    // and a carried value always names the canonical type it converts through.
     if (Fields.ValueIsAvailable &&
         (!PermitsValue(Fields.Kind) || !Fields.Type.IsValid())) {
       Status = ReflectionGenerationStatus::IncompleteMetadata;
@@ -365,9 +342,6 @@ ReflectionStorage::Build(std::uint64_t Generation,
       Status = ReflectionGenerationStatus::IncompleteMetadata;
       return nullptr;
     }
-    // A receiver, an access direction, and an evaluation policy belong to a
-    // class member; a property or a field additionally has to permit at least
-    // one direction, because that is the whole content of its declaration.
     if (DescribesMemberPolicy(Fields) && !PermitsMemberPolicy(Fields.Kind)) {
       Status = ReflectionGenerationStatus::IncompleteMetadata;
       return nullptr;
@@ -412,14 +386,11 @@ ReflectionStorage::Build(std::uint64_t Generation,
         return nullptr;
       }
     }
-    // Canonical order places an overload set before its candidates, so the
-    // first record for a qualified name is the primary lookup result.
     Storage->NameLookup.emplace(Fields.QualifiedName, Index);
   }
 
   Storage->Records = std::move(Records);
 
-  // Relationship checks need the completed identity index.
   for (const ReflectionRecordFields &Fields : Storage->Records) {
     if (!Fields.Scope.IsRoot()) {
       const auto Owner = Storage->IdLookup.find(Fields.Scope.Owner());
@@ -476,8 +447,6 @@ ReflectionStorage::Build(std::uint64_t Generation,
       Status = ReflectionGenerationStatus::IncompleteMetadata;
       return nullptr;
     }
-    // Canonical dependency, export, namespace, and type enumeration of this
-    // module, independent of the order the manifest or the load produced.
     if (const auto Reason = NormalizeModule(Fields);
         Reason != ReflectionGenerationStatus::Valid) {
       Status = Reason;

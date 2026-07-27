@@ -31,7 +31,6 @@ using RecordFields = Luna::Detail::ReflectionRecordFields;
 using Status = Luna::Detail::ReflectionGenerationStatus;
 using Hooks = Luna::Detail::StateTestHooks;
 
-// Snapshots are owning values, so they copy, move, and outlive their State.
 static_assert(std::is_copy_constructible_v<Luna::ReflectionSnapshot>);
 static_assert(std::is_copy_assignable_v<Luna::ReflectionSnapshot>);
 static_assert(std::is_default_constructible_v<Luna::ReflectionSnapshot>);
@@ -176,8 +175,6 @@ const Luna::SymbolId ConstantId = Symbol(5);
   return Fields;
 }
 
-// The same logical generation, assembled either in canonical order or in
-// reverse, so ordering can never depend on submission order.
 [[nodiscard]] Builder Baseline(bool Reversed = false) {
   Builder Candidate;
   if (Reversed) {
@@ -235,8 +232,6 @@ OrderedQualifiedNames(const Luna::ReflectionSnapshot &Snapshot) {
       !Snapshot.Symbols(Luna::SymbolKind::Namespace).IsEmpty())
     return false;
 
-  // A default snapshot and every view obtained from it answer
-  // deterministically.
   const Luna::ReflectionSnapshot Default;
   if (!Default.IsEmpty() || Default.Generation() != 0)
     return false;
@@ -260,7 +255,6 @@ OrderedQualifiedNames(const Luna::ReflectionSnapshot &Snapshot) {
   if (Snapshot.Generation() != 1 || Snapshot.Size() != 5)
     return false;
 
-  // Lookup by identity and by qualified name reaches the same record.
   const Luna::ReflectionRecord Constant = Snapshot.Find(ConstantId);
   if (!Constant.IsValid() || Constant.QualifiedName() != "Studio.Gravity")
     return false;
@@ -270,8 +264,6 @@ OrderedQualifiedNames(const Luna::ReflectionSnapshot &Snapshot) {
       Snapshot.Find("Studio.Missing").IsValid())
     return false;
 
-  // Canonical order puts an overload set ahead of its candidates, so a
-  // qualified-name lookup resolves to the set.
   const Luna::ReflectionRecord Found = Snapshot.Find("Studio.Find");
   if (Found.Kind() != Luna::SymbolKind::OverloadSet ||
       Found.Id() != OverloadSetId)
@@ -288,15 +280,12 @@ OrderedQualifiedNames(const Luna::ReflectionSnapshot &Snapshot) {
   if (OrderedQualifiedNames(Snapshot) != Expected)
     return false;
 
-  // The same logical generation submitted in reverse order is byte-for-byte
-  // identical after canonical sorting.
   Database Reversed;
   if (Reversed.PublishGeneration(Baseline(true)) != Status::Valid)
     return false;
   if (OrderedQualifiedNames(Reversed.Snapshot()) != Expected)
     return false;
 
-  // Enumeration by scope and by kind uses the same canonical order.
   const Luna::ReflectionRecordRange Root =
       Snapshot.Symbols(Luna::ScopeId::Root());
   if (Root.Size() != 2 || Root.At(0).QualifiedName() != "Physics" ||
@@ -318,7 +307,6 @@ OrderedQualifiedNames(const Luna::ReflectionSnapshot &Snapshot) {
   if (Snapshot.Symbols().At(Snapshot.Size()).IsValid())
     return false;
 
-  // Types and modules enumerate canonically and resolve by identity.
   const Luna::TypeRecordRange Types = Snapshot.Types();
   if (Types.Size() != 2 || Types.At(0).Name() != "number" ||
       Types.At(1).Name() != "string")
@@ -350,7 +338,6 @@ OrderedQualifiedNames(const Luna::ReflectionSnapshot &Snapshot) {
   if (Candidate.Scope() != Luna::ScopeId(OverloadSetId) ||
       Candidate.Scope().IsRoot() || Candidate.OverloadSet() != OverloadSetId)
     return false;
-  // A record without an explicit declaration owner declares itself.
   if (Candidate.Declaration() != CandidateId)
     return false;
   if (Candidate.Returns() != Luna::ReturnShape::Scalar ||
@@ -408,8 +395,6 @@ OrderedQualifiedNames(const Luna::ReflectionSnapshot &Snapshot) {
       Namespace.Returns() != Luna::ReturnShape::Zero)
     return false;
 
-  // Text and views obtained from a record keep reading the same generation
-  // after the snapshot value that produced them is gone.
   const Luna::ParameterRecord Retained =
       Snapshot.Find(CandidateId).Parameter(1);
   const Luna::ModuleRecord RetainedModule = Snapshot.Modules().At(0);
@@ -431,7 +416,6 @@ OrderedQualifiedNames(const Luna::ReflectionSnapshot &Snapshot) {
       return false;
     if (Reflection.PublishGeneration(Candidate) != Expected)
       return false;
-    // A rejected candidate publishes nothing at all.
     return Reflection.Generation() == 1 && Reflection.Count() == 5;
   };
 
@@ -489,7 +473,6 @@ OrderedQualifiedNames(const Luna::ReflectionSnapshot &Snapshot) {
       return false;
   }
   {
-    // A constant is not a scope, so it can never own nested symbols.
     Builder Candidate;
     RecordFields Owner = ConstantRecord();
     Owner.Module.reset();
@@ -601,7 +584,6 @@ OrderedQualifiedNames(const Luna::ReflectionSnapshot &Snapshot) {
       return false;
   }
 
-  // The committed generation still answers exactly as before.
   const Luna::ReflectionSnapshot Snapshot = Reflection.Snapshot();
   return Snapshot.Generation() == 1 && Snapshot.Size() == 5 &&
          Snapshot.Find("Studio.Gravity").IsValid();
@@ -629,7 +611,6 @@ OrderedQualifiedNames(const Luna::ReflectionSnapshot &Snapshot) {
   if (Second.Generation() != 2 || Second.Size() != 6 ||
       !Second.Find("Studio.Reset").IsValid())
     return false;
-  // The earlier snapshot never observes the later generation.
   if (First.Generation() != 1 || First.Size() != 5 ||
       First.Find("Studio.Reset").IsValid())
     return false;
@@ -656,7 +637,6 @@ OrderedQualifiedNames(const Luna::ReflectionSnapshot &Snapshot) {
     Retained = First.Bindings().Reflection();
     if (Retained.Generation() != 1 || Retained.Size() != 5)
       return false;
-    // Each State owns one isolated database.
     if (!Second.Bindings().Reflection().IsEmpty() ||
         Hooks::ReflectionGeneration(Second) != 0)
       return false;
@@ -672,8 +652,6 @@ OrderedQualifiedNames(const Luna::ReflectionSnapshot &Snapshot) {
     if (Retained.Generation() != 1 || Retained.Size() != 5)
       return false;
 
-    // A move transfers the exact current generation and keeps prior snapshots
-    // valid, while the moved-from State reports an empty model.
     Luna::State Moved = std::move(First);
     if (Moved.Bindings().Reflection().Generation() != 2 ||
         Moved.Bindings().Reflection().Size() != 6)
@@ -686,7 +664,6 @@ OrderedQualifiedNames(const Luna::ReflectionSnapshot &Snapshot) {
       return false;
   }
 
-  // Both snapshots survive destruction of every originating State.
   if (Retained.Generation() != 1 || Retained.Size() != 5)
     return false;
   if (Retained.Find("Studio.Gravity").Documentation() != "Gravity constant.")
@@ -695,8 +672,6 @@ OrderedQualifiedNames(const Luna::ReflectionSnapshot &Snapshot) {
       !Later.Find("Studio.Clear").IsValid())
     return false;
 
-  // An owning snapshot holds no VM or mutable State storage, so another thread
-  // may read it after acquisition.
   bool CrossThreadMatches = false;
   std::thread Reader([&Retained, &CrossThreadMatches] {
     const Luna::ReflectionRecord Record = Retained.Find("Studio.Find");
@@ -708,8 +683,6 @@ OrderedQualifiedNames(const Luna::ReflectionSnapshot &Snapshot) {
   return CrossThreadMatches;
 }
 
-// Requirements 3.5, 3.9, 19.8: a rejected identity or reflection preparation
-// publishes nothing and leaves the State fully usable through the real VM.
 [[nodiscard]] bool VerifyFailedPreparationKeepsStateReusable() {
   Luna::State Owner;
   if (!Owner.IsReady())
@@ -722,8 +695,6 @@ OrderedQualifiedNames(const Luna::ReflectionSnapshot &Snapshot) {
       Hooks::ObserveIntegerGlobal(Owner, "First") != 42)
     return false;
 
-  // The committed generation is exactly the one the callable's own publication
-  // produced: its overload set and its one candidate.
   Database *Reflection = Hooks::ReflectionDatabaseOf(Owner);
   if (Reflection == nullptr || Reflection->Count() != 2)
     return false;
@@ -734,8 +705,6 @@ OrderedQualifiedNames(const Luna::ReflectionSnapshot &Snapshot) {
   if (!EntryDepth || Committed.Generation() != 1)
     return false;
 
-  // A rejected identity resolution stores no descriptor and no fallback
-  // identity, so the next resolution still sees the untouched registry.
   Luna::Detail::TypeIdentityRegistry Types;
   const auto Incomplete = Types.Resolve(Luna::TypeDescriptor::Unsupported());
   if (Incomplete.IsSuccess() || !Incomplete.Diagnostic || Types.Size() != 0)
@@ -751,8 +720,6 @@ OrderedQualifiedNames(const Luna::ReflectionSnapshot &Snapshot) {
   if (Stored == nullptr || *Stored != NumberDescriptor())
     return false;
 
-  // Every rejected reflection preparation leaves the committed generation and
-  // its canonical order exactly as they were.
   const auto RejectThrough = [&](const Builder &Candidate, Status Expected) {
     std::shared_ptr<const Luna::Detail::ReflectionStorage> Prepared;
     if (Reflection->Prepare(Candidate, Prepared) != Expected || Prepared)
@@ -774,8 +741,6 @@ OrderedQualifiedNames(const Luna::ReflectionSnapshot &Snapshot) {
       return false;
   }
   {
-    // A second overload set for a qualified name the committed generation
-    // already describes is a duplicate, not a second reflected set.
     Builder Candidate = Reflection->BeginGeneration();
     RecordFields Fields;
     Fields.Kind = Luna::SymbolKind::OverloadSet;
@@ -796,8 +761,6 @@ OrderedQualifiedNames(const Luna::ReflectionSnapshot &Snapshot) {
       return false;
   }
 
-  // The State is still ready, still holds its original binding, and still
-  // accepts new registrations and executions through the real compiler and VM.
   if (!Owner.IsReady() || Hooks::ObserveRootStackDepth(Owner) != *EntryDepth ||
       Hooks::BindingCount(Owner) != 1 ||
       !Hooks::BindingIsCommitted(Owner, "Doubler"))
@@ -812,8 +775,6 @@ OrderedQualifiedNames(const Luna::ReflectionSnapshot &Snapshot) {
   if (Hooks::ObserveRootStackDepth(Owner) != *EntryDepth)
     return false;
 
-  // The database itself is reusable: a later registration publishes its own
-  // generation normally while the retained snapshot keeps its own.
   if (!Owner.Bindings()
            .Register("Scale", [](int Value) { return Value + 1; })
            .IsSuccess())

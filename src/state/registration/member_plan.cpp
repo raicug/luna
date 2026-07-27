@@ -74,16 +74,9 @@ DescriptorPlanEntry MakeMemberPlanEntry(const StagedMember &Declaration,
                                         const SymbolId &ClassSymbol) {
   DescriptorPlanEntry Entry;
 
-  // A member is its own category: it installs no virtual-machine value of its
-  // own, because it is reached through the class rather than published at a
-  // path. It still travels through the same validation, the same journal, and
-  // the same publication decision as every other declaration.
   Entry.Category = PlanEntryKind::ClassMember;
   Entry.VmPath = Declaration.QualifiedName;
 
-  // A property and a field carry no canonical signature: one member is one
-  // symbol with a declared value type and a declared receiver, not one callable
-  // candidate per direction.
   Entry.Symbol = MakeClassMemberSymbol(
       Declaration.Kind, Declaration.QualifiedName, ClassSymbol, OwnerType);
   Entry.Identity = IdentityOf(Entry.Symbol);
@@ -101,16 +94,9 @@ DescriptorPlanEntry MakeMemberPlanEntry(const StagedMember &Declaration,
     Record.Type = *Identity;
   Record.Returns = ReturnShape::Zero;
 
-  // What a consumer and a generator need to know about one member: the receiver
-  // it is reached through, whether that receiver may be const, which directions
-  // it permits, and when its value is produced. Cache state is deliberately
-  // absent: the lazy policy is metadata, the cached value is not.
   if (const auto Receiver =
           TypeIdentityRegistry::ComputeIdentity(Declaration.ReceiverType))
     Record.ReceiverType = *Receiver;
-  // A const receiver is enough for this member's reads when the declared getter
-  // itself only reads the object. Writes always need a mutable receiver, which
-  // is what the writability flag already says.
   Record.ReceiverPermitsConst = PermitsMemberRead(Declaration.Access) &&
                                 !Declaration.ReadRequiresMutableReceiver;
   Record.MemberIsReadable = PermitsMemberRead(Declaration.Access);
@@ -121,8 +107,6 @@ DescriptorPlanEntry MakeMemberPlanEntry(const StagedMember &Declaration,
   Record.MemberOwnershipText =
       std::string(MemberOwnershipText(Declaration.Ownership));
 
-  // The canonical member signature travels with the record so two members of
-  // one class never reflect one identical ordering key.
   Record.Signature = std::string(SymbolKindText(Declaration.Kind)) + " " +
                      CanonicalTypeText(Declaration.ValueType) + "[" +
                      CanonicalTypeText(Declaration.ReceiverType) + "]";
@@ -150,13 +134,9 @@ std::optional<ErrorDiagnostic>
 ValidateStagedMember(const StagedMember &Declaration) {
   const std::string Subject = MemberSubject(Declaration);
 
-  // A refusal the declaration itself recorded ranks first: a policy that
-  // contradicts its own accessors is a description mistake, not a target one.
   if (!Declaration.Refusal.empty())
     return MalformedMetadataDiagnostic(Subject, Declaration.Refusal);
 
-  // Luna copies one supported value across the member boundary, so a declared
-  // type it could not carry is refused here instead of at the first access.
   if (!Declaration.ValueType.IsValid())
     return MalformedMetadataDiagnostic(
         Subject, "the declared value type of this member is not one Luna can "
@@ -165,8 +145,6 @@ ValidateStagedMember(const StagedMember &Declaration) {
     return MalformedMetadataDiagnostic(
         Subject, "this member names no receiver type at all.");
 
-  // Every direction the member permits needs the descriptor that performs it,
-  // and every descriptor needs a direction that permits it.
   if (PermitsMemberRead(Declaration.Access) && !Declaration.HasReader())
     return MalformedMetadataDiagnostic(
         Subject, "this member permits reads but generated no getter.");
@@ -180,8 +158,6 @@ ValidateStagedMember(const StagedMember &Declaration) {
     return MalformedMetadataDiagnostic(
         Subject, "this member generated a setter but permits no writes.");
 
-  // A computed or lazy value has to be readable, and a field is always the
-  // immediate value the object holds rather than a computed one.
   if (Declaration.Evaluation != PropertyEvaluation::Immediate &&
       !PermitsMemberRead(Declaration.Access))
     return MalformedMetadataDiagnostic(
@@ -192,8 +168,6 @@ ValidateStagedMember(const StagedMember &Declaration) {
         Subject, "a field holds the value the object already has, so it never "
                  "declares a computed or lazy evaluation.");
 
-  // A field copies its value across the boundary, so no reference into an
-  // object Luna does not own can escape through it.
   if (Declaration.Kind == SymbolKind::Field &&
       Declaration.Ownership != MemberOwnership::Copied)
     return MalformedMetadataDiagnostic(
@@ -204,13 +178,9 @@ ValidateStagedMember(const StagedMember &Declaration) {
 
 MemberCollision
 ClassifyMemberCollision(const MemberCollisionRequest &Request) noexcept {
-  // 1. Luna's own metamethod and system namespace. A member may never take it,
-  // whichever category the request names.
   if (IsReservedMemberName(Request.Segment))
     return MemberCollision::ReservedSystemName;
 
-  // 2. and 3. A name this class already declares: the same category is a
-  // duplicate, and any other category is an incompatible-category collision.
   if (Request.NameIsDeclared) {
     if (Request.ExistingCategory == PlanEntryKind::ClassMember &&
         Request.ExistingKind == Request.Kind)
@@ -218,8 +188,6 @@ ClassifyMemberCollision(const MemberCollisionRequest &Request) noexcept {
     return MemberCollision::IncompatibleCategory;
   }
 
-  // 4. One name reachable from more than one base. Unreachable until base edges
-  // exist, so this arm fixes the position rather than the behavior.
   if (Request.InheritedNameIsAmbiguous)
     return MemberCollision::InheritedAmbiguity;
   return MemberCollision::None;
@@ -234,8 +202,6 @@ DiagnoseMemberCollision(const MemberCollisionRequest &Request) {
   case MemberCollision::None:
     return std::nullopt;
   case MemberCollision::ReservedSystemName:
-    // A metamethod Luna installs itself names the behavior it carries, so the
-    // refusal says which promise the declaration would have replaced.
     if (const ReservedMetamethod *Owned =
             FindReservedMetamethod(Request.Segment))
       return ReservedMetamethodDiagnostic(

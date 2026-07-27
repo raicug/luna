@@ -1,12 +1,3 @@
-// Explicit function registration: `RegisterFunction` at the root scope and
-// inside a namespace builder, `Register` as its exact compatibility alias, and
-// the macro-free `Overload<Signature>` helper.
-//
-// Both spellings route through one adapter, one canonical descriptor builder,
-// one transaction entry, one callable target, and one diagnostic path, so the
-// checks here compare the two APIs against each other rather than against a
-// second expectation.
-
 // clang-format off
 #include <luna/binding/binding_registry.hpp>
 #include <luna/binding/namespace_builder.hpp>
@@ -41,15 +32,10 @@ void Check(bool Condition, std::string_view Description) {
 
 [[nodiscard]] int AddIntegers(int Left, int Right) { return Left + Right; }
 
-// One overloaded C++ name, which is exactly what `Overload<Signature>`
-// disambiguates without a macro and without a cast through a virtual-machine
-// type.
 [[nodiscard]] int Measure(int Value) { return Value * 2; }
 [[nodiscard]] int Measure(int Value, int Scale) { return Value * Scale; }
 [[nodiscard]] double Measure(double Value) { return Value * 0.5; }
 
-// One callable object with several call signatures. It is not a supported
-// callable on its own, because Luna cannot tell which signature was meant.
 struct Scaling final {
   [[nodiscard]] double operator()(double Value) const { return Value * 2.0; }
   [[nodiscard]] int operator()(int Value) const { return Value * 3; }
@@ -60,8 +46,6 @@ struct Counter final {
   void Add(int Amount) { Total += Amount; }
 };
 
-// A signature naming a type the registry cannot convert stays unregistrable, so
-// the helper never weakens a converter availability check.
 [[nodiscard]] std::string_view Trim(std::string_view Text) { return Text; }
 
 [[nodiscard]] int StackDepth(const Luna::State &Owner) {

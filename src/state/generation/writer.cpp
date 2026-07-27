@@ -14,8 +14,6 @@ namespace {
 
 constexpr char32_t ByteOrderMark = 0xfeff;
 
-// One decoded UTF-8 scalar value together with the length it occupied. A length
-// of zero reports malformed input.
 struct DecodedScalar final {
   char32_t Value = 0;
   std::size_t Length = 0;
@@ -56,8 +54,6 @@ struct DecodedScalar final {
                                   static_cast<char32_t>(Continuation & 0x3f));
   }
 
-  // Overlong forms, surrogate halves, and values above the Unicode range are
-  // all malformed, so an artifact never carries a non-canonical encoding.
   static constexpr char32_t Minimum[5] = {0, 0, 0x80, 0x800, 0x10000};
   if (Value < Minimum[Length])
     return DecodedScalar{};
@@ -73,8 +69,6 @@ struct DecodedScalar final {
                      : static_cast<char>('a' + (Nibble - 10));
 }
 
-// Escapes one control byte so a metadata value never introduces a structural
-// break or an invisible difference between two artifacts.
 void AppendEscape(std::string &Target, std::uint8_t Byte) {
   Target.push_back('\\');
   if (Byte == '\n') {
@@ -211,8 +205,6 @@ bool GenerationWriter::Refuse(GenerationStatus Status,
 
 GeneratedArtifact GenerationWriter::Release(std::string_view Artifact) {
   if (!RejectedValue) {
-    // The published buffer is validated once as a whole, so no partial or
-    // non-canonical artifact can ever reach a caller.
     if (const GenerationStatus Reason = ClassifyGeneratedText(BytesValue);
         Reason != GenerationStatus::Valid)
       Reject(Reason, "the assembled artifact");
@@ -243,8 +235,6 @@ void GenerationWriter::Reject(GenerationStatus Status,
 std::string TypeText(const ReflectionSnapshot &Snapshot, const TypeId &Id) {
   if (!Id.IsValid())
     return std::string();
-  // `Luna::TypeRecord` is the public reflection view; the private type registry
-  // owns an unrelated record of the same name.
   const Luna::TypeRecord Record = Snapshot.FindType(Id);
   if (Record.IsValid() && !Record.Name().empty())
     return std::string(Record.Name());

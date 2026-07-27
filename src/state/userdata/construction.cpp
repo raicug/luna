@@ -37,11 +37,6 @@ namespace {
   return OwnershipModel::Borrowed;
 }
 
-// The ownership statement of one staged construction result, in exactly the
-// shape the exposure and release paths take. An object Luna creates arrives
-// without storage: the protocol's allocation step produces it and the
-// construction step builds into it, so every milestone of that object belongs
-// to the one gate that also releases it.
 [[nodiscard]] std::shared_ptr<const ClassExposureIntent>
 IntentFrom(const ConstructedInstance &Produced) {
   auto Intent = std::make_shared<ClassExposureIntent>();
@@ -63,9 +58,6 @@ IntentFrom(const ConstructedInstance &Produced) {
   return Intent;
 }
 
-// The object the value on top of the stack carries. An object Luna created has
-// no address until its allocation step produced one, so its own published
-// header is the only thing that names it.
 [[nodiscard]] void *PublishedObjectOnTop(lua_State *State) noexcept {
   if (State == nullptr || lua_type(State, -1) != LUA_TUSERDATA)
     return nullptr;
@@ -91,9 +83,6 @@ PublishConstructedInstance(lua_State *State, const TypeGeneration &Types,
                            const StableTypeKey &Class,
                            const ConstructedInstance &Produced) noexcept {
   try {
-    // Either the object already exists, or the staged result declares the
-    // protocol and the construction step that will create it. A result that
-    // declares neither produced nothing at all.
     const bool Creates = Produced.Storage == nullptr &&
                          Produced.Allocator.DeclaresAllocation() &&
                          (static_cast<bool>(Produced.Construct) ||
@@ -102,8 +91,6 @@ PublishConstructedInstance(lua_State *State, const TypeGeneration &Types,
       return Refuse(InstancePublicationStatus::MissingObject,
                     "the declaration produced no object.");
 
-    // The class is resolved through the canonical type registry of the captured
-    // generation, never through anything the target returned.
     const TypeDescriptor Declared = TypeDescriptor::ForClass(Class);
     if (!Types.IsAvailableForWrite(Declared))
       return Refuse(InstancePublicationStatus::UnavailableClass,
@@ -121,17 +108,9 @@ PublishConstructedInstance(lua_State *State, const TypeGeneration &Types,
     const StructuredValue Staged = StructuredValue::ExposedHandle(
         Produced.Storage, Produced.PermitsMutation, std::move(Intent));
 
-    // How many values this State owned before the publication. Exactly one more
-    // means this publication established the owner of its value; the same
-    // number means the identity cache handed back a value that was already
-    // owned, and that one is not this publication's to release.
     const std::size_t OwnedBefore =
         Context->Ownership != nullptr ? Context->Ownership->RecordCount() : 0;
 
-    // Exactly the canonical class conversion a returned object passes: the
-    // identity cache, the release gate, the metatable, and the protected
-    // publication are all the ordinary ones, so a refusal anywhere releases
-    // precisely what the completed milestones warrant and publishes nothing.
     const StructuredWriteResult Written =
         WriteStructuredValue(Types, State, Declared, Staged);
     if (Written.IsSuccess() && Written.PublishedCount == 1) {

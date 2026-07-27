@@ -1,10 +1,3 @@
-// Userdata access benchmark scenario.
-//
-// Construction, field reads and writes, method calls, and property reads all
-// pass through the validated access gate, so each of them is measured on the
-// same registered class. The corpus is registered once per mode, outside the
-// timed region.
-
 // clang-format off
 #include <luna/luna.hpp>
 
@@ -21,8 +14,6 @@ namespace {
 using LunaBenchmark::CacheMode;
 using LunaBenchmark::ScenarioModel;
 
-// The measured class and the base it declares, so the registered class graph is
-// a connected one like a real corpus.
 struct Container {
   double Capacity = 1.0;
 

@@ -46,8 +46,6 @@ public:
   int Health = 100;
 };
 
-// The generation one modelled lifetime handle reports. Advancing the counter is
-// exactly what invalidating a borrowed object's handle does.
 [[nodiscard]] std::uint64_t ProbeGeneration(const void *Record) noexcept {
   return Record != nullptr ? *static_cast<const std::uint64_t *>(Record) : 0;
 }
@@ -101,9 +99,6 @@ ReadHandle(Luna::State &Owner, const std::string &Path, const void *Expected,
   return Observed ? *Observed : -1;
 }
 
-// Every check of the gate, in the exact order the design fixes: a value that
-// fails several checks always reports the earliest one, and no refusal ever
-// yields a native pointer.
 void CheckAccessValidationOrderIsDeterministic() {
   Luna::State Owner;
   Luna::BindingRegistry Registry = Owner.Bindings();
@@ -131,8 +126,6 @@ void CheckAccessValidationOrderIsDeterministic() {
   Request.RequestedType = *VectorType;
   Request.HandleProbe = &ProbeGeneration;
 
-  // An incomplete request is Luna's own mistake and is refused before any value
-  // is read.
   Luna::Detail::UserdataAccessRequest Incomplete;
   const auto Unavailable =
       Luna::Detail::InspectUserdataAccess(&Object, sizeof(Object), Incomplete);
@@ -155,8 +148,6 @@ void CheckAccessValidationOrderIsDeterministic() {
                 .Failure == UserdataAccessFailure::ForeignLayout,
         "a block too small to hold the header is foreign");
 
-  // A value that fails the layout, origin, metatable, lifetime, type, and const
-  // checks at once reports the layout failure.
   Luna::Detail::UserdataHeader Broken = *Header;
   Broken.Magic = 0;
   Broken.Origin = Luna::Detail::StateIdentity();
@@ -238,7 +229,6 @@ void CheckAccessValidationOrderIsDeterministic() {
   Check(Granted.Storage == &Object && Granted.PermitsMutation,
         "a permitted access hands out exactly the exposed object");
 
-  // A const view still permits a non-mutating access.
   Request.RequiresMutation = false;
   Broken.Access = ConstAccess::Const;
   const auto Reading = Luna::Detail::ValidateUserdataAccess(Broken, Request);
@@ -246,8 +236,6 @@ void CheckAccessValidationOrderIsDeterministic() {
         "a const view permits a non-mutating access without granting mutation");
 }
 
-// One exposed value, read back through exactly the conversion path an ordinary
-// argument takes.
 void CheckExposedValuesReachNativeCode() {
   Luna::State Owner;
   Luna::BindingRegistry Registry = Owner.Bindings();
@@ -277,8 +265,6 @@ void CheckExposedValuesReachNativeCode() {
   Check(Header && Header->Identity.IsValid(),
         "an exposed value records one native identity");
 
-  // The class metatable is created lazily, is shared by every value of the
-  // class, and is protected against script replacement.
   Check(ScriptResult(Owner, "Result = 0\nif typeof(Sample) == 'Studio.Vector3' "
                             "then Result = 1 end") == 1,
         "an exposed value carries the class metatable");
@@ -298,7 +284,6 @@ void CheckExposedValuesReachNativeCode() {
   Check(Hooks::LiveCachedIdentityCount(Owner) == 2,
         "two distinct objects record two live cache entries");
 
-  // A value the cache handed back is the same Luau value, not a copy.
   Check(ExposeBorrowed(Owner, "Alias", &Object, &Generation) == "reused",
         "re-exposing one object hands the existing value back");
   Check(ScriptResult(Owner, "Result = 0\nif Alias == Sample then Result = 1 "
@@ -308,8 +293,6 @@ void CheckExposedValuesReachNativeCode() {
         "reuse records no second entry for one object");
 }
 
-// The documented cache policy: reuse a compatible view, refuse everything else
-// without creating a second owner.
 void CheckIdentityCacheReusesAndRefusesConflicts() {
   Luna::State Owner;
   Luna::BindingRegistry Registry = Owner.Bindings();
@@ -330,7 +313,6 @@ void CheckIdentityCacheReusesAndRefusesConflicts() {
   Check(Reused.Reused && Reused.Nonce == Created.Nonce,
         "a reused exposure keeps the identity it was first exposed with");
 
-  // A conflicting ownership model is refused, and no second value is created.
   Check(ExposeBorrowed(Owner, "Owned", &Object, &Generation, "Studio.Vector3",
                        ConstAccess::Mutable,
                        OwnershipModel::LuaOwned) == "conflicting_ownership",
@@ -348,8 +330,6 @@ void CheckIdentityCacheReusesAndRefusesConflicts() {
                             "Wrong == nil then Result = 1 end") == 1,
         "no refused re-exposure publishes a value");
 
-  // A borrowed value without its explicit lifetime handle never becomes a value
-  // at all.
   Vector3 Unhandled;
   Check(ExposeBorrowed(Owner, "Unhandled", &Unhandled, nullptr) ==
             "missing_lifetime_handle",
@@ -357,8 +337,6 @@ void CheckIdentityCacheReusesAndRefusesConflicts() {
   Check(Hooks::LiveCachedIdentityCount(Owner) == 1,
         "a refused exposure records nothing");
 
-  // An owning model needs no handle, and a distinct object gets its own
-  // identity.
   Vector3 Owned;
   Check(ExposeBorrowed(Owner, "Value", &Owned, nullptr, "Studio.Vector3",
                        ConstAccess::Mutable,
@@ -368,8 +346,6 @@ void CheckIdentityCacheReusesAndRefusesConflicts() {
         "a distinct object records its own entry");
 }
 
-// Nothing stale, foreign, or wrongly typed reaches native code, and a cache
-// entry stops satisfying lookups before its payload is released.
 void CheckStaleAndForeignValuesNeverReachNativeCode() {
   Luna::State Owner;
   Luna::BindingRegistry Registry = Owner.Bindings();
@@ -382,19 +358,11 @@ void CheckStaleAndForeignValuesNeverReachNativeCode() {
   Check(ReadHandle(Owner, "Sample", &Object).ReachedNativeCode,
         "the exposed value reaches native code while it is live");
 
-  // Read as another registered class, the value carries a metatable this State
-  // knows - its own class is a node of the relationship graph - so the
-  // metatable gate passes it to the type gate, which refuses it because no
-  // accessible base path and no cast policy relates the two classes. A value
-  // carrying a metatable no registered class owns is what the gate order test
-  // refuses at the metatable check itself.
   const auto WrongClass = ReadHandle(Owner, "Sample", &Object, "Actor");
   Check(!WrongClass.ReachedNativeCode &&
             WrongClass.Failure == "userdata_type_mismatch",
         "a value of another class never reaches native code");
 
-  // Invalidating the borrowed handle expires every later access, without
-  // touching the value itself.
   ++Generation;
   const auto Expired = ReadHandle(Owner, "Sample", &Object);
   Check(!Expired.ReachedNativeCode && Expired.Failure == "expired_userdata",
@@ -405,8 +373,6 @@ void CheckStaleAndForeignValuesNeverReachNativeCode() {
   Check(ReadHandle(Owner, "Sample", &Object).ReachedNativeCode,
         "restoring the handle generation makes the value accessible again");
 
-  // Retiring the value evicts the cache entry and invalidates access before any
-  // payload release.
   Check(Hooks::RetireClassUserdata(Owner, &Object),
         "retiring one exposed value succeeds");
   Check(Hooks::LiveCachedIdentityCount(Owner) == 0 &&
@@ -422,8 +388,6 @@ void CheckStaleAndForeignValuesNeverReachNativeCode() {
             Hooks::LiveCachedIdentityCount(Owner) == 0,
         "retiring one value twice is harmless");
 
-  // The same storage exposed again is a new identity, so the released value can
-  // never be impersonated.
   const std::uint64_t Reborn = 1;
   Luna::Detail::ClassExposureRequest Again;
   Again.QualifiedName = "Studio.Vector3";
@@ -439,7 +403,6 @@ void CheckStaleAndForeignValuesNeverReachNativeCode() {
         "the retired value stays unreachable after the storage is exposed "
         "again");
 
-  // A script-created value at the same path is never read as a Luna userdata.
   Check(Owner.Execute("Sample = {}").IsSuccess(),
         "the script replaces the path with its own table");
   const auto Foreign = ReadHandle(Owner, "Sample", &Object);
@@ -452,16 +415,11 @@ void CheckStaleAndForeignValuesNeverReachNativeCode() {
         "an absent value never reaches native code");
 }
 
-// The class metatable is a lazy consequence of exposing a value, not of
-// registering a class, and once created it is retained for the life of the
-// State: every later value of that class carries exactly the same table.
 void CheckClassMetatableIsCreatedOnceAndRetained() {
   Luna::State Owner;
   Luna::BindingRegistry Registry = Owner.Bindings();
   Check(RegisterClasses(Registry).IsSuccess(), "both classes register");
 
-  // Registration installs no virtual-machine metatable: a class no value was
-  // ever created of contributes nothing to the machine.
   Check(!Hooks::ClassMetatableIsCreated(Owner, "Studio.Vector3") &&
             !Hooks::ClassMetatableIsCreated(Owner, "Actor"),
         "registering a class creates no metatable");
@@ -478,8 +436,6 @@ void CheckClassMetatableIsCreatedOnceAndRetained() {
   Check(!Hooks::ClassMetatableIsCreated(Owner, "Actor"),
         "exposing one class creates no metatable for another");
 
-  // More values, a reuse, a retirement, and a full collection later, the class
-  // still owns exactly the one table it created.
   Vector3 Second;
   Check(ExposeBorrowed(Owner, "Second", &Second, &Generation) == "created",
         "a second value of the class is exposed");
@@ -510,10 +466,6 @@ void CheckClassMetatableIsCreatedOnceAndRetained() {
         "the retained metatable still types every value of the class");
 }
 
-// The gate and the cache are both state-local. Two States allocate metatable
-// identities from their own counters and share one canonical `TypeId`, so a
-// value of one State can carry exactly the identity numbers the other State
-// expects and must still be refused on origin alone.
 void CheckAccessAndCacheAreIsolatedByState() {
   Luna::State First;
   Luna::State Second;
@@ -563,8 +515,6 @@ void CheckAccessAndCacheAreIsolatedByState() {
         "a value of another State is refused before its metatable or type is "
         "trusted");
 
-  // Eviction is state-local too: retiring one State's value leaves the other
-  // State's value and cache entry exactly as they were.
   Check(Hooks::RetireClassUserdata(First, &Object),
         "the first State retires its value");
   Check(Hooks::LiveCachedIdentityCount(First) == 0 &&

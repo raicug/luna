@@ -29,12 +29,6 @@
 namespace Luna::Detail {
 namespace {
 
-// The declared call shape of one candidate. A callable that declares optional,
-// defaulted, or variadic parameters is ranked through those descriptors, so its
-// arity window, its per-position target type, its acceptance of an explicit
-// nil, and its variadic tail are exactly the ones the binding half will apply
-// after selection. A foundation callable declares required fixed parameters
-// only, and its canonical signature describes it completely.
 struct DeclaredShape final {
   std::span<const ParameterDescriptor> Parameters;
   bool IsRich = false;
@@ -47,9 +41,6 @@ struct DeclaredShape final {
   return Shape;
 }
 
-// One candidate as dispatch sees it: where it lives in the record, the arity
-// window and declared shape it accepts, and either its rank sequence or the
-// first deterministic reason it was rejected.
 struct ConsideredCandidate final {
   std::size_t Index = 0;
   const CallableSignatureDescriptor *Signature = nullptr;
@@ -68,10 +59,6 @@ struct ConsideredCandidate final {
   return CanonicalTypeText(Type);
 }
 
-// Canonical text of one candidate signature, in declaration order. The declared
-// shape travels with the text: an omittable parameter is marked, and the
-// variadic tail is spelled as the final ellipsis, so a diagnostic never renders
-// two candidates of different shapes identically.
 [[nodiscard]] std::string
 DescribeSignature(const TypeGeneration &Types,
                   const CallableSignatureDescriptor &Signature) {
@@ -93,9 +80,6 @@ DescribeSignature(const TypeGeneration &Types,
   return Text;
 }
 
-// The received arguments of one call, by the Luau type of each position. The
-// receiver of an instance member is not one of them: it was already validated,
-// so the ordinary arguments read exactly as they do for a static callable.
 [[nodiscard]] std::string DescribeReceived(lua_State *State, int ArgumentBase,
                                            int Count) {
   std::string Text = "(";
@@ -108,17 +92,12 @@ DescribeSignature(const TypeGeneration &Types,
   return Text;
 }
 
-// The arity window of one signature. A variadic candidate has no finite
-// maximum, which is a shape rule of its signature and not a configured cap.
 struct ArityWindow final {
   std::size_t Minimum = 0;
   std::size_t Maximum = 0;
   bool IsUnbounded = false;
 };
 
-// The arity window of one candidate. A declared shape answers directly - its
-// fixed parameters, how many of them are required, and whether it ends in a
-// variadic tail - and a foundation signature carries the same two fields.
 [[nodiscard]] ArityWindow
 DescribeArity(const CallableSignatureDescriptor &Signature,
               const DeclaredShape &Shape) {
@@ -153,8 +132,6 @@ DescribeArity(const CallableSignatureDescriptor &Signature,
          " arguments but received " + Got;
 }
 
-// The canonical type one foundation candidate reads at one supplied call
-// position.
 [[nodiscard]] const TypeDescriptor *
 ParameterTypeAt(const CallableSignatureDescriptor &Signature,
                 std::size_t Position) {
@@ -163,17 +140,6 @@ ParameterTypeAt(const CallableSignatureDescriptor &Signature,
   return nullptr;
 }
 
-// One position of one declared shape, probed without committing anything.
-//
-// A fixed slot probes its own canonical type, except that an explicit nil is
-// the empty value of a parameter whose own conversion accepts nil - exactly the
-// rule the binding half applies, so a candidate is never ranked viable for a
-// call its binding would refuse, nor refused for one it would accept.
-//
-// A position past the fixed slots belongs to the final variadic tail. Its
-// accepted domain is the Luna-owned variadic policy: a boolean, number, string,
-// or nil, each of which is already its own canonical type and therefore an
-// exact match of the tail.
 [[nodiscard]] ArgumentProbe
 ProbeDeclaredPosition(const TypeGeneration &Types, lua_State *State,
                       const DeclaredShape &Shape, std::size_t FixedCount,
@@ -226,14 +192,6 @@ ProbeDeclaredPosition(const TypeGeneration &Types, lua_State *State,
   return SignatureShapeRank::ExactArity;
 }
 
-// The receiver dimension of one candidate's rank sequence.
-//
-// A receiver is never probed here: it was already validated once for the whole
-// call, in the fixed order the access gate defines. What is decided per
-// candidate is the one thing that differs between the candidates of a set -
-// const access - and it is decided before any ordinary argument of that
-// candidate is inspected. A mutable object prefers the non-const sibling of a
-// const member, exactly the way C++ ranks the same pair.
 [[nodiscard]] bool RankReceiver(const TypeGeneration &Types,
                                 const InstanceReceiver *Receiver,
                                 ConsideredCandidate &Candidate) {
@@ -263,17 +221,12 @@ ProbeDeclaredPosition(const TypeGeneration &Types, lua_State *State,
   return true;
 }
 
-// Everything one candidate contributes to the resolution of one call: its
-// receiver decision, its arity decision, its per-argument probes, and its rank
-// sequence.
 void Consider(const TypeGeneration &Types, lua_State *State,
               std::size_t Received, int ArgumentBase,
               const InstanceReceiver *Receiver,
               ConsideredCandidate &Candidate) {
   const CallableSignatureDescriptor &Signature = *Candidate.Signature;
 
-  // Rank position zero, decided before the arity and the arguments of this
-  // candidate are looked at at all.
   Candidate.Ranks.Positions.reserve(Received + 1);
   if (!RankReceiver(Types, Receiver, Candidate)) {
     Candidate.Ranks.Positions.clear();
@@ -306,7 +259,6 @@ void Consider(const TypeGeneration &Types, lua_State *State,
     }
 
     if (!Probe.IsViable) {
-      // Only the first deterministic rejection of a candidate is recorded.
       Candidate.Rejection =
           "argument " + std::to_string(Position + 1) + " " + Probe.Rejection;
       Candidate.Ranks.Positions.clear();
@@ -319,9 +271,6 @@ void Consider(const TypeGeneration &Types, lua_State *State,
   Candidate.IsViable = true;
 }
 
-// The subject one overload set names. A set whose candidates declare a receiver
-// is one member of one class, so it names itself as that member rather than as
-// a bare callable.
 [[nodiscard]] bool DeclaresReceiver(const BindingRecord &Record) {
   for (std::size_t Index = 0; Index < Record.CandidateCount(); ++Index) {
     const OverloadCandidate *Candidate = Record.CandidateAt(Index);
@@ -393,16 +342,11 @@ OverloadDispatchResult ResolveOverloadedCall(const BindingRecord &Record,
     return Result;
   }
 
-  // A validated receiver occupies the first call position, so the ordinary
-  // arguments of an instance member start after it and are counted, probed, and
-  // reported exactly as a static callable's are.
   const int ArgumentBase = Receiver != nullptr ? 2 : 1;
   const int Supplied = lua_gettop(State) - (ArgumentBase - 1);
   const std::size_t Received =
       Supplied > 0 ? static_cast<std::size_t>(Supplied) : 0;
 
-  // Canonical candidate order, never registration order: the record keeps its
-  // committed candidates ordered by encoded signature and candidate identity.
   std::vector<ConsideredCandidate> Candidates;
   Candidates.reserve(Record.CandidateCount());
   for (std::size_t Index = 0; Index < Record.CandidateCount(); ++Index) {

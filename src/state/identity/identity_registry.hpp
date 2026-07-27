@@ -1,13 +1,5 @@
 #pragma once
 
-// Collision-safe identity resolution. An identity is the version-pinned digest
-// of a complete canonical descriptor, so equal descriptors always resolve to
-// the same identity across States, executions, insertion orders, and container
-// permutations. Resolution compares the complete stored descriptor after every
-// identity match: unequal descriptors sharing one identity are rejected with a
-// deterministic Internal diagnostic and never receive an order-dependent
-// fallback identity.
-
 // clang-format off
 #include <luna/core/diagnostics/error_diagnostic.hpp>
 #include <luna/reflection/ids.hpp>
@@ -23,12 +15,8 @@
 
 namespace Luna::Detail {
 
-// Private hook that forces the next resolutions to a chosen identity. It exists
-// so collision handling is exercised deterministically without waiting for a
-// real 256-bit digest collision, and it is never reachable from the public API.
 class IdentityCollisionInjector final {
 public:
-  // Reserved identity used when no explicit identity is supplied.
   [[nodiscard]] static CanonicalDigest::Storage SharedIdentityBytes() noexcept;
 
   void Inject(std::size_t Count = 1) noexcept;
@@ -56,8 +44,6 @@ using SymbolIdentityResolution = IdentityResolution<SymbolId>;
 
 class TypeIdentityRegistry final {
 public:
-  // Digest of one complete canonical descriptor, with no registry state
-  // involved.
   [[nodiscard]] static std::optional<TypeId>
   ComputeIdentity(const TypeDescriptor &Descriptor);
 
@@ -66,8 +52,6 @@ public:
 
   [[nodiscard]] const TypeDescriptor *Find(TypeId Identity) const noexcept;
 
-  // Post-match verification: an identity match alone is never treated as proof
-  // of equal canonical identity.
   [[nodiscard]] bool Matches(TypeId Identity,
                              const TypeDescriptor &Descriptor) const;
 

@@ -35,7 +35,6 @@ namespace {
                                                 std::move(Message))};
 }
 
-// The returned value belongs to the canonical type the record describes.
 [[nodiscard]] bool ValueMatches(const TypeRecord &Record,
                                 const Value &ReturnedValue) {
   if (!Record.ValueRepresentation)
@@ -53,7 +52,6 @@ namespace {
   return false;
 }
 
-// The explicit Luna-owned size policy of the type, when it declares one.
 [[nodiscard]] bool ExceedsSizePolicy(const TypeRecord &Record,
                                      const Value &ReturnedValue) {
   if (!Record.MaximumByteCount)
@@ -62,8 +60,6 @@ namespace {
   return Text && Text->size() > *Record.MaximumByteCount;
 }
 
-// The canonical kind one staged value carries. A dynamic pack names its element
-// types this way, because its signature fixes none.
 [[nodiscard]] ValueKind StagedValueKind(const Value &Staged) {
   if (std::holds_alternative<bool>(Staged))
     return ValueKind::Boolean;
@@ -74,15 +70,10 @@ namespace {
   return ValueKind::String;
 }
 
-// One deterministic refusal of one element of an ordered pack. It names the
-// one-based return position, which is the complete path of a scalar element.
 [[nodiscard]] std::string ReturnPositionText(std::size_t Position) {
   return "Return value " + std::to_string(Position) + " ";
 }
 
-// Publishes one ordered return pack atomically. Every element is validated and
-// the whole publication is reserved before the first value is published, and
-// any later refusal restores the entry depth, so the call exposes zero values.
 [[nodiscard]] ReturnWriteResult
 PublishReturnPack(lua_State *State, int EntryDepth,
                   const ReturnMetadata &Metadata,
@@ -104,8 +95,6 @@ PublishReturnPack(lua_State *State, int EntryDepth,
                    "Returned pack publishes more values than one call can "
                    "carry.");
 
-  // Nothing is published while the pack is being validated: the staged values
-  // are native storage no ordinary query can reach.
   std::vector<const TypeRecord *> Writers;
   Writers.reserve(Staged.size());
   for (std::size_t Index = 0; Index < Staged.size(); ++Index) {
@@ -231,21 +220,11 @@ ReturnWriteResult WriteInvocationReturn(lua_State *State,
         return Failure(State, EntryDepth,
                        "Could not reserve stack capacity for return value.");
 
-      // The staged object becomes a value only if construction, ownership
-      // establishment, cache insertion, metatable association, and this
-      // publication all succeed; any refusal releases exactly what was
-      // established and publishes nothing.
       const InstancePublication Published =
           PublishConstructedInstance(State, Types, *Class, *Produced);
       if (!Published.IsSuccess())
         return Failure(State, EntryDepth, Published.Diagnostic);
       if (Faults.Consume(StateFaultPoint::ReturnWrite)) {
-        // The publication completed, so this failure has to undo it: the object
-        // it published is released exactly once. A candidate that asked Luna to
-        // create the object never knew its address, which is why the
-        // publication reports the object it produced instead. A value the
-        // identity cache handed back was owned before this call and is left
-        // alone.
         if (Published.EstablishedOwner)
           static_cast<void>(ReleasePublishedInstance(State, Published.Storage));
         return Failure(State, EntryDepth,

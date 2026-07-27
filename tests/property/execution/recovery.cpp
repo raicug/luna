@@ -71,9 +71,7 @@ FailureOrder(int GeneratedOrder) noexcept {
 } // namespace
 
 int RunExecutionRecoveryProperties() {
-  // **Validates: Requirements 6.4**
   // clang-format off
-  // Feature: luau-binding-foundation, Property 13: Execution failures do not poison the State
   const bool Passed = rc::check(
       // clang-format on
       "Execution failures do not poison the State",

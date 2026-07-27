@@ -1,9 +1,5 @@
 #pragma once
 
-// One immutable cache generation prepared by `BindingRegistry::Freeze()`.
-// Every entry owns values or stable identities; no entry points into mutable
-// registration, reflection, module, namespace, or userdata storage.
-
 // clang-format off
 #include <luna/module/module_manifest.hpp>
 #include <luna/reflection/ids.hpp>
@@ -62,10 +58,6 @@ struct FrozenLookupEntry final {
   SymbolKind Kind = SymbolKind::Namespace;
   SymbolId Identity;
 
-  // A public declaration names its immutable reflection record by stable index
-  // within the reflection generation in the cache key. Private committed
-  // identities such as class metatables intentionally have no reflection
-  // record and therefore retain no pointer or fabricated index.
   std::optional<std::size_t> ReflectionIndex;
 };
 struct FrozenOverloadIndex final {

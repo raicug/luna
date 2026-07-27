@@ -18,8 +18,6 @@
 namespace Luna::Detail {
 namespace {
 
-// The one call form hint every missing receiver carries. It is the same
-// sentence for every member, because the two spellings are the same call.
 constexpr std::string_view CallFormHint =
     " An instance member is called as object:Member(...) or as "
     "Class.Member(object, ...).";
@@ -39,8 +37,6 @@ constexpr std::string_view CallFormHint =
   return Subject;
 }
 
-// One receiver refusal, worded through exactly the shared conversion
-// vocabulary.
 [[nodiscard]] std::string Describe(std::string_view MemberName,
                                    const StructuredDiagnostic &Failure) {
   const ConversionSubject Subject = MemberSubject(MemberName);
@@ -102,8 +98,6 @@ ValidatedReceiver ValidateInstanceReceiver(
                   "member '" +
                       std::string(MemberName) + "'.");
 
-  // Presence first: a dot call that supplied no receiver at all fails here,
-  // ahead of every ordinary-argument decision.
   if (StackIndex < 1 || lua_gettop(State) < StackIndex) {
     const StructuredDiagnostic Missing =
         Reject(StructuredFailure::MissingElement, ClassName);
@@ -111,10 +105,6 @@ ValidatedReceiver ValidateInstanceReceiver(
                   Describe(MemberName, Missing) + std::string(CallFormHint));
   }
 
-  // The class is read through its own registered converter, which is the one
-  // gate every access passes: layout, origin State, metatable identity,
-  // payload, lifetime, publication, and dynamic type are all decided there, in
-  // that fixed order.
   const TypeRecord *Record = Types.Find(Class);
   if (!Record || !Record->IsReadable || !Record->StructuredRead)
     return Refuse(ReceiverStatus::UnavailableClass,
@@ -138,9 +128,6 @@ ValidatedReceiver ValidateInstanceReceiver(
                   "Internal error: member '" + std::string(MemberName) +
                       "' received no validated receiver.");
 
-  // Const access is the last receiver check, exactly where the access gate puts
-  // it: a const value of the class accepts a const member and refuses every
-  // member that would mutate it.
   const bool PermitsMutation = Read.ConvertedValue.HandlePermitsMutation();
   if (RequiresMutation && !PermitsMutation) {
     const StructuredDiagnostic Violation =

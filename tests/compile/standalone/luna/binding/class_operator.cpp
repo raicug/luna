@@ -8,8 +8,6 @@
 
 namespace {
 
-// The operator surface compiles from this header alone: no other Luna header,
-// no Luau include path, and nothing but the standard library.
 static_assert(std::is_enum_v<Luna::ClassOperator>,
               "One declared operator is an ordinary enumeration value.");
 

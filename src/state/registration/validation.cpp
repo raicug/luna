@@ -27,15 +27,12 @@
 namespace Luna::Detail {
 namespace {
 
-// Only these categories install a native target, so only they can fail with a
-// null target.
 [[nodiscard]] constexpr bool
 RequiresNativeTarget(PlanEntryKind Category) noexcept {
   return Category == PlanEntryKind::Function ||
          Category == PlanEntryKind::DispatchTarget;
 }
 
-// Only a declaration below the root scope can fail scope ownership.
 [[nodiscard]] bool
 HasParentScope(const RegistrationValidationRequest &Request) {
   return !Request.ParentQualifiedName.empty();
@@ -90,22 +87,13 @@ CheckTarget(const RegistrationValidationRequest &Request,
   return std::nullopt;
 }
 
-// Duplicate and incompatible-category detection reads Luna's canonical symbol
-// model: the committed symbols of the captured generation plus every symbol the
-// active transaction has planned so far.
 [[nodiscard]] std::optional<ErrorDiagnostic>
 CheckCollision(const RegistrationValidationRequest &Request,
                const SymbolView &Symbols, const std::string &Subject) {
-  // A value Luna does not own as this symbol is reported before the canonical
-  // model is consulted: a committed scope whose table a script replaced must
-  // collide rather than look like a reopened duplicate.
   if (Request.VmPathHoldsUnownedValue)
     return UnownedPathDiagnostic(Subject, Request.VmPathValueKindText);
 
   if (const auto Existing = Symbols.Find(Request.Name)) {
-    // One qualified name owns one overload set. A callable candidate whose
-    // canonical signature differs from every candidate of that set groups with
-    // them instead of colliding with them.
     if (Request.JoinsOverloadSet &&
         Request.Category == PlanEntryKind::Function &&
         Existing->Category == PlanEntryKind::Function)
@@ -122,9 +110,6 @@ CheckCollision(const RegistrationValidationRequest &Request,
   return std::nullopt;
 }
 
-// Every canonical type the active transaction has already planned. The
-// declaration under validation is not part of it yet, which is what lets one
-// declaration be compared against the earlier ones.
 [[nodiscard]] std::vector<TypeRecord>
 PendingTypeDeclarations(const SymbolView &Symbols) {
   std::vector<TypeRecord> Pending;
@@ -135,8 +120,6 @@ PendingTypeDeclarations(const SymbolView &Symbols) {
   return Pending;
 }
 
-// A canonical type is usable when the captured generation describes it or the
-// same transaction is declaring it.
 [[nodiscard]] bool IsDeclaredPending(const std::vector<TypeRecord> &Pending,
                                      const TypeDescriptor &Type) {
   for (const TypeRecord &Record : Pending) {
@@ -146,9 +129,6 @@ PendingTypeDeclarations(const SymbolView &Symbols) {
   return false;
 }
 
-// One planned type declaration is rejected before installation whenever it
-// conflicts with the committed generation or with an earlier declaration of the
-// same transaction.
 [[nodiscard]] std::optional<ErrorDiagnostic>
 CheckTypeDeclaration(const RegistrationValidationRequest &Request,
                      const TypeGeneration &Types, const SymbolView &Symbols,
@@ -189,8 +169,6 @@ CheckTypeAvailability(const RegistrationValidationRequest &Request,
   if (!Entry)
     return std::nullopt;
 
-  // A declaration may use the type it is declaring, and any type an earlier
-  // declaration of the same transaction contributes.
   std::vector<TypeRecord> Pending = PendingTypeDeclarations(Symbols);
   if (Entry->TypeConversion)
     Pending.push_back(*Entry->TypeConversion);
@@ -202,8 +180,6 @@ CheckTypeAvailability(const RegistrationValidationRequest &Request,
   };
 
   if (const auto &Signature = Entry->Symbol.Signature) {
-    // A return shape publishes one value per ordered element rather than one
-    // aggregate, so what must be available is every type the shape publishes.
     const std::vector<TypeDescriptor> Published =
         PublishedReturnTypes(Signature->ReturnType);
     for (const TypeDescriptor &Returned : Published) {
@@ -235,9 +211,6 @@ CheckTypeAvailability(const RegistrationValidationRequest &Request,
   return std::nullopt;
 }
 
-// Metadata is well formed when the canonical descriptor and the callable's own
-// metadata describe the same shape and every payload the category requires is
-// present.
 [[nodiscard]] std::optional<ErrorDiagnostic>
 CheckDescriptorCompleteness(const RegistrationValidationRequest &Request,
                             const std::string &Subject) {
@@ -267,8 +240,6 @@ CheckDescriptorCompleteness(const RegistrationValidationRequest &Request,
 
     const CallableMetadata &Metadata = Entry->Callable->Metadata();
 
-    // A declared optional, defaulted, or variadic shape is validated against
-    // the same canonical signature, including its immutable default metadata.
     if (Metadata.HasRichParameters())
       return CheckDeclaredParameterShape(Metadata, *Signature, Subject);
 
@@ -358,9 +329,6 @@ ValidateRegistration(const RegistrationValidationRequest &Request,
   if (auto Diagnostic = CheckCollision(Request, Symbols, Subject))
     return Diagnostic;
 
-  // Type availability and converter conflicts are one precedence step: they
-  // read the captured type generation plus the declarations the transaction has
-  // planned so far, never a later generation.
   const TypeGeneration &Types = *Capture.SharedGenerations()->Types();
   if (auto Diagnostic = CheckTypeAvailability(Request, Types, Symbols, Subject))
     return Diagnostic;

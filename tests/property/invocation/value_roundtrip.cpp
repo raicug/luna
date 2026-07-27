@@ -108,9 +108,7 @@ MakeGeneratedString(const std::vector<std::uint8_t> &Bytes) {
 } // namespace
 
 int RunSupportedValueRoundTripProperties() {
-  // **Validates: Requirements 4.1, 4.2, 4.3, 4.6, 4.7, 4.9, 4.12**
   // clang-format off
-  // Feature: luau-binding-foundation, Property 5: Supported values round-trip equivalently
   const bool Passed = rc::check(
       // clang-format on
       "Supported values round-trip equivalently",

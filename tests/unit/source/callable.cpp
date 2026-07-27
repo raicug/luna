@@ -68,9 +68,6 @@ static_assert(!Luna::SupportedCallable<decltype(&ReferenceParameter)>);
 static_assert(!Luna::SupportedCallable<decltype(&ConstReferenceParameter)>);
 static_assert(!Luna::SupportedCallable<decltype(&RvalueReferenceParameter)>);
 static_assert(!Luna::SupportedCallable<decltype(&ReferenceReturn)>);
-// A `std::optional<T>` parameter is one declared call shape rather than an
-// unsupported type: omission and explicit nil both map to the empty value. The
-// optional *return* shape still belongs to a later milestone.
 static_assert(Luna::SupportedCallable<decltype(&OptionalParameter)>);
 static_assert(!Luna::SupportedCallable<decltype(&OptionalReturn)>);
 static_assert(!Luna::SupportedCallable<decltype(&UnsupportedReturn)>);

@@ -1,12 +1,3 @@
-// Integration coverage of the unified registration transaction through the real
-// Luau compiler and virtual machine. Every existing `Register` form still goes
-// through one outermost transaction, so this exercises the success path and
-// every failure family against a live State and then verifies the same four
-// invariants each time: the root stack returns to its exact entry depth, the
-// canonical model agrees with the virtual machine and with dispatch, every
-// original callable keeps its identity and behavior, and the State still
-// registers and executes afterwards.
-
 // clang-format off
 #include <luna/binding/binding_registry.hpp>
 #include <luna/binding/callable_descriptor.hpp>
@@ -72,9 +63,6 @@ int AdderCalls = 0;
   return Hooks::ObserveVmPathValueKind(Owner, Path).value_or("<unavailable>");
 }
 
-// Everything one attempt must leave untouched: the committed generation set,
-// the committed stores, the root stack, and the identity of every callable the
-// virtual machine can already reach.
 struct CommittedBaseline final {
   std::shared_ptr<const Luna::Detail::GenerationSet> Generations;
   std::size_t Bindings = 0;
@@ -96,9 +84,6 @@ struct CommittedBaseline final {
   return Baseline;
 }
 
-// The invariants every failed attempt shares. `Attempted` is the canonical path
-// the attempt tried to occupy, and `ExpectedKind` is what that path held before
-// the attempt started.
 void CheckCommittedModelSurvived(Luna::State &Owner,
                                  const CommittedBaseline &Baseline,
                                  const std::string &Attempted,
@@ -118,7 +103,6 @@ void CheckCommittedModelSurvived(Luna::State &Owner,
   Check(PathKind(Owner, Attempted) == ExpectedKind,
         "a failed attempt leaves the canonical path exactly as it was");
 
-  // Reflection, virtual machine, and dispatch still describe one callable each.
   Check(Hooks::BindingRecordAddress(Owner, "Add") == Baseline.AdderRecord &&
             Hooks::InstalledBindingRecordAddress(Owner, "Add") ==
                 Baseline.AdderRecord,
@@ -129,8 +113,6 @@ void CheckCommittedModelSurvived(Luna::State &Owner,
                 Baseline.CounterRecord,
         "the committed closure keeps one identity everywhere");
 
-  // The original callables still run, through the real compiler and virtual
-  // machine, with their original behavior.
   const int AdderBefore = AdderCalls;
   const int CounterBefore = CounterCalls;
   Check(Owner.Execute("Preserved = Add(30, 12) + Counted(1)").IsSuccess() &&
@@ -140,8 +122,6 @@ void CheckCommittedModelSurvived(Luna::State &Owner,
         "every original callable is invoked exactly once per call");
 }
 
-// Requirements 1.2, 1.4, 4.6: the existing `Register` forms publish through one
-// transaction and stay invocable through the real compiler and machine.
 void CheckSuccessPathThroughTheRealVirtualMachine() {
   Luna::State Owner;
   Check(Owner.IsReady(), "a fresh State owns a ready virtual machine");
@@ -201,8 +181,6 @@ void CheckSuccessPathThroughTheRealVirtualMachine() {
         "a snapshot taken before the attempts keeps its own generation");
 }
 
-// Requirements 1.7, 4.3, 4.5, 4.8, 19.2, 19.8: every failure family fails
-// deterministically and leaves the live State exactly as it was.
 void CheckEveryFailureFamilyPreservesTheState() {
   Luna::State Owner;
   AdderCalls = 0;
@@ -232,8 +210,6 @@ void CheckEveryFailureFamilyPreservesTheState() {
           "the State registers and executes after every failed attempt");
   };
 
-  // Validation families: the canonical model rejects the declaration before
-  // anything is staged.
   {
     const auto Baseline = Capture(Owner);
     const auto Invalid = Owner.Bindings().Register("Bad-Name", &AddIntegers);
@@ -265,8 +241,6 @@ void CheckEveryFailureFamilyPreservesTheState() {
     Recover();
   }
 
-  // Preparation, allocation, journal, installation, and consistency families,
-  // including an attempt that installs over a script-created value.
   struct FaultCase final {
     FaultPoint Point;
     std::string Name;
@@ -309,8 +283,6 @@ void CheckEveryFailureFamilyPreservesTheState() {
   Check(Owner.Execute("assert(Occupied == 'script')").IsSuccess(),
         "the overwritten script value is exactly what it was");
 
-  // A restoration that itself fails is reported as such instead of being
-  // silently treated as a clean rollback.
   {
     const auto Baseline = Capture(Owner);
     Hooks::InjectFault(Owner, FaultPoint::BindingInstallation);
@@ -327,8 +299,6 @@ void CheckEveryFailureFamilyPreservesTheState() {
           "a failed restoration leaves no active transaction");
   }
 
-  // The callback family: a nested callback that throws is contained, and the
-  // real virtual machine agrees that nothing of the group survived.
   {
     Luna::State Grouped;
     AdderCalls = 0;
@@ -363,8 +333,6 @@ void CheckEveryFailureFamilyPreservesTheState() {
   }
 }
 
-// Requirements 4.3, 19.2: the lifecycle families of one live State - a foreign
-// thread and a frozen State - are rejected without disturbing anything.
 void CheckLifecycleFamiliesPreserveTheState() {
   Luna::State Owner;
   AdderCalls = 0;
@@ -394,7 +362,6 @@ void CheckLifecycleFamiliesPreserveTheState() {
             Hooks::ObserveIntegerGlobal(Owner, "ForeignResult") == 4,
         "the owner thread still registers and executes afterwards");
 
-  // Freeze is terminal, so it is the last family this State exercises.
   const auto Frozen = Capture(Owner);
   Check(Hooks::MarkFrozen(Owner), "the State can enter the frozen phase");
   const auto Rejected = Owner.Bindings().Register("Late", &AddIntegers);
@@ -406,10 +373,6 @@ void CheckLifecycleFamiliesPreserveTheState() {
         "a frozen State keeps executing its committed behavior");
 }
 
-// Requirements 1.4, 4.1, 4.5, 19.4, 19.8: a registration attempted from inside
-// a callback the real virtual machine is running keeps both checkpoints exact -
-// the callback's own stack around the attempt, and the root stack of the script
-// that called it - whether the attempt publishes or fails.
 void CheckRegistrationInsideALiveCallback() {
   Luna::State Owner;
   AdderCalls = 0;
@@ -424,7 +387,6 @@ void CheckRegistrationInsideALiveCallback() {
                 .IsSuccess(),
         "the baseline declarations publish");
 
-  // What one nested attempt, taken while the callback frame is live, observed.
   struct NestedAttempt final {
     bool Attempted = false;
     bool Succeeded = false;
@@ -460,7 +422,6 @@ void CheckRegistrationInsideALiveCallback() {
   const auto EntryDepth = Hooks::ObserveRootStackDepth(Owner);
   const auto Generations = Hooks::GenerationsOf(Owner);
 
-  // The attempt publishes from inside the live callback.
   Check(Owner.Execute("Doubled = Nest(21)").IsSuccess() &&
             Hooks::ObserveIntegerGlobal(Owner, "Doubled") == 42,
         "a callback that registers still returns its own value");
@@ -482,7 +443,6 @@ void CheckRegistrationInsideALiveCallback() {
             Hooks::ObserveIntegerGlobal(Owner, "Nested") == 42,
         "the declaration published from a callback runs in a later script");
 
-  // The same attempt, failing inside the live callback.
   const auto Baseline = Capture(Owner);
   Nested = NestedAttempt{};
   NestedName = "FailedFromCallback";
@@ -502,9 +462,6 @@ void CheckRegistrationInsideALiveCallback() {
   CheckCommittedModelSurvived(Owner, Baseline, "FailedFromCallback", "absent",
                               CounterCalls);
 
-  // The callback checkpoint of the invocation itself: a native failure restores
-  // the callback's entry depth exactly and pushes only its diagnostic, and the
-  // script that caught it continues on a root stack at its entry depth.
   Nested = NestedAttempt{};
   Check(Owner.Execute("local Ok, Message = pcall(Nest, 'text')\n"
                       "assert(not Ok and type(Message) == 'string')\n"

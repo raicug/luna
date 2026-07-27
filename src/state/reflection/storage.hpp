@@ -1,12 +1,5 @@
 #pragma once
 
-// Immutable reflection generation storage. One published generation owns every
-// string, collection, attribute, documentation, parameter, default, return,
-// type relationship, module provenance, and declaration relationship reachable
-// from a public reflection view. No field here refers to a State, a virtual
-// machine, a stack index, a callable target, a metatable, or a native object,
-// which is what lets a snapshot outlive its originating State.
-
 // clang-format off
 #include <luna/reflection/ids.hpp>
 #include <luna/reflection/reflection_record.hpp>
@@ -28,8 +21,6 @@
 
 namespace Luna::Detail {
 
-// Deterministic reason a candidate generation is accepted or rejected. A
-// rejected candidate publishes nothing, so the prior generation stays intact.
 enum class ReflectionGenerationStatus {
   Valid,
   InvalidIdentity,
@@ -76,16 +67,12 @@ struct ReflectionRelationFields final {
   std::string Note;
 };
 
-// One resolved dependency of a loaded module: the required identity, the
-// version resolution selected, and the canonical text of the declared
-// constraints.
 struct ReflectionModuleDependencyFields final {
   std::string Identity;
   std::string Version;
   std::string Constraints;
 };
 
-// One exported symbol a manifest declares.
 struct ReflectionModuleExportFields final {
   SymbolKind Kind = SymbolKind::Namespace;
   std::string Name;
@@ -98,8 +85,6 @@ struct ReflectionModuleFields final {
   SymbolId Symbol;
   std::string Documentation;
 
-  // Canonical module enumeration. Build sorts each list, so enumeration order
-  // never depends on manifest declaration order or on load order.
   std::vector<ReflectionModuleDependencyFields> Dependencies;
   std::vector<ReflectionModuleExportFields> Exports;
   std::vector<std::string> Namespaces;
@@ -126,24 +111,12 @@ struct ReflectionRecordFields final {
   TypeDescriptor Descriptor;
   ReturnShape Returns = ReturnShape::Zero;
 
-  // Value availability of one constant, enumerator, or enumerator alias: the
-  // declaration carries a value whose canonical conversion was validated, and
-  // `ValueText` is its canonical textual form. Every other symbol carries none.
   bool ValueIsAvailable = false;
   std::string ValueText;
 
-  // The ownership result and the canonical allocator policy identity of one
-  // construction candidate: a constructor, a factory, or a singleton accessor.
-  // Every other symbol carries neither.
   std::string OwnershipResult;
   std::string AllocatorPolicy;
 
-  // The member half of one class surface: the canonical receiver the member is
-  // reached through, whether a const receiver is enough for its reads, which
-  // directions the member permits, when its value is produced, and how its
-  // declared value is owned across the member boundary. A lazy member describes
-  // its policy here and never its cache state. Every non-member symbol carries
-  // none of it.
   TypeId ReceiverType;
   bool ReceiverPermitsConst = false;
   bool MemberIsReadable = false;
@@ -166,13 +139,8 @@ public:
   static constexpr std::size_t SymbolKindCount =
       static_cast<std::size_t>(SymbolKind::Type) + 1;
 
-  // The shared empty generation. Every State starts by observing it, and a
-  // default-constructed public snapshot behaves exactly like it.
   [[nodiscard]] static std::shared_ptr<const ReflectionStorage> Empty();
 
-  // Validates one candidate generation and, when it is internally consistent,
-  // returns its immutable storage in canonical order. A rejected candidate
-  // returns nullptr together with a deterministic status.
   [[nodiscard]] static std::shared_ptr<const ReflectionStorage>
   Build(std::uint64_t Generation, std::vector<ReflectionRecordFields> Records,
         std::vector<ReflectionTypeFields> Types,
@@ -223,8 +191,6 @@ public:
   [[nodiscard]] std::optional<std::size_t>
   TypeIndexOf(const TypeId &Id) const noexcept;
 
-  // Public view factories. ReflectionStorage is the single friend of every
-  // public reflection view, so construction stays private to Luna.
   [[nodiscard]] static ReflectionSnapshot
   MakeSnapshot(std::shared_ptr<const ReflectionStorage> Storage);
   [[nodiscard]] static ReflectionRecord
@@ -264,8 +230,6 @@ public:
   MakeModuleRange(std::shared_ptr<const ReflectionStorage> Storage,
                   const std::vector<std::size_t> &Indices);
 
-  // Canonically ordered index lists. Their storage is immutable after Build,
-  // so a range may retain a pointer into them safely.
   [[nodiscard]] const std::vector<std::size_t> &AllOrder() const noexcept {
     return SymbolOrder;
   }
@@ -280,8 +244,6 @@ public:
   [[nodiscard]] const std::vector<std::size_t> &
   OrderOfScope(const ScopeId &Scope) const noexcept;
 
-  // Canonical record ordering: qualified name, then symbol kind, then
-  // canonical signature, then symbol identity as the final stable key.
   [[nodiscard]] static bool RecordPrecedes(const ReflectionRecordFields &Left,
                                            const ReflectionRecordFields &Right);
 

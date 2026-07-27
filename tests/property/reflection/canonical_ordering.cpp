@@ -59,8 +59,6 @@ constexpr std::array<std::string_view, 3> ConstantNames{"Gravity", "Limit",
 constexpr std::array<std::string_view, 3> TypeNames{"number", "string",
                                                     "boolean"};
 
-// Deterministic byte source. The same bytes always drive the same logical
-// generation, so only submission order changes between passes.
 class ByteCursor final {
 public:
   explicit ByteCursor(std::span<const std::uint8_t> Bytes) noexcept
@@ -107,8 +105,6 @@ private:
   return Luna::TypeDescriptor::ForFixed(Luna::FixedTypeKey::String);
 }
 
-// One logical reflection generation. Record module provenance refers to a
-// logical module slot, never to a submission index.
 struct LogicalGeneration final {
   std::vector<ReflectionRecordFields> Records;
   std::vector<ReflectionTypeFields> Types;
@@ -246,8 +242,6 @@ MakeParameterFields(std::string Name, Luna::TypeId Type,
 
 namespace {
 
-// Independent canonical-order model. It never calls a production comparator: it
-// compares rendered fields byte-wise and identities byte-by-byte.
 [[nodiscard]] bool IdentityPrecedes(const Luna::SymbolId &Left,
                                     const Luna::SymbolId &Right) {
   for (std::size_t Index = 0; Index < Luna::SymbolId::ByteCount; ++Index) {
@@ -353,8 +347,6 @@ ModelModuleText(const ReflectionModuleFields &Fields) {
   return Text;
 }
 
-// The expected canonical enumeration of one logical generation, computed
-// without consulting the reflection database at all.
 struct CanonicalModel final {
   std::vector<std::string> Records;
   std::vector<std::string> Types;
@@ -411,7 +403,6 @@ struct CanonicalModel final {
 
 namespace {
 
-// Observed enumeration rendered through public reflection views only.
 [[nodiscard]] std::string RenderRecord(const Luna::ReflectionRecord &Record) {
   std::string Text;
   AppendField(Text, Record.Id().ToString());
@@ -486,8 +477,6 @@ RenderModules(const Luna::ModuleRecordRange &Range) {
   return Texts;
 }
 
-// Submission orders. Every order carries the same logical generation, so any
-// observable difference is an ordering defect.
 [[nodiscard]] std::vector<std::size_t> ForwardOrder(std::size_t Count) {
   std::vector<std::size_t> Order(Count);
   for (std::size_t Index = 0; Index < Count; ++Index)
@@ -510,9 +499,6 @@ ShuffledOrder(std::size_t Count, std::span<const std::uint8_t> Bytes) {
   return Order;
 }
 
-// Hash-container order: the generation is staged in an unordered container
-// keyed by canonical identity and submitted in that container's own iteration
-// order.
 template <class Identity>
 [[nodiscard]] std::vector<std::size_t>
 HashOrder(const std::vector<Identity> &Keys) {
@@ -571,13 +557,10 @@ void VerifySubmission(const LogicalGeneration &Generation,
   RC_ASSERT(Snapshot.Generation() == 1);
   RC_ASSERT(Snapshot.Size() == Generation.Records.size());
 
-  // Full enumeration, canonical-type list, and module list are byte-for-byte
-  // equal to the independent model.
   RC_ASSERT(RenderRecords(Snapshot.Symbols()) == Model.Records);
   RC_ASSERT(RenderTypes(Snapshot.Types()) == Model.Types);
   RC_ASSERT(RenderModules(Snapshot.Modules()) == Model.Modules);
 
-  // Enumeration by symbol kind and by scope keeps the same canonical order.
   for (std::size_t Kind = 0; Kind < SymbolKindCount; ++Kind) {
     const auto Value = static_cast<Luna::SymbolKind>(Kind);
     RC_ASSERT(RenderRecords(Snapshot.Symbols(Value)) == Model.ByKind[Kind]);
@@ -586,8 +569,6 @@ void VerifySubmission(const LogicalGeneration &Generation,
     RC_ASSERT(RenderRecords(Snapshot.Symbols(Scope.first)) == Scope.second);
   RC_ASSERT(Snapshot.Symbols(Luna::ScopeId(Symbol(60000))).IsEmpty());
 
-  // Lookup by symbol identity and by qualified name resolves to the same
-  // canonical record in every submission order.
   for (const auto &Entry : Model.ById)
     RC_ASSERT(RenderRecord(Snapshot.Find(Entry.first)) == Entry.second);
   for (const auto &Entry : Model.FirstByQualifiedName)
@@ -601,7 +582,6 @@ void VerifySubmission(const LogicalGeneration &Generation,
 } // namespace
 
 int RunReflectionEnumerationOrderProperties() {
-  // **Validates: Requirements 3.3, 3.4, 16.4**
   // clang-format off
   // Feature: reflection-driven-binding-system, Property 19: Reflection enumeration is permutation-invariant
   const bool Passed = rc::check(
@@ -635,8 +615,6 @@ int RunReflectionEnumerationOrderProperties() {
         for (const ReflectionModuleFields &Fields : Generation.Modules)
           ModuleKeys.push_back(Fields.Identity);
 
-        // Insertion order, reversed order, a generated permutation, and
-        // hash-container iteration order all publish the same generation.
         VerifySubmission(Generation, Model,
                          Assemble(Generation, ForwardOrder(RecordCount),
                                   ForwardOrder(TypeCount),

@@ -1,38 +1,5 @@
 #pragma once
 
-// The semantic storage protocol of one registered class.
-//
-// Luna creates native objects on behalf of Luau, so it has to know four things
-// and nothing more: how to obtain suitably aligned storage, how to construct
-// one object in it, how to destroy an object it knows is constructed, and how
-// to give the storage back. Those four steps are this protocol, and they are
-// semantic: none of them names a virtual machine, a Luau type, a Luau pointer,
-// a stack index, or a registry reference. An allocator is a statement about
-// memory, not about scripting.
-//
-// The protocol prescribes no member names. A consumer supplies whichever of the
-// four steps it wants to own as an ordinary callable - a lambda over an arena,
-// a function, a functor - and Luna erases every one of them, together with
-// whatever state the callable captured, into one immutable record. That record
-// is reference counted and Luna retains it until the last userdata that depends
-// on it has finished its cleanup, which is why an arena a value was allocated
-// from is still reachable while that value is being destroyed.
-//
-// The steps a protocol declares decide the cleanup a value can receive, and
-// nothing else does:
-//
-//   * A protocol with no deallocation step means Luna does not own the storage,
-//     so it never deallocates it.
-//   * A protocol with no destruction step means Luna never destroys the object,
-//     which is exactly what a borrowed object requires.
-//   * A protocol with no allocation step cannot create an object at all; it can
-//     only describe one that already exists.
-//
-// Luna performs each declared step at most once per value, in one fixed order,
-// and never destroys storage nothing was constructed in. A step that declines
-// reports it, and a step that throws is contained at Luna's boundary rather
-// than escaping through a garbage collector or a State destructor.
-
 // clang-format off
 #include <cstddef>
 #include <functional>
@@ -46,20 +13,15 @@
 
 namespace Luna {
 
-// How much suitably aligned storage one object of one class needs. It is
-// declared where the class type is still complete and carried through the
-// backend, which never sees that type.
 struct StorageRequest final {
   std::size_t ByteCount = 0;
   std::size_t Alignment = 0;
 
-  // The request names a storage size and one power-of-two alignment.
   [[nodiscard]] constexpr bool IsUsable() const noexcept {
     return ByteCount != 0 && Alignment != 0 &&
            (Alignment & (Alignment - 1)) == 0;
   }
 
-  // The storage one complete class type needs.
   template <class Type>
   [[nodiscard]] static constexpr StorageRequest ForClass() noexcept {
     static_assert(sizeof(Type) > 0,
@@ -76,9 +38,6 @@ struct StorageRequest final {
              const StorageRequest &Right) noexcept = default;
 };
 
-// What one semantic step of the protocol reports. A step that declined to do
-// its work says so instead of leaving Luna to guess; throwing means the same
-// thing and is contained.
 struct AllocatorStepResult final {
   bool Performed = false;
 
@@ -97,10 +56,6 @@ class ClassAllocator;
 
 namespace Detail {
 
-// The immutable erased protocol of one class's storage, together with whatever
-// state its operations captured. Luna retains it through the final cleanup step
-// of the last value that depends on it, so nothing a destructor or a
-// deallocation needs can be gone by the time it runs.
 class AllocatorRecord final {
 public:
   using AllocateOperation =
@@ -125,8 +80,6 @@ public:
   AllocatorRecord &operator=(AllocatorRecord &&) = delete;
   ~AllocatorRecord() = default;
 
-  // The reflected identity of this policy. It is a consumer-supplied name, not
-  // an address, so it is safe to reflect and to persist.
   [[nodiscard]] std::string_view PolicyIdentity() const noexcept {
     return IdentityText;
   }
@@ -148,9 +101,6 @@ public:
     return static_cast<bool>(DeallocateStorage);
   }
 
-  // The four semantic steps, each run exactly as the consumer supplied it.
-  // Whatever they throw is contained by the Luna boundary that calls them, and
-  // a step this protocol never declared is never called at all.
   [[nodiscard]] void *Allocate() const {
     return AllocateStorage ? AllocateStorage(RequestedStorage) : nullptr;
   }
@@ -182,9 +132,6 @@ private:
   DeallocateOperation DeallocateStorage;
 };
 
-// The private bridge Luna's construction and release paths use to retain one
-// protocol and to name the immutable record behind it. A consumer never names
-// it.
 struct ClassAllocatorAccess final {
   [[nodiscard]] static std::shared_ptr<const AllocatorRecord>
   Retain(const ClassAllocator &Allocator) noexcept;
@@ -201,8 +148,6 @@ public:
   using DestroyOperation = Detail::AllocatorRecord::DestroyOperation;
   using DeallocateOperation = Detail::AllocatorRecord::DeallocateOperation;
 
-  // A default-constructed allocator names no protocol at all: it is what an
-  // object Luna neither creates nor releases is exposed with.
   ClassAllocator() noexcept = default;
 
   ClassAllocator(const ClassAllocator &) = default;
@@ -210,17 +155,12 @@ public:
   ClassAllocator(ClassAllocator &&) noexcept = default;
   ClassAllocator &operator=(ClassAllocator &&) noexcept = default;
 
-  // Destroying the last copy of an allocator does not end any object created
-  // through it: Luna retains the protocol for as long as one value still needs
-  // it.
   ~ClassAllocator() = default;
 
   [[nodiscard]] static ClassAllocator Undeclared() noexcept {
     return ClassAllocator();
   }
 
-  // One protocol assembled from exactly the steps the consumer supplies. An
-  // absent step is a statement in its own right: Luna never performs it.
   [[nodiscard]] static ClassAllocator
   FromOperations(std::string_view PolicyIdentity,
                  const StorageRequest &Requested, AllocateOperation Allocate,
@@ -232,9 +172,6 @@ public:
     return ClassAllocator(std::move(Held));
   }
 
-  // The ordinary protocol of one complete class type: suitably aligned storage
-  // from the global allocator, default construction in place, ordinary
-  // destruction, and deallocation of exactly that storage.
   template <class Type>
   [[nodiscard]] static ClassAllocator
   ForOwnedObject(std::string_view PolicyIdentity = "Luna.GlobalStorage") {
@@ -262,8 +199,6 @@ public:
                           DestructionOf<Type>(), std::move(Deallocate));
   }
 
-  // The protocol of one object Luna did not allocate and will not deallocate,
-  // but does destroy exactly once.
   template <class Type>
   [[nodiscard]] static ClassAllocator
   ForAdoptedObject(std::string_view PolicyIdentity = "Luna.AdoptedObject") {
@@ -275,11 +210,6 @@ public:
                           DestructionOf<Type>(), DeallocateOperation());
   }
 
-  // One class's storage supplied by the consumer, with Luna keeping the
-  // construction and destruction of `Type` because only the consumer's
-  // translation unit knows that type. The two operations are ordinary callables
-  // and may capture whatever state they need; Luna retains that state with the
-  // protocol.
   template <class Type, class AllocateStorage, class DeallocateStorage>
   [[nodiscard]] static ClassAllocator
   ForStorage(std::string_view PolicyIdentity, AllocateStorage Allocate,
@@ -309,7 +239,6 @@ public:
                           DestructionOf<Type>(), std::move(Deallocation));
   }
 
-  // Whether this value names a protocol at all.
   [[nodiscard]] bool IsDeclared() const noexcept { return Record != nullptr; }
 
   [[nodiscard]] bool DeclaresAllocation() const noexcept {
@@ -322,9 +251,6 @@ public:
     return Record && Record->DeclaresDestruction();
   }
 
-  // Whether Luna owns the storage of a value created through this protocol, and
-  // therefore deallocates it exactly once. Owning storage means declaring the
-  // step that gives it back.
   [[nodiscard]] bool OwnsStorage() const noexcept {
     return Record && Record->DeclaresDeallocation();
   }
@@ -337,7 +263,6 @@ public:
     return Record ? Record->PolicyIdentity() : std::string_view();
   }
 
-  // Whether two values name exactly the same protocol.
   [[nodiscard]] bool RefersToSame(const ClassAllocator &Other) const noexcept {
     return Record == Other.Record;
   }
@@ -349,9 +274,6 @@ private:
       std::shared_ptr<const Detail::AllocatorRecord> Held) noexcept
       : Record(std::move(Held)) {}
 
-  // The destruction step of one complete class type. It destroys an object the
-  // caller already knows is constructed, which is the only object Luna ever
-  // asks it about.
   template <class Type> [[nodiscard]] static DestroyOperation DestructionOf() {
     return [](void *Storage) {
       static_cast<Type *>(Storage)->~Type();

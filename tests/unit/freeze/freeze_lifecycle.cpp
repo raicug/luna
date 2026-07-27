@@ -1,5 +1,3 @@
-// Focused coverage for atomic freeze preparation and frozen lifecycle behavior.
-
 // clang-format off
 #include <luna/binding/binding_registry.hpp>
 #include <luna/binding/class_builder.hpp>
@@ -187,9 +185,6 @@ void CheckSuccessfulFreezePublishesCompleteCaches() {
                    Luna::ErrorCategory::StateNotReady, "frozen"),
         "module loading is rejected while frozen");
 
-  // Runtime-only owner-thread state remains live. Exposing a value adds a weak
-  // identity entry and a successful lazy read adds a property cache entry,
-  // without changing any logical metadata or the published freeze cache.
   Derived Value;
   std::uint64_t Lifetime = 1;
   Check(ExposeDerived(Owner, Value, Lifetime).Status == "created" &&

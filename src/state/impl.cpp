@@ -27,6 +27,7 @@
 #include "state/testing/fault_point.hpp"
 #include "state/transaction/capture.hpp"
 #include "state/transaction/installation.hpp"
+#include "state/transaction/lifecycle_staging.hpp"
 #include "state/transaction/preparation.hpp"
 #include "state/transaction/transaction.hpp"
 #include "state/type/type_generation.hpp"
@@ -185,11 +186,6 @@ RelationPrecedes(const Detail::ReflectionRelationFields &Left,
   return Left.Declaration < Right.Declaration;
 }
 
-// Completes every pending class record after all declarations have their final
-// canonical identities. Bases include directness and accessibility, casts keep
-// their policy, operators point at their overload set, and inherited views
-// point at the original declaration rather than cloning it into the derived
-// class.
 void AttachCanonicalClassRelations(
     Detail::DescriptorPlan &Plan,
     const Detail::RelationshipCandidate &Relationships,
@@ -303,8 +299,6 @@ void AttachCanonicalClassRelations(
   }
 }
 
-// Diagnostic subject of one attempt: the canonically first planned declaration.
-// A one-symbol root request keeps the foundation's wording exactly.
 [[nodiscard]] std::string
 TransactionSubject(const Detail::RegistrationTransaction &Active) {
   const std::vector<std::size_t> Order = Active.Plan().CanonicalOrder();
@@ -321,9 +315,6 @@ TransactionSubject(const Detail::RegistrationTransaction &Active) {
                              First->Symbol.QualifiedName);
 }
 
-// Wording of one failed protected installation. The foundation's installation
-// message is preserved exactly, including the distinction between an attempt
-// that was fully restored and one whose restoration itself failed.
 [[nodiscard]] ErrorDiagnostic
 InstallationDiagnostic(const Detail::InstallationOutcome &Outcome,
                        bool Restored) {
@@ -348,9 +339,6 @@ InstallationDiagnostic(const Detail::InstallationOutcome &Outcome,
   return Internal("Binding installation failed and was rolled back " + Path);
 }
 
-// Why one constant value could not be described canonically. The wording keeps
-// the shared registration vocabulary and always states that Luna refuses rather
-// than narrows.
 [[nodiscard]] ErrorDiagnostic
 ConstantRequestDiagnostic(std::string_view Subject,
                           const Detail::ConstantRequest &Request) {
@@ -372,16 +360,12 @@ ConstantRequestDiagnostic(std::string_view Subject,
       Subject, "the value has no canonical Luna type.");
 }
 
-// The stable identity of one canonical descriptor. It is derived from the
-// descriptor alone, so it never depends on which generation describes it.
 [[nodiscard]] TypeId IdentityOfDescriptor(const TypeDescriptor &Type) {
   if (const auto Identity = Detail::TypeIdentityRegistry::ComputeIdentity(Type))
     return *Identity;
   return TypeId();
 }
 
-// The canonical type record of one descriptor, taken from the declarations the
-// attempt has already planned or from the generation it captured.
 [[nodiscard]] const Detail::TypeRecord *
 FindPlannedOrCommittedType(const Detail::TypeGeneration &Types,
                            const Detail::RegistrationTransaction &Active,
@@ -394,9 +378,6 @@ FindPlannedOrCommittedType(const Detail::TypeGeneration &Types,
   return Types.Find(Type);
 }
 
-// One enumeration constant must name a value its enumeration declared. The
-// enumeration's own domain answers the question, so a constant and a converted
-// call argument are refused for exactly the same reason.
 [[nodiscard]] std::optional<ErrorDiagnostic>
 CheckDeclaredEnumeratorValue(std::string_view Subject,
                              const Detail::TypeGeneration &Types,
@@ -427,21 +408,14 @@ CheckDeclaredEnumeratorValue(std::string_view Subject,
                    " is not a declared enumerator of its enumeration.");
 }
 
-// A failure type the boundary cannot recognize, so its unknown-exception path
-// is exercised as well as its standard-exception one.
 struct UnrecognizedCallbackFailure final {};
 
-// A registration callback that fails by throwing. Both forms exist because the
-// private boundary has to contain a standard exception and an unknown one.
 [[noreturn]] void ThrowFromRegistrationCallback(bool StandardException) {
   if (StandardException)
     throw std::runtime_error("registration callback threw");
   throw UnrecognizedCallbackFailure();
 }
 
-// The exact kind one canonical virtual-machine path holds right now. The
-// protected reference is released immediately: this only reports what an
-// ordinary query would see.
 [[nodiscard]] std::string
 ObserveGlobalValueKind(Detail::VirtualMachineOwner &Machine, bool Ready,
                        const std::string &Path) {
@@ -474,18 +448,6 @@ State::Impl::Impl()
   Handle->Identity = Lifecycle.Identity();
   Handle->OwnerEpoch = Lifecycle.OwnerEpoch();
 
-  // The release gate evicts the identity-cache entry of a value before that
-  // value's payload is released, so nothing can reach a released object through
-  // the cache or through a value the cache handed back. Retiring also
-  // invalidates the virtual-machine value itself, which is what keeps a script
-  // that still holds it from reaching native code. While the virtual machine is
-  // gone the entry is simply forgotten.
-  //
-  // A collection finalizer and this State's own destruction both reach the same
-  // gate, and neither one may re-enter the virtual machine: the collector is
-  // mid-traversal and the machine may already be closed. In both cases the
-  // entry is simply forgotten, which is all the cache needs, because the
-  // value's virtual-machine block is being freed anyway.
   Userdata.InstallCacheRemover([this](const Detail::NativeIdentity &Identity) {
     if (Identity.Address == nullptr)
       return;
@@ -495,30 +457,16 @@ State::Impl::Impl()
       return;
     }
 
-    // Every cached lazy value of this object goes with its identity entry: the
-    // block is being freed, so no slot can name the Luna-owned entries any
-    // more.
     static_cast<void>(LazyValues.Drop(Identity, nullptr));
     static_cast<void>(Identities.Forget(Identity));
   });
 
-  // A value collected by the virtual machine finds this State's release gate
-  // through its own logical State identity, which is neither an address nor
-  // ever reused. The route is published before any value can exist and retired
-  // only after the machine has closed.
   Detail::PublishUserdataCollectionRoute(Lifecycle.Identity(), &Userdata);
 }
 
 State::Impl::~Impl() {
-  // Step one: nothing new starts. Readiness, every userdata access, and every
-  // userdata exposure refuse from here on, so no invocation can begin while
-  // cleanup is running.
   Destroying = true;
 
-  // Frozen lookup storage is no longer observable once destruction starts.
-  // Withdraw it before the binding, scope, class, module, type, and reflection
-  // owners named by its key begin teardown. Its entries own values or stable
-  // IDs, but explicit invalidation keeps the lifecycle ordering unambiguous.
   FrozenCaches.reset();
 
   Detail::StateDestructionObservation Observed;
@@ -528,10 +476,6 @@ State::Impl::~Impl() {
   Observed.RefusedNewInvocations =
       !IsReady() && !AcceptsAccess && !AcceptsExposure;
 
-  // Step two: the machine closes and finalizes while the class, allocator,
-  // type, dispatch, and release metadata every finalizer needs is all still
-  // valid. Each value the machine still held is released exactly once, by the
-  // one gate.
   Observed.RetainedCleanupMetadata = Userdata.RetainsCleanupMetadata();
   const Detail::UserdataCollectionCounters BeforeClose =
       Detail::ObserveUserdataCollections();
@@ -541,21 +485,13 @@ State::Impl::~Impl() {
   Observed.ReleasedDuringClose =
       static_cast<std::size_t>(AfterClose.Released - BeforeClose.Released);
 
-  // Step three: whatever the machine never held - a value whose publication
-  // failed, or one whose block was already collected - is released exactly once
-  // through the same gate, with the same metadata still valid.
   Observed.ReleasedAfterClose =
       Userdata.ReleaseAll(Detail::ReleaseCause::StateDestruction);
   Observed.IncompleteMetadata = Userdata.Counters().IncompleteMetadata;
 
-  // State destruction explicitly releases all userdata before any cache owner
-  // or immutable registration metadata becomes unavailable. Clear is a final
-  // idempotent guard against a stale inactive record or an empty lazy node.
   Identities.Clear();
   static_cast<void>(LazyValues.Clear());
 
-  // Step four: the route dies last, so nothing can reach this gate after it
-  // stops being valid.
   Detail::RetireUserdataCollectionRoute(Lifecycle.Identity());
   Detail::RecordStateDestruction(Observed);
 }
@@ -579,22 +515,14 @@ Detail::TransactionCapture State::Impl::CaptureTransactionEntry() const {
   Detail::TransactionCapture Capture;
   Capture.OwnerThread = Lifecycle.OwnerThread();
 
-  // A foreign caller needs only the immutable construction-thread identity to
-  // be rejected. Return before reading readiness, lifecycle generations, the
-  // committed generation pointer, or any virtual-machine stack state.
   if (!Lifecycle.IsOwnerThread()) {
     Capture.Generations = Detail::GenerationSet::Initial();
     return Capture;
   }
 
-  // A destroying State is not ready, so the same readiness precedence that
-  // rejects a transaction against an unavailable machine also rejects one that
-  // arrives while cleanup is running.
   Capture.VirtualMachineIsReady = IsReady();
   Capture.Phase = Lifecycle.Phase();
 
-  // The stack depth is read only on the owner thread: a foreign thread is
-  // rejected before the transaction touches the virtual machine at all.
   Capture.EntryStackDepth =
       Lifecycle.IsOwnerThread() && Capture.VirtualMachineIsReady
           ? VirtualMachine.StackDepth()
@@ -621,14 +549,9 @@ RegistrationResult State::Impl::SubmitFunctionDeclaration(
     Detail::PreparedSubmission &Prepared) {
   Detail::RegistrationTransaction &Active = Scope.Active();
 
-  // The declaration is described canonically before it joins the plan, so
-  // validation compares it against the committed and pending symbols of the
-  // transaction rather than against itself.
   Detail::DescriptorPlanEntry Planned = Detail::MakeFunctionPlanEntry(
       std::string(GlobalName), std::move(Descriptor));
 
-  // Candidates sharing one qualified name form one overload set, so a second
-  // declaration collides only when no call could select between the two.
   const Detail::OverloadJoinStatus Join = Detail::ClassifyOverloadJoin(
       Active.Symbols(), GlobalName,
       Planned.Symbol.Signature ? *Planned.Symbol.Signature
@@ -636,8 +559,6 @@ RegistrationResult State::Impl::SubmitFunctionDeclaration(
   const bool JoinsOverloadSet =
       Join == Detail::OverloadJoinStatus::JoinsOverloadSet;
 
-  // The overload set of the name is reflected once. A candidate joining a
-  // published or pending set names that set instead of describing it again.
   if (JoinsOverloadSet)
     Detail::JoinPlannedOverloadSet(Planned);
 
@@ -658,8 +579,6 @@ RegistrationResult State::Impl::SubmitFunctionDeclaration(
 
   const std::string Subject = Detail::GlobalSubject(GlobalName);
 
-  // Preparation of the replacement immutable stores. Nothing published yet: the
-  // candidate generation set is a private value no State field points at.
   Detail::PreparedGenerations Candidate;
   const Detail::PreparationStatus Status =
       Faults.Consume(Detail::StateFaultPoint::TransactionPreparation)
@@ -671,8 +590,6 @@ RegistrationResult State::Impl::SubmitFunctionDeclaration(
         PreparationDiagnostic(Subject, Status, Candidate.ReflectionStatus,
                               Candidate.TypeStatus));
 
-  // Preparation of the protected virtual-machine resource. The staged record
-  // stays uncommitted, so no ordinary query can reach it.
   Prepared =
       Detail::PrepareFunctionResources(Active, PlanIndex, Bindings, Faults);
   if (!Prepared.IsPrepared())
@@ -688,8 +605,6 @@ State::Impl::ResolveParentScope(const Detail::RegistrationTransaction &Active,
   if (ParentName.empty())
     return Resolution;
 
-  // Only a Luna-owned namespace can own a nested declaration. An enumeration
-  // scope owns its enumerators and nothing else, so it is never a parent here.
   const auto Parent = Active.Symbols().Find(ParentName);
   if (!Parent || Parent->Category != Detail::PlanEntryKind::Scope ||
       !Parent->Symbol || Parent->Symbol->Kind != SymbolKind::Namespace) {
@@ -701,8 +616,6 @@ State::Impl::ResolveParentScope(const Detail::RegistrationTransaction &Active,
   if (Parent->IsPending)
     return Resolution;
 
-  // A committed parent must still hold exactly the table its own generation
-  // published, and that ownership must belong to the captured generation.
   const Detail::TransactionCapture &Entry = Active.Entry();
   const Detail::NamespaceOwnership *Ownership = Namespaces.Find(ParentName);
   const Detail::VmPathObservation Observed =
@@ -726,17 +639,12 @@ RegistrationResult State::Impl::SubmitNamespaceDeclaration(
       Detail::PlanEntryKindText(Detail::PlanEntryKind::Scope), Name);
   const Detail::TransactionCapture &Entry = Active.Entry();
 
-  // The same namespace staged twice by one plan is one declaration, so a chain
-  // that reopens its own scope never collides with itself. A staged enumeration
-  // scope is a different category of scope and never absorbs a namespace.
   const auto Planned = Active.Symbols().Find(Name);
   if (Planned && Planned->IsPending &&
       Planned->Category == Detail::PlanEntryKind::Scope && Planned->Symbol &&
       Planned->Symbol->Kind == SymbolKind::Namespace)
     return RegistrationResult::Success();
 
-  // The parent scope must be a Luna-owned namespace of this State that still
-  // holds the exact table its committed generation published.
   const std::string_view ParentName = Detail::ParentQualifiedName(Name);
   const Detail::ParentScopeResolution Parent =
       ResolveParentScope(Active, ParentName);
@@ -744,8 +652,6 @@ RegistrationResult State::Impl::SubmitNamespaceDeclaration(
   const bool ScopeIsOwned = Parent.IsOwned;
   const bool ScopeIsCurrent = Parent.IsCurrent;
 
-  // What the exact reflected path holds right now. A table Luna published as
-  // this namespace is reopened; anything else collides.
   const Detail::VmPathObservation Observed = VirtualMachine.ObserveVmPath(Name);
   const Detail::NamespaceOwnership *Ownership = Namespaces.Find(Name);
   const bool IsCommittedNamespace =
@@ -760,8 +666,6 @@ RegistrationResult State::Impl::SubmitNamespaceDeclaration(
       Detail::NamespaceOwnershipTable::IsCurrent(*Ownership,
                                                  Entry.LifecycleGeneration);
 
-  // Reopening a matching Luna-owned namespace preserves every prior symbol and
-  // contributes no second declaration.
   if (IsOwnedNamespace)
     return RegistrationResult::Success();
 
@@ -772,9 +676,6 @@ RegistrationResult State::Impl::SubmitNamespaceDeclaration(
   Detail::DescriptorPlanEntry Candidate =
       Detail::MakeNamespacePlanEntry(Name, ParentIdentity);
 
-  // The declared documentation surface of the namespace. The canonical
-  // descriptor builder is shared with every other scope declaration, so the
-  // annotations are copied onto its record here instead of changing it.
   Detail::ApplyDeclaredAnnotations(Candidate, Declaration.Documentation,
                                    Declaration.Attributes,
                                    Declaration.Examples);
@@ -796,8 +697,6 @@ RegistrationResult State::Impl::SubmitNamespaceDeclaration(
 
   static_cast<void>(Active.Append(std::move(Candidate)));
 
-  // Preparation of the replacement immutable stores. Nothing is published: the
-  // candidate generation set stays a private value no State field points at.
   Detail::PreparedGenerations Prepared;
   const Detail::PreparationStatus Status =
       Faults.Consume(Detail::StateFaultPoint::TransactionPreparation)
@@ -820,9 +719,6 @@ RegistrationResult State::Impl::SubmitScopedFunctionDeclaration(
       Detail::PlanEntryKindText(Detail::PlanEntryKind::Function), Name);
   const Detail::TransactionCapture &Entry = Active.Entry();
 
-  // A plan that lost its callable cannot describe a candidate at all, so it is
-  // refused with the shared null-target wording instead of planning a symbol
-  // with nothing behind it.
   if (!Declaration.Callable)
     return ReportSubmissionFailure(Scope,
                                    Detail::NullCallableDiagnostic(Subject));
@@ -834,21 +730,13 @@ RegistrationResult State::Impl::SubmitScopedFunctionDeclaration(
   const Detail::VmPathObservation Observed = VirtualMachine.ObserveVmPath(Name);
   const bool UnownedPath = Observed.Exists();
 
-  // Exactly the canonical descriptor builder a root-scope request uses, with
-  // the parent scope of this namespace.
   Detail::DescriptorPlanEntry Candidate = Detail::MakeFunctionPlanEntry(
       Name, std::move(*Declaration.Callable), Parent.Identity);
 
-  // The declared documentation surface of this candidate. A root-scope request
-  // and a scoped one share the canonical descriptor exactly, so the annotations
-  // travel with the declaration rather than with the descriptor.
   Detail::ApplyDeclaredAnnotations(Candidate, Declaration.Documentation,
                                    Declaration.Attributes,
                                    Declaration.Examples);
 
-  // The same grouping rule as the root scope: one qualified name owns one
-  // overload set, and a distinguishable candidate joins it. The path the set
-  // already owns is then Luna's own closure, not a foreign occupant.
   const Detail::OverloadJoinStatus Join = Detail::ClassifyOverloadJoin(
       Active.Symbols(), Name,
       Candidate.Symbol.Signature ? *Candidate.Symbol.Signature
@@ -857,8 +745,6 @@ RegistrationResult State::Impl::SubmitScopedFunctionDeclaration(
       Join == Detail::OverloadJoinStatus::JoinsOverloadSet &&
       Bindings.Contains(Name);
 
-  // The overload set of the name is reflected once, whether the candidate joins
-  // a published set or one an earlier declaration of this plan opened.
   if (Join == Detail::OverloadJoinStatus::JoinsOverloadSet)
     Detail::JoinPlannedOverloadSet(Candidate);
 
@@ -884,8 +770,6 @@ RegistrationResult State::Impl::SubmitScopedFunctionDeclaration(
 
   const std::size_t PlanIndex = Active.Append(std::move(Candidate));
 
-  // Preparation of the replacement immutable stores runs before the protected
-  // resource is staged, exactly as the root-scope path does.
   if (auto Result = PrepareSubmittedDeclarations(Scope, Subject);
       !Result.IsSuccess())
     return Result;
@@ -907,8 +791,6 @@ RegistrationResult State::Impl::SubmitConstantDeclaration(
       Detail::SubjectText(SymbolKindText(SymbolKind::Constant), Name);
   const Detail::TransactionCapture &Entry = Active.Entry();
 
-  // A value Luna cannot describe canonically is refused before anything else is
-  // decided about it, and it is never narrowed to fit.
   if (!Declaration.Request.IsSupported())
     return ReportSubmissionFailure(
         Scope, ConstantRequestDiagnostic(Subject, Declaration.Request));
@@ -943,8 +825,6 @@ RegistrationResult State::Impl::SubmitConstantDeclaration(
           Detail::ValidateRegistration(Request, Entry, Active.Symbols()))
     return ReportSubmissionFailure(Scope, std::move(*Diagnostic));
 
-  // An enumeration constant must name one value its enumeration declared, so a
-  // constant can never publish a value the enumeration itself rejects.
   if (auto Diagnostic = CheckDeclaredEnumeratorValue(Subject, *Types, Active,
                                                      Declaration.Request))
     return ReportSubmissionFailure(Scope, std::move(*Diagnostic));
@@ -962,9 +842,6 @@ RegistrationResult State::Impl::SubmitEnumerationDeclaration(
       Detail::SubjectText(SymbolKindText(SymbolKind::Enumeration), Name);
   const Detail::TransactionCapture &Entry = Active.Entry();
 
-  // The enumeration as a whole first: the unscoped opt-in, the enumerator set,
-  // duplicate names and values, alias targets, declared ranges, and declared
-  // supported bits.
   if (auto Diagnostic = Detail::ValidateStagedEnumeration(Declaration))
     return ReportSubmissionFailure(Scope, std::move(*Diagnostic));
 
@@ -1000,8 +877,6 @@ RegistrationResult State::Impl::SubmitEnumerationDeclaration(
 
   static_cast<void>(Active.Append(std::move(Candidate)));
 
-  // Canonical enumerators first, so every alias can point at the canonical
-  // identity it names.
   std::vector<std::pair<std::string, SymbolId>> Canonical;
   for (const Detail::StagedEnumerator &Enumerator : Declaration.Enumerators) {
     if (Enumerator.IsAlias)
@@ -1044,8 +919,6 @@ RegistrationResult State::Impl::SubmitClassDeclaration(
       Detail::SubjectText(SymbolKindText(SymbolKind::Class), Name);
   const Detail::TransactionCapture &Entry = Active.Entry();
 
-  // The class as a whole first: its stable key, and the declared storage shape
-  // Luna allocates and releases a value of it with.
   if (auto Diagnostic = Detail::ValidateStagedClass(Declaration))
     return ReportSubmissionFailure(Scope, std::move(*Diagnostic));
 
@@ -1058,10 +931,6 @@ RegistrationResult State::Impl::SubmitClassDeclaration(
 
   Detail::DescriptorPlanEntry Candidate =
       Detail::MakeClassPlanEntry(Declaration, Parent.Identity);
-
-  // The declared relationships of the class itself are attached here. The
-  // complete inherited view is attached after every class member and operator
-  // of the plan has its final canonical identity.
 
   Detail::RegistrationValidationRequest Request;
   Request.Precedence = Detail::RegistrationPrecedence::GeneralOperation;
@@ -1083,18 +952,12 @@ RegistrationResult State::Impl::SubmitClassDeclaration(
   const SymbolId ClassSymbol = Candidate.Identity;
   static_cast<void>(Active.Append(std::move(Candidate)));
 
-  // The one metatable identity this class owns in this logical State. It is
-  // planned as a member of the class scope, so it shares the class's
-  // validation, journal, and publication decision and never becomes visible on
-  // its own.
   Detail::DescriptorPlanEntry Metatable =
       Detail::MakeClassMetatablePlanEntry(Declaration, ClassSymbol);
   if (auto Diagnostic = CheckPlannedMember(Scope, Metatable))
     return ReportSubmissionFailure(Scope, std::move(*Diagnostic));
   static_cast<void>(Active.Append(std::move(Metatable)));
 
-  // The construction candidates of this class join the same transaction as
-  // ordinary callable candidates parented at the class scope.
   for (const Detail::StagedConstruction &Member : Declaration.Constructions) {
     if (auto Result = SubmitConstructionDeclaration(Scope, Declaration,
                                                     ClassSymbol, Member);
@@ -1102,10 +965,6 @@ RegistrationResult State::Impl::SubmitClassDeclaration(
       return Result;
   }
 
-  // The member candidates of this class join it in exactly the same way. An
-  // instance method carries its receiver in its canonical signature, so it
-  // groups, reflects, and resolves as the member it is rather than as a static
-  // callable that happens to take an object.
   for (const Detail::StagedMethod &Member : Declaration.Methods) {
     if (auto Result = SubmitMemberDeclaration(Scope, Declaration, ClassSymbol,
                                               Member, Relationships);
@@ -1113,9 +972,6 @@ RegistrationResult State::Impl::SubmitClassDeclaration(
       return Result;
   }
 
-  // The typed accessors of this class join the same transaction. Each one is
-  // one reflected symbol with two generated descriptors, so it installs no
-  // virtual-machine value and becomes reachable only when the class publishes.
   for (const Detail::StagedMember &Member : Declaration.Members) {
     if (auto Result = SubmitAccessorDeclaration(Scope, Declaration, ClassSymbol,
                                                 Member, Relationships);
@@ -1123,9 +979,6 @@ RegistrationResult State::Impl::SubmitClassDeclaration(
       return Result;
   }
 
-  // The operators of this class join the same transaction as ordinary member
-  // candidates. Their qualified names are Luna-owned segments no consumer
-  // declaration can occupy, so an operator never collides with a member.
   for (const Detail::StagedOperator &Member : Declaration.Operators) {
     if (auto Result =
             SubmitOperatorDeclaration(Scope, Declaration, ClassSymbol, Member);
@@ -1146,8 +999,6 @@ RegistrationResult State::Impl::SubmitConstructionDeclaration(
       Detail::SubjectText(SymbolKindText(Declaration.Kind), Name);
   const Detail::TransactionCapture &Entry = Active.Entry();
 
-  // The candidate as a whole first: a contradictory ownership policy, a lost
-  // target, and an ownership result this class could never honor.
   if (auto Diagnostic = Detail::ValidateStagedConstruction(Class, Declaration))
     return ReportSubmissionFailure(Scope, std::move(*Diagnostic));
 
@@ -1157,9 +1008,6 @@ RegistrationResult State::Impl::SubmitConstructionDeclaration(
   Detail::DescriptorPlanEntry Candidate =
       Detail::MakeConstructionPlanEntry(Class, Declaration, ClassSymbol);
 
-  // Exactly the grouping rule every other qualified name follows: one name owns
-  // one overload set, and a distinguishable candidate joins it. Two candidates
-  // no call could tell apart keep reporting the duplicate diagnostic.
   const Detail::OverloadJoinStatus Join = Detail::ClassifyOverloadJoin(
       Active.Symbols(), Name,
       Candidate.Symbol.Signature ? *Candidate.Symbol.Signature
@@ -1178,8 +1026,6 @@ RegistrationResult State::Impl::SubmitConstructionDeclaration(
   Request.SubjectKindText = SymbolKindText(Declaration.Kind);
   Request.HasTarget = Candidate.Callable && Candidate.Callable->HasTarget();
 
-  // The class scope was planned by this same transaction, so it is Luna-owned
-  // and current by construction.
   Request.ScopeIsOwned = true;
   Request.ScopeIsCurrent = true;
   Request.ParentQualifiedName = Class.QualifiedName;
@@ -1219,17 +1065,9 @@ RegistrationResult State::Impl::SubmitMemberDeclaration(
       Detail::SubjectText(SymbolKindText(Declaration.Kind), Name);
   const Detail::TransactionCapture &Entry = Active.Entry();
 
-  // The candidate as a whole first: a refusal the declaration recorded, a lost
-  // target, and a receiver that contradicts the class it was declared in.
   if (auto Diagnostic = Detail::ValidateStagedMethod(Class, Declaration))
     return ReportSubmissionFailure(Scope, std::move(*Diagnostic));
 
-  // A member candidate takes a member name, so the same deterministic collision
-  // order decides it: Luna's own metamethod and system namespace ranks first,
-  // and an inherited ambiguity ranks last. The two arms between them are
-  // decided by the shared registration validation below, which is what turns a
-  // distinguishable candidate of one name into an overload instead of a
-  // duplicate.
   Detail::MemberCollisionRequest Collision;
   Collision.Segment = Declaration.Segment;
   Collision.QualifiedName = Name;
@@ -1246,11 +1084,6 @@ RegistrationResult State::Impl::SubmitMemberDeclaration(
   Detail::DescriptorPlanEntry Candidate =
       Detail::MakeMethodPlanEntry(Class, Declaration, ClassSymbol);
 
-  // Exactly the grouping rule every other qualified name follows: one name owns
-  // one overload set, and a distinguishable candidate joins it. A receiver is
-  // part of the call shape, so an instance member and a static one are already
-  // distinguishable by it - which is why one name declared both ways was
-  // refused as a member-category collision before this point.
   const Detail::OverloadJoinStatus Join = Detail::ClassifyOverloadJoin(
       Active.Symbols(), Name,
       Candidate.Symbol.Signature ? *Candidate.Symbol.Signature
@@ -1269,8 +1102,6 @@ RegistrationResult State::Impl::SubmitMemberDeclaration(
   Request.SubjectKindText = SymbolKindText(Declaration.Kind);
   Request.HasTarget = Candidate.Callable && Candidate.Callable->HasTarget();
 
-  // The class scope was planned by this same transaction, so it is Luna-owned
-  // and current by construction.
   Request.ScopeIsOwned = true;
   Request.ScopeIsCurrent = true;
   Request.ParentQualifiedName = Class.QualifiedName;
@@ -1318,8 +1149,6 @@ RegistrationResult State::Impl::SubmitOperatorDeclaration(
   Detail::DescriptorPlanEntry Candidate =
       Detail::MakeOperatorPlanEntry(Class, Declaration, ClassSymbol);
 
-  // Operators are ordinary overload sets: candidates of one selected operator
-  // share its Luna-owned path and differ only by their canonical signatures.
   const Detail::OverloadJoinStatus Join = Detail::ClassifyOverloadJoin(
       Active.Symbols(), Name,
       Candidate.Symbol.Signature ? *Candidate.Symbol.Signature
@@ -1376,15 +1205,9 @@ RegistrationResult State::Impl::SubmitAccessorDeclaration(
       Detail::SubjectText(SymbolKindText(Declaration.Kind), Name);
   const Detail::TransactionCapture &Entry = Active.Entry();
 
-  // The accessor as a whole first: a refusal the declaration recorded, a value
-  // type Luna cannot carry across the member boundary, and a direction with no
-  // descriptor behind it.
   if (auto Diagnostic = Detail::ValidateStagedMember(Declaration))
     return ReportSubmissionFailure(Scope, std::move(*Diagnostic));
 
-  // The deterministic member collision order: Luna's own reserved namespace, a
-  // same-category duplicate, an incompatible-category collision, and finally an
-  // inherited ambiguity.
   Detail::MemberCollisionRequest Collision;
   Collision.Segment = Declaration.Segment;
   Collision.QualifiedName = Name;
@@ -1412,8 +1235,6 @@ RegistrationResult State::Impl::SubmitAccessorDeclaration(
   Request.Category = Detail::PlanEntryKind::ClassMember;
   Request.SubjectKindText = SymbolKindText(Declaration.Kind);
 
-  // A member is reached through its class rather than published at a path, so
-  // it has no target of its own to validate and never occupies a path.
   Request.HasTarget = true;
   Request.ScopeIsOwned = true;
   Request.ScopeIsCurrent = true;
@@ -1433,9 +1254,6 @@ State::Impl::CheckPlannedMember(const Detail::ActiveTransactionScope &Scope,
   const std::string Subject = Detail::SubjectText(
       SymbolKindText(Member.Symbol.Kind), Member.Symbol.QualifiedName);
 
-  // A member of one scope is described canonically like every other
-  // declaration, so an incomplete descriptor and a name collision are reported
-  // with exactly the shared wording.
   if (!Member.IsValid())
     return Detail::MalformedMetadataDiagnostic(
         Subject, "the canonical descriptor is incomplete.");
@@ -1453,8 +1271,6 @@ State::Impl::CheckPlannedMember(const Detail::ActiveTransactionScope &Scope,
 
 RegistrationResult State::Impl::PrepareSubmittedDeclarations(
     const Detail::ActiveTransactionScope &Scope, const std::string &Subject) {
-  // Preparation of the replacement immutable stores. Nothing is published: the
-  // candidate generation set stays a private value no State field points at.
   Detail::PreparedGenerations Prepared;
   const Detail::PreparationStatus Status =
       Faults.Consume(Detail::StateFaultPoint::TransactionPreparation)
@@ -1474,8 +1290,6 @@ RegistrationResult State::Impl::SubmitPlanDeclarations(
   if (StagedFailure)
     return ReportSubmissionFailure(Scope, *StagedFailure);
 
-  // Scopes before the declarations that live inside them, so a nested
-  // declaration always resolves its own parent.
   for (const Detail::StagedNamespace &Declaration : Plan.Namespaces) {
     if (auto Result = SubmitNamespaceDeclaration(Scope, Declaration);
         !Result.IsSuccess())
@@ -1487,16 +1301,11 @@ RegistrationResult State::Impl::SubmitPlanDeclarations(
       return Result;
   }
 
-  // The class relationship graph of the whole attempt is decided before one
-  // class of it is submitted, so an edge never depends on the order the classes
-  // were declared in.
   const Detail::RelationshipCandidate Relationships =
       BuildRelationshipCandidate(Plan);
   if (auto Diagnostic = Detail::ValidateRelationshipCandidate(Relationships))
     return ReportSubmissionFailure(Scope, std::move(*Diagnostic));
 
-  // Classes are scopes too, so they are planned before the declarations that
-  // live inside them.
   for (const Detail::StagedClass &Declaration : Plan.Classes) {
     if (auto Result = SubmitClassDeclaration(Scope, Declaration, Relationships);
         !Result.IsSuccess())
@@ -1513,16 +1322,11 @@ RegistrationResult State::Impl::SubmitPlanDeclarations(
       return Result;
   }
 
-  // A staged module load runs its callbacks here, inside this transaction, so
-  // every module of the graph shares one plan and one publication decision.
   for (const Detail::StagedModule &Request : Plan.Modules) {
     if (auto Result = SubmitModuleLoad(Scope, Request); !Result.IsSuccess())
       return Result;
   }
 
-  // Every member and operator now owns its final canonical identity, so class
-  // reflection can retain those declarations in inherited views without
-  // cloning records or depending on declaration order.
   const std::shared_ptr<const Detail::ReflectionStorage> CapturedReflection =
       Scope.Active().Captured().Reflection();
   if (!Plan.Classes.empty() && CapturedReflection) {
@@ -1557,20 +1361,13 @@ RegistrationResult State::Impl::RegisterBuilderPlan(
   const std::string Subject = Detail::SubjectText(
       Detail::PlanEntryKindText(Detail::PlanEntryKind::Scope), First);
 
-  // Reject before installing the active transaction pointer or touching any
-  // mutable registration, module, generation, or virtual-machine state.
   if (!IsOwnerThread())
     return RegistrationResult::Failure(
         Detail::ForeignThreadDiagnostic(Subject));
 
-  // One builder chain is one outermost transaction: every staged namespace,
-  // enumeration, constant, and module load joins this transaction, and
-  // publication happens once for the whole plan.
   Detail::RegistrationTransaction Transaction(CaptureTransactionEntry());
   const Detail::ActiveTransactionScope Scope(ActiveTransaction, Transaction);
 
-  // A wrong thread and a non-ready or frozen lifecycle rank before every name
-  // and scope decision, including one a builder operation recorded earlier.
   if (auto Diagnostic =
           Detail::ValidateTransactionEntry(Transaction.Entry(), Subject))
     return ReportSubmissionFailure(Scope, std::move(*Diagnostic));
@@ -1581,13 +1378,9 @@ RegistrationResult State::Impl::RegisterBuilderPlan(
     return Result;
   }
 
-  // A nested submission stops here: installation and publication belong to the
-  // outermost transaction.
   if (!Scope.IsOuter())
     return RegistrationResult::Success();
 
-  // Every namespace of the plan already existed and was reopened, so there is
-  // nothing to install and no generation to advance.
   if (Transaction.Plan().IsEmpty()) {
     Transaction.MarkCommitted();
     PublishPendingModules();
@@ -1598,8 +1391,6 @@ RegistrationResult State::Impl::RegisterBuilderPlan(
 }
 
 Detail::ModuleCatalog State::Impl::CandidateModuleCatalog() const {
-  // Definitions this State already owns plus definitions the open attempt
-  // provided. A rolled-back attempt therefore never leaves availability behind.
   Detail::ModuleCatalog Candidate = Definitions.Catalog();
   for (const Detail::ModuleDefinition &Provided : PendingDefinitions)
     static_cast<void>(Candidate.Add(Provided.Manifest));
@@ -1628,9 +1419,6 @@ State::Impl::FindPendingModule(std::string_view Identity) const noexcept {
 }
 
 void State::Impl::PublishPendingModules() {
-  // Publication of the module half. It runs only after installation and the
-  // internal consistency check accepted the attempt, so a loaded module and its
-  // published symbols always become visible in the same step.
   for (ModuleManifest &Loaded : PendingModules)
     static_cast<void>(Modules.Record(std::move(Loaded)));
   for (Detail::ModuleDefinition &Provided : PendingDefinitions)
@@ -1682,8 +1470,6 @@ State::Impl::ProvideModuleDefinition(ModuleManifest Manifest,
                    Subject, "the module carries no scoped registration "
                             "callback."));
 
-  // An identical definition is idempotent; an unequal definition of the same
-  // identity and version precedence is a conflict and replaces nothing.
   const Detail::ModuleCatalog Candidate = CandidateModuleCatalog();
   if (const ModuleManifest *Available =
           Candidate.Find(Manifest.Identity(), Manifest.Version())) {
@@ -1700,9 +1486,6 @@ State::Impl::ProvideModuleDefinition(ModuleManifest Manifest,
   Definition.Manifest = std::move(Manifest);
   Definition.Registration = std::move(Registration);
 
-  // Availability is Luna-side metadata: an outer request records it now, and a
-  // request nested in another attempt records it only when that attempt
-  // publishes.
   if (!Scope.IsOuter()) {
     PendingDefinitions.push_back(std::move(Definition));
     return RegistrationResult::Success();
@@ -1740,14 +1523,8 @@ RegistrationResult State::Impl::SubmitModuleCallback(
                    Subject, "the State has no owner object to attach a module "
                             "builder to."));
 
-  // Everything this load contributes to the attempt starts here, including any
-  // declaration a nested builder of the callback commits while the callback
-  // runs. Module provenance is attached to exactly that window below.
   const std::size_t PlannedBeforeCallback = Active.Plan().Size();
 
-  // The callback receives a transaction-attached builder: whatever it stages is
-  // submitted into this transaction below, and any nested registration it
-  // performs joins this transaction instead of committing on its own.
   std::shared_ptr<Detail::NamespaceBuilderState> Plan =
       Detail::NamespaceBuilderState::Create(*Owner);
   const std::size_t ScopeNode =
@@ -1756,8 +1533,6 @@ RegistrationResult State::Impl::SubmitModuleCallback(
   NamespaceBuilder Builder =
       Detail::NamespaceBuilderState::MakeBuilder(Plan, ScopeNode);
 
-  // The private callback boundary. Nothing thrown here may cross it: the
-  // attempt is poisoned and one deterministic failure is reported instead.
   try {
     Registration.Invoke(Builder);
   } catch (const std::exception &Error) {
@@ -1778,8 +1553,6 @@ RegistrationResult State::Impl::SubmitModuleCallback(
 
   const std::size_t PlannedBefore = Active.Plan().Size();
 
-  // A callback that committed its own builder already submitted the plan as a
-  // nested submission of this transaction, so it is never submitted twice.
   if (!Plan->IsCommitted()) {
     Plan->MarkSubmitted();
     if (auto Result = SubmitPlanDeclarations(Scope, Plan->Pending(),
@@ -1788,8 +1561,6 @@ RegistrationResult State::Impl::SubmitModuleCallback(
       return Result;
   }
 
-  // What this module contributed to the attempt: the namespaces and canonical
-  // types its own declarations planned, in canonical order.
   Detail::ModuleContribution Contribution;
   for (std::size_t Index = PlannedBefore; Index < Active.Plan().Size();
        ++Index) {
@@ -1803,9 +1574,6 @@ RegistrationResult State::Impl::SubmitModuleCallback(
       Contribution.Types.push_back(Planned->TypeFields->Name);
   }
 
-  // Module provenance of every declaration this load contributed. A nested
-  // module load already claimed its own declarations, so the innermost load
-  // owns them and this one never overwrites that.
   for (std::size_t Index = PlannedBeforeCallback; Index < Active.Plan().Size();
        ++Index) {
     Detail::DescriptorPlanEntry *Planned = Active.Plan().At(Index);
@@ -1816,16 +1584,12 @@ RegistrationResult State::Impl::SubmitModuleCallback(
   Detail::DescriptorPlanEntry Candidate =
       Detail::MakeModulePlanEntry(Manifest, Resolution, Contribution);
 
-  // The module symbol reports its own identity and version too, so generated
-  // material can name the provenance of the module record itself.
   Candidate.ModuleIdentity = Manifest.Identity();
   if (!Candidate.IsValid())
     return ReportSubmissionFailure(
         Scope, Detail::MalformedMetadataDiagnostic(
                    Subject, "the canonical module descriptor is incomplete."));
 
-  // The module identity is also the canonical name of its module symbol, so a
-  // symbol of another category at that name is a deterministic collision.
   if (const auto Existing =
           Active.Symbols().Find(Candidate.Symbol.QualifiedName)) {
     if (Existing->Category == Detail::PlanEntryKind::Module)
@@ -1839,9 +1603,6 @@ RegistrationResult State::Impl::SubmitModuleCallback(
 
   static_cast<void>(Active.Append(std::move(Candidate)));
 
-  // The loaded module and its definition become visible only when the outermost
-  // transaction publishes, so a failure anywhere leaves the pre-load module
-  // state exactly as it was.
   PendingModules.push_back(Manifest);
   Detail::ModuleDefinition Definition;
   Definition.Manifest = Manifest;
@@ -1871,9 +1632,6 @@ State::Impl::SubmitModuleLoad(const Detail::ActiveTransactionScope &Scope,
         Detail::MalformedMetadataDiagnostic(
             Subject, "the module carries no scoped registration callback."));
 
-  // The load-once classification of the committed registry: an identical
-  // definition of a loaded identity and version is idempotent and never reruns
-  // callbacks, and every other repeat is a conflict.
   const Detail::ModuleLoadDecision Decision = Modules.ClassifyLoad(Manifest);
   if (Decision.Status == Detail::ModuleLoadStatus::AlreadyLoaded)
     return RegistrationResult::Success();
@@ -1881,8 +1639,6 @@ State::Impl::SubmitModuleLoad(const Detail::ActiveTransactionScope &Scope,
     return ReportSubmissionFailure(
         Scope, Detail::ModuleConflictDiagnostic(Subject, Decision.Message()));
 
-  // The same identity planned twice by one attempt is one load when the
-  // definitions agree, and a conflict when they do not.
   if (const ModuleManifest *Planned = FindPendingModule(Manifest.Identity())) {
     if (*Planned == Manifest)
       return RegistrationResult::Success();
@@ -1894,7 +1650,6 @@ State::Impl::SubmitModuleLoad(const Detail::ActiveTransactionScope &Scope,
                          "conflicts."));
   }
 
-  // Resolution sees the requested definition plus everything available.
   Detail::ModuleCatalog Candidate = CandidateModuleCatalog();
   const Detail::ModuleCatalog::AddStatus Added = Candidate.Add(Manifest);
   if (Added == Detail::ModuleCatalog::AddStatus::ConflictingDefinition)
@@ -1909,8 +1664,6 @@ State::Impl::SubmitModuleLoad(const Detail::ActiveTransactionScope &Scope,
     return ReportSubmissionFailure(Scope, Detail::ModuleResolutionDiagnostic(
                                               Subject, Resolution.Diagnostic));
 
-  // Dependency-first canonical order: every dependency callback runs before the
-  // callback that depends on it, inside this one transaction.
   for (const std::string &Key : Resolution.LoadOrder) {
     const Detail::ModuleSelection *Selected = nullptr;
     for (const Detail::ModuleSelection &Selection : Resolution.Selections) {
@@ -1944,8 +1697,6 @@ State::Impl::SubmitModuleLoad(const Detail::ActiveTransactionScope &Scope,
       Registration = &Definition->Registration;
     }
 
-    // A dependency registers at root scope; the requested module registers in
-    // the scope it was requested in.
     const std::string_view ParentScope =
         IsRequested ? std::string_view(Request.ParentQualifiedName)
                     : std::string_view();
@@ -1966,9 +1717,6 @@ State::Impl::RegisterModuleGraph(ModuleManifest Manifest,
     return RegistrationResult::Failure(
         Detail::ForeignThreadDiagnostic(Subject));
 
-  // One module load is one outermost transaction: dependency callbacks and the
-  // requested callback join it, and publication happens once for the whole
-  // graph.
   Detail::RegistrationTransaction Transaction(CaptureTransactionEntry());
   const Detail::ActiveTransactionScope Scope(ActiveTransaction, Transaction);
 
@@ -1988,8 +1736,6 @@ State::Impl::RegisterModuleGraph(ModuleManifest Manifest,
   if (!Scope.IsOuter())
     return RegistrationResult::Success();
 
-  // An idempotent repeat plans nothing at all, so there is no generation to
-  // advance and nothing to install.
   if (Transaction.Plan().IsEmpty()) {
     Transaction.MarkCommitted();
     PublishPendingModules();
@@ -2003,15 +1749,10 @@ void State::Impl::RecordPublishedNamespaces(
     const Detail::RegistrationTransaction &Active) {
   for (const Detail::DescriptorPlanEntry &Entry :
        Active.Plan().PlannedEntries()) {
-    // Only a namespace table is reopened by a later attempt. An enumeration
-    // table is a scope too, but it is never reopened, so recording it as a
-    // namespace would let a later namespace request adopt it.
     if (Entry.Category != Detail::PlanEntryKind::Scope ||
         Entry.Symbol.Kind != SymbolKind::Namespace)
       continue;
 
-    // The installed table is retained, so the identity Luna records for this
-    // namespace can never be recycled by a later allocation.
     const Detail::NamespaceTableInstallation Retained =
         VirtualMachine.RetainNamespaceTable(Entry.VmPath);
     if (!Retained.IsInstalled())
@@ -2056,8 +1797,6 @@ State::Impl::BuildRelationshipCandidate(const Detail::BuilderPlan &Plan) const {
     Candidate.AddClass(std::move(Declared));
   }
 
-  // The published edges of this State join the candidate exactly as they were
-  // validated, so a new declaration is decided against the whole graph.
   const Detail::ClassRelationships &Published = Classes.Relationships();
   for (const Detail::ClassBaseEdge &Edge : Published.BaseEdges()) {
     const Detail::RegisteredClass *Derived = Classes.Find(Edge.Derived);
@@ -2109,9 +1848,6 @@ void State::Impl::RecordPublishedRelationships(
     if (!Derived)
       continue;
 
-    // Every published class is a node of the graph, whether or not it declared
-    // one edge: a class with no base and no cast is a legitimate isolated node,
-    // and the frozen cache pairs the node set with the registered class set.
     Graph.RecordNode(Derived->Type, Derived->Metatable, Derived->QualifiedName);
     if (!Entry->Relationships)
       continue;
@@ -2156,15 +1892,11 @@ void State::Impl::RecordPublishedRelationships(
 
 void State::Impl::RecordPublishedClasses(
     const Detail::RegistrationTransaction &Active) {
-  // Canonical order, never submission order: two equivalent plans issue the
-  // metatable identities of their classes in one identical sequence.
   for (const std::size_t Index : Active.Plan().CanonicalOrder()) {
     const Detail::DescriptorPlanEntry *Entry = Active.Plan().At(Index);
     if (!Entry)
       continue;
 
-    // Canonical order places a class before every member declared inside it, so
-    // a member always finds the record it belongs to already published.
     if (Entry->Category == Detail::PlanEntryKind::ClassMember) {
       if (!Entry->ClassMember || !Entry->Record)
         continue;
@@ -2198,9 +1930,6 @@ void State::Impl::RecordPublishedClasses(
       continue;
     }
 
-    // Methods and static methods also participate in inherited views. Their
-    // callable remains in the ordinary binding store; the class retains only
-    // the declaration identity and category needed for canonical enumeration.
     if (Entry->Category == Detail::PlanEntryKind::Function && Entry->Record &&
         (Entry->Symbol.Kind == SymbolKind::Method ||
          Entry->Symbol.Kind == SymbolKind::StaticMethod)) {
@@ -2216,9 +1945,6 @@ void State::Impl::RecordPublishedClasses(
       continue;
     }
 
-    // An operator is an ordinary callable candidate, so only its identity is
-    // recorded with the class: the metatable names the candidate through the
-    // class table rather than holding it.
     if (Entry->Category == Detail::PlanEntryKind::Function &&
         Entry->OperatorFields) {
       Detail::RegisteredClass *Owner =
@@ -2247,22 +1973,12 @@ void State::Impl::RecordPublishedClasses(
     Registered.QualifiedName = Entry->Symbol.QualifiedName;
     Registered.LifecycleGeneration = Lifecycle.Generation();
 
-    // The declared storage shape of the class travels with its plan entry, so
-    // it is recorded here rather than rediscovered from a type Luna cannot see.
     if (Entry->ClassStorage)
       Registered.Policy = *Entry->ClassStorage;
 
-    // The cached metatable identity of this class in this logical State. The
-    // metatable table itself is created by the first exposure and retained in
-    // this record, so registration installs no virtual-machine value for a
-    // class no value was ever created of.
     Registered.Metatable = Classes.AllocateMetatableIdentity();
     Classes.Record(std::move(Registered));
 
-    // A registered class may now be exposed as a value and read back, so the
-    // access and exposure contexts of this State are named in this virtual
-    // machine. Both are idempotent light-userdata slots: naming them again
-    // changes nothing.
     if (IsReady())
       static_cast<void>(VirtualMachine.PublishUserdataContexts(
           UserdataAccess(), UserdataExposure()));
@@ -2272,16 +1988,10 @@ void State::Impl::RecordPublishedClasses(
 RegistrationResult
 State::Impl::RegisterErased(std::string_view GlobalName,
                             ErasedCallableDescriptor &&Descriptor) {
-  // The public facade has already applied the foundation's invalid-identifier
-  // precedence. Reject the foreign thread now, before an active transaction
-  // scope can be installed or any State-owned registration data can change.
   if (!IsOwnerThread())
     return RegistrationResult::Failure(
         Detail::ForeignThreadDiagnostic(Detail::GlobalSubject(GlobalName)));
 
-  // The existing one-symbol request is one plan entry inside one outermost
-  // transaction. Every category submits the same canonical schema, and a nested
-  // submission joins this transaction instead of committing on its own.
   Detail::RegistrationTransaction Transaction(CaptureTransactionEntry());
   const Detail::ActiveTransactionScope Scope(ActiveTransaction, Transaction);
 
@@ -2291,8 +2001,6 @@ State::Impl::RegisterErased(std::string_view GlobalName,
       !Result.IsSuccess())
     return Result;
 
-  // A nested submission stops here: installation and publication belong to the
-  // outermost transaction.
   if (!Scope.IsOuter())
     return RegistrationResult::Success();
 
@@ -2319,8 +2027,6 @@ RegistrationResult State::Impl::CompleteOutermostTransaction(
   Detail::RegistrationTransaction &Active = Scope.Active();
   const std::string Subject = TransactionSubject(Active);
 
-  // A poisoned attempt never reaches installation: an ignored nested failure is
-  // still fatal, and every resource it staged is discarded here.
   if (!Active.CanPublish()) {
     DiscardStagedResources(Active);
     DiscardPendingModules();
@@ -2333,8 +2039,6 @@ RegistrationResult State::Impl::CompleteOutermostTransaction(
   }
 
   try {
-    // The final candidate generation set of the complete plan. Preparation is
-    // still invisible: no State field points at the candidate yet.
     Detail::PreparedGenerations Candidate;
     const Detail::PreparationStatus Preparation =
         Faults.Consume(Detail::StateFaultPoint::TransactionPublication)
@@ -2351,8 +2055,6 @@ RegistrationResult State::Impl::CompleteOutermostTransaction(
                                        Candidate.TypeStatus));
     }
 
-    // Every path the installer is about to touch records its exact prior value
-    // or its absence first, and every staged overlay records how to discard it.
     Detail::InstallationJournal Journal(VirtualMachine, Bindings, Faults,
                                         Active.EntryStackDepth());
     const std::shared_ptr<const Detail::TypeGeneration> CandidateTypes =
@@ -2379,8 +2081,6 @@ RegistrationResult State::Impl::CompleteOutermostTransaction(
           Scope, InstallationDiagnostic(Installation, Restored));
     }
 
-    // Incomplete or contradictory internal metadata is rejected here rather
-    // than published.
     const Detail::ConsistencyStatus Consistency =
         Detail::CheckPublicationConsistency(Active, Candidate, Reflection,
                                             Bindings, VirtualMachine, Faults);
@@ -2401,9 +2101,6 @@ RegistrationResult State::Impl::CompleteOutermostTransaction(
           Scope, ConsistencyDiagnostic(Subject, Consistency, Restored));
     }
 
-    // Publication. Every installation succeeded and the candidate metadata
-    // agrees with the plan, so the complete generation set becomes visible in
-    // one step. This is the only visibility point of the attempt.
     if (Candidate.ReflectionAdvances &&
         !Reflection.Publish(Candidate.Reflection)) {
       Journal.Undo();
@@ -2419,8 +2116,6 @@ RegistrationResult State::Impl::CompleteOutermostTransaction(
 
     Generations = Candidate.Candidate;
 
-    // The published type generation is what every later invocation captures at
-    // entry, so it becomes visible in the same step as the generation set.
     Bindings.PublishTypes(Generations->Types());
     for (const Detail::DescriptorPlanEntry &Entry :
          Active.Plan().PlannedEntries()) {
@@ -2430,18 +2125,10 @@ RegistrationResult State::Impl::CompleteOutermostTransaction(
         Bindings.Commit(*Record);
     }
 
-    // Every namespace table the attempt installed becomes Luna-owned in the
-    // same step, so a later reopen recognizes exactly the table this plan
-    // published.
     RecordPublishedNamespaces(Active);
 
-    // Every class the attempt declared becomes a registered class of this
-    // logical State in the same step, together with the one metatable identity
-    // it owns here.
     RecordPublishedClasses(Active);
 
-    // The relationship edges follow, because an edge needs the metatable
-    // identity of both of its classes.
     RecordPublishedRelationships(Active);
 
     Journal.Commit();
@@ -2460,8 +2147,6 @@ RegistrationResult State::Impl::CompleteOutermostTransaction(
     }
     return RegistrationResult::Success();
   } catch (const std::exception &Error) {
-    // Nothing escapes the private boundary: the journal restored itself on the
-    // way out, and the attempt reports one deterministic internal failure.
     DiscardStagedResources(Active);
     DiscardPendingModules();
     return ReportSubmissionFailure(Scope,
@@ -2489,22 +2174,15 @@ Detail::JoinedSubmissionReport State::Impl::SubmitJoinedFunctionDeclarations(
   Report.EntryStackDepth = Active.EntryStackDepth();
 
   for (Detail::JoinedFunctionDeclaration &Declaration : Declarations) {
-    // Every declaration goes through the ordinary registration entry point. It
-    // detects the active transaction, joins it, and returns without installing
-    // or publishing, exactly as a builder or module callback will.
     const auto Result =
         RegisterErased(Declaration.Name, std::move(Declaration.Callable));
     if (Result.IsSuccess())
       continue;
 
-    // The caller may ignore a nested result; the outer transaction is poisoned
-    // either way, which is what makes an ignored nested failure fatal.
     if (!IgnoreNestedFailures)
       break;
   }
 
-  // Every planned declaration whose protected resource is staged and still
-  // uncommitted.
   std::vector<Detail::BindingRecord *> Staged;
   std::vector<std::string> StagedNames;
   for (const Detail::DescriptorPlanEntry &Entry :
@@ -2527,7 +2205,6 @@ Detail::JoinedSubmissionReport State::Impl::SubmitJoinedFunctionDeclarations(
   Report.CommittedSymbolsInView = View.CommittedCount();
   Report.PendingSymbolsInView = View.PendingCount();
 
-  // Ordinary queries still observe the pre-transaction model.
   Report.PublishedGenerationWhileOpen = CurrentGenerations()->Generation();
   Report.PublishedSymbolsWhileOpen = CurrentGenerations()->Symbols().Size();
   Report.ReflectionGenerationWhileOpen = Reflection.Generation();
@@ -2548,8 +2225,6 @@ Detail::JoinedSubmissionReport State::Impl::SubmitJoinedFunctionDeclarations(
   }
 
   if (PublishWhenComplete) {
-    // One atomic unit: every declaration of the group installs and publishes,
-    // or the journal restores every touched path and every staged overlay.
     Detail::PublicationObservation Observed;
     Observed.EntryStackDepth = Report.EntryStackDepth;
     const auto Result = CompleteOutermostTransaction(Outer, &Observed);
@@ -2568,9 +2243,6 @@ Detail::JoinedSubmissionReport State::Impl::SubmitJoinedFunctionDeclarations(
     return Report;
   }
 
-  // Without publication the group discards every staged resource instead of
-  // installing it. No virtual-machine path was ever touched, so nothing has to
-  // be restored here.
   for (std::size_t Index = Staged.size(); Index > 0; --Index)
     static_cast<void>(
         Bindings.Rollback(StagedNames[Index - 1], Staged[Index - 1]));
@@ -2596,9 +2268,6 @@ State::Impl::SubmitJoinedFunctionsThroughCallback(
   Detail::RegistrationTransaction &Active = Outer.Active();
   Observed.EntryStackDepth = Active.EntryStackDepth();
 
-  // The private callback boundary. Everything between here and the handlers
-  // below is callback work: it may submit declarations, ignore their results,
-  // and throw.
   try {
     for (std::size_t Index = 0; Index < Declarations.size(); ++Index) {
       if (Index == ThrowAfterSubmissions)
@@ -2629,8 +2298,6 @@ State::Impl::SubmitJoinedFunctionsThroughCallback(
   Observed.NestedFailures = Active.NestedFailureCount();
   Observed.CouldPublishWhileOpen = Active.CanPublish();
 
-  // Ordinary queries, taken while the attempt is still in flight. Every one of
-  // them must observe the committed model only.
   const std::shared_ptr<const Detail::GenerationSet> Open =
       CurrentGenerations();
   Observed.GenerationWhileOpen = Open->Generation();
@@ -2654,9 +2321,6 @@ State::Impl::SubmitJoinedFunctionsThroughCallback(
       ++Observed.DispatchVisibleWhileOpen;
   }
 
-  // The same ordinary reflection query taken from another thread. The owner
-  // thread is blocked here, so this reads the committed generation exactly as
-  // any other reader outside the transaction would.
   std::thread Reader([this, &Observed] {
     const ReflectionSnapshot Foreign = CaptureReflection();
     Observed.ForeignSnapshotGenerationWhileOpen = Foreign.Generation();
@@ -2700,8 +2364,6 @@ State::Impl::SubmitJoinedFunctionsThroughCallback(
 }
 
 RegistrationResult State::Impl::Freeze() {
-  // Freeze is VM-backed: reject a foreign thread before reading stack or
-  // mutable runtime state.
   if (!Lifecycle.IsOwnerThread())
     return RegistrationResult::Failure(ErrorCategory::StateNotReady,
                                        "Cannot freeze State: freeze is only "
@@ -2739,8 +2401,6 @@ RegistrationResult State::Impl::Freeze() {
             std::string(Detail::FreezePreparationStatusText(Status)) + ").");
   }
 
-  // Retained namespace identities are the only prepared entries that also have
-  // a VM identity. Check each one while caches are still unpublished.
   for (const Detail::FrozenNamespaceEntry &Entry : Prepared->NamespaceCache()) {
     const Detail::NamespaceOwnership *Owned =
         Namespaces.Find(Entry.QualifiedName);
@@ -2756,8 +2416,6 @@ RegistrationResult State::Impl::Freeze() {
     }
   }
 
-  // No throwing operation remains. Owner-thread affinity means no public
-  // operation can observe the cache pointer before the frozen flag follows it.
   if (Captured != Generations)
     return RegistrationResult::Failure(
         ErrorCategory::Internal, "Cannot freeze State: the committed "
@@ -2768,9 +2426,6 @@ RegistrationResult State::Impl::Freeze() {
 }
 
 ExecutionResult State::Impl::Execute(std::string_view Source) {
-  // Execution owns the complete invocation path. Reject before querying or
-  // mutating the root stack, compiling into VM-owned storage, creating a Luau
-  // thread, or allowing a native trampoline to run.
   if (!IsOwnerThread()) {
     return ExecutionResult::Failure(
         ErrorCategory::StateNotReady,
@@ -2787,6 +2442,94 @@ ExecutionResult State::Impl::Execute(std::string_view Source) {
 
 ReflectionSnapshot State::Impl::CaptureReflection() const {
   return Reflection.Snapshot();
+}
+
+Detail::LifecycleAttemptObservation
+State::Impl::PrepareLifecycleAttempt(const Detail::LifecycleAttempt &Attempt) {
+  Detail::LifecycleAttemptObservation Observed;
+
+  Detail::RegistrationTransaction Transaction(CaptureTransactionEntry());
+  const Detail::ActiveTransactionScope Outer(ActiveTransaction, Transaction);
+  Detail::RegistrationTransaction &Active = Outer.Active();
+
+  Detail::LifecycleAnalysis Analysis;
+  Analysis.Operation = Attempt.Plan.Operation;
+  Analysis.Identity = Attempt.Plan.Identity;
+  Analysis.Blockers = Attempt.Blockers;
+
+  Detail::LifecycleStagingSources Sources;
+  Sources.Machine = &VirtualMachine;
+  Sources.Bindings = &Bindings;
+  Sources.Faults = &Faults;
+  Sources.Modules = &Modules;
+  Sources.Caches = FrozenCaches;
+
+  Detail::LifecycleStagingCallback Callback;
+  if (Attempt.RunCallback) {
+    Callback = [&Attempt]() -> std::optional<ErrorDiagnostic> {
+      if (Attempt.CallbackThrows)
+        throw std::runtime_error("replacement registration callback");
+      if (Attempt.CallbackFails)
+        return ErrorDiagnostic::Create(
+            ErrorCategory::Internal,
+            "The replacement registration callback refused.");
+      return std::nullopt;
+    };
+  }
+
+  const auto PathKind = [this](const std::string &Path) {
+    if (!IsReady())
+      return std::string("<unavailable>");
+    Detail::SavedVmValue Saved;
+    if (!VirtualMachine.CaptureVmPath(Path, Saved))
+      return std::string("<unavailable>");
+    std::string Kind(Detail::VmValueKindText(Saved.Kind));
+    VirtualMachine.ReleaseSavedValue(Saved);
+    return Kind;
+  };
+
+  Detail::PreparedLifecycle Prepared;
+  const Detail::LifecycleStageStatus Status = Detail::PrepareLifecycle(
+      Active, Attempt.Plan, Analysis, Sources, Callback, Prepared);
+
+  Observed.GenerationWhileStaged = CurrentGenerations()->Generation();
+  Observed.SymbolCountWhileStaged = CurrentGenerations()->Symbols().Size();
+  Observed.ReflectionGenerationWhileStaged = Reflection.Generation();
+  Observed.DispatchGenerationWhileStaged = Bindings.Dispatch().Generation();
+  Observed.ModuleCountWhileStaged = Modules.Count();
+  Observed.StackDepthWhileStaged =
+      IsReady() ? VirtualMachine.StackDepth() : Active.EntryStackDepth();
+  for (const std::string &Path : Prepared.Observed().JournalledPathNames)
+    Observed.PathKindsWhileStaged.push_back(PathKind(Path));
+
+  Observed.TransactionPoisoned = Active.IsPoisoned();
+  if (Active.Failure())
+    Observed.TransactionFailure = Active.Failure()->Message();
+
+  Prepared.Rollback();
+  Observed.Staging = Prepared.Observed();
+  Observed.Staging.Status = Status;
+
+  if (Active.IsOpen())
+    Active.MarkRolledBack();
+
+  Observed.GenerationAfter = CurrentGenerations()->Generation();
+  Observed.SymbolCountAfter = CurrentGenerations()->Symbols().Size();
+  Observed.ReflectionGenerationAfter = Reflection.Generation();
+  Observed.DispatchGenerationAfter = Bindings.Dispatch().Generation();
+  Observed.ModuleCountAfter = Modules.Count();
+  Observed.StackDepthAfter =
+      IsReady() ? VirtualMachine.StackDepth() : Active.EntryStackDepth();
+  for (const std::string &Path : Observed.Staging.JournalledPathNames)
+    Observed.PathKindsAfter.push_back(PathKind(Path));
+  Observed.ModuleStillLoaded = Modules.IsLoaded(Attempt.Plan.Identity);
+  Observed.SupersededDispatchGenerations =
+      Bindings.Dispatch().SupersededGenerationCount();
+  Observed.RetainedDispatchGenerations =
+      Bindings.Dispatch().RetainedGenerationCount();
+  Observed.LifecycleJournalRetainersAfter = Bindings.Dispatch().RetainerCount(
+      Detail::DispatchRetainer::LifecycleJournal);
+  return Observed;
 }
 
 } // namespace Luna

@@ -1,10 +1,3 @@
-// Focused coverage for semantic-version manifests and deterministic load-once
-// dependency resolution: version parsing and precedence, constraint
-// satisfaction, manifest validation and normalization, sorted-order resolution
-// with highest satisfying versions, missing/unsatisfied/conflicting/cyclic
-// diagnostics with canonical dependency paths, load-once idempotence, and the
-// deterministic load-only rejection of unload and replacement.
-
 // clang-format off
 #include <luna/module/module_manifest.hpp>
 #include <luna/reflection/ids.hpp>
@@ -103,8 +96,6 @@ Manifest(std::string Identity, std::string_view VersionText,
   return Created;
 }
 
-// The status one rejected manifest reports, together with the guarantee that a
-// rejected manifest never claims to be valid.
 [[nodiscard]] ModuleManifestStatus
 RejectedStatus(std::string Identity, SemanticVersion VersionValue,
                std::vector<ModuleDependency> Dependencies,
@@ -325,8 +316,6 @@ void CheckManifestValidationAndNormalization() {
             ModuleManifestStatus::DuplicateExport,
         "a duplicate export declaration is rejected");
 
-  // Two authors declaring the same definition in different orders normalize to
-  // one equal manifest.
   std::vector<ModuleDependency> FirstOrder;
   FirstOrder.push_back(Dependency("studio.math", {">=1.0.0"}));
   FirstOrder.push_back(Dependency("studio.core", {">=2.0.0", "<3.0.0"}));
@@ -450,8 +439,6 @@ void CheckHighestSatisfyingResolution() {
             Resolution.Find("studio.audio") == nullptr,
         "resolution lookup answers by identity");
 
-  // A permuted catalog and permuted dependency declarations resolve
-  // identically, because resolution never observes declaration order.
   ModuleCatalog Permuted;
   Check(AddToCatalog(Permuted, Manifest("studio.math", "2.0.0", {})),
         "the permuted catalog accepts the excluded version first");
@@ -555,7 +542,6 @@ void CheckMissingAndUnsatisfiedDependencies() {
 }
 
 void CheckConflictingSelections() {
-  // A constraint accumulated after a selection invalidates it.
   ModuleCatalog Catalog;
   std::vector<ModuleDependency> AppDependencies;
   AppDependencies.push_back(Dependency("studio.math", {">=1.0.0"}));
@@ -585,7 +571,6 @@ void CheckConflictingSelections() {
   Check(Conflict.Diagnostic.Detail.find("==1.0.0") != std::string::npos,
         "the conflict diagnostic names the unsatisfied constraint");
 
-  // An already loaded module pins its version for every later load.
   ModuleCatalog Pinned;
   std::vector<ModuleDependency> Requires;
   Requires.push_back(Dependency("studio.math", {">=2.0.0"}));
@@ -607,7 +592,6 @@ void CheckConflictingSelections() {
             "studio.app@1.0.0 -> studio.math@1.0.0",
         "the loaded-version conflict carries the canonical path");
 
-  // A compatible loaded version is reused instead of selecting a newer one.
   ModuleCatalog Compatible;
   std::vector<ModuleDependency> Flexible;
   Flexible.push_back(Dependency("studio.math", {">=1.0.0"}));
@@ -671,7 +655,6 @@ void CheckLoadOnceRules() {
   Check(Registry.Count() == 1 && Registry.IsLoaded("studio.physics"),
         "the registry retains the loaded module");
 
-  // The same identity, version, and normalized definition is idempotent.
   std::vector<ModuleExport> RepeatedExports;
   RepeatedExports.push_back(
       Exported("Studio.Simulate", SymbolKind::OverloadSet));
@@ -686,7 +669,6 @@ void CheckLoadOnceRules() {
   Check(!Registry.Record(Repeated), "an idempotent load records nothing new");
   Check(Registry.Count() == 1, "an idempotent load leaves the registry intact");
 
-  // A same-version unequal definition conflicts.
   const ModuleManifest Changed = Manifest(
       "studio.physics", "1.0.0", {},
       {Exported("Studio.Step", SymbolKind::OverloadSet)}, "physics bindings");
@@ -697,7 +679,6 @@ void CheckLoadOnceRules() {
   Check(!Registry.Record(Changed) && Registry.Count() == 1,
         "a conflicting definition never replaces the loaded module");
 
-  // Any different version conflicts in the load-only milestone.
   const ModuleManifest Newer =
       Manifest("studio.physics", "1.1.0", {},
                {Exported("Studio.Simulate", SymbolKind::OverloadSet)},

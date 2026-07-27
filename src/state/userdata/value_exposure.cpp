@@ -32,7 +32,6 @@
 namespace Luna::Detail {
 namespace {
 
-// Luna's own registry slot naming one State's exposure context.
 constexpr const char *ExposureContextSlot = "Luna.UserdataExposureContext";
 
 [[nodiscard]] ClassExposureResult
@@ -63,9 +62,6 @@ StatusFor(UserdataCacheDecision Decision) noexcept {
   return ClassExposureStatus::UnavailableRequest;
 }
 
-// The header of one block Luna just wrote. It repeats the layout question
-// instead of trusting the write, so nothing but a canonical Luna block is ever
-// published.
 [[nodiscard]] UserdataHeader *WrittenHeaderOf(void *Block,
                                               std::size_t ByteCount) noexcept {
   if (InspectUserdataHeader(Block, ByteCount) == nullptr)
@@ -73,7 +69,6 @@ StatusFor(UserdataCacheDecision Decision) noexcept {
   return static_cast<UserdataHeader *>(Block);
 }
 
-// The ownership statement of one intent, in the shape the release gate takes.
 [[nodiscard]] OwnershipRequest RequestFrom(const ClassExposureIntent &Intent) {
   OwnershipRequest Request;
   if (Intent.Ownership == OwnershipModel::Borrowed)
@@ -83,9 +78,6 @@ StatusFor(UserdataCacheDecision Decision) noexcept {
   return Request;
 }
 
-// Everything one protected write needs. The staged value is complete before the
-// protected call starts, so nothing about the exposure depends on what happens
-// inside it.
 struct WritePayload final {
   const std::vector<std::string> *Segments = nullptr;
   const TypeGeneration *Types = nullptr;
@@ -106,8 +98,6 @@ struct WritePayload final {
     return 0;
   }
 
-  // The value is written exactly where a returned value would be, through the
-  // canonical class conversion of the captured generation.
   *Payload->Written = WriteStructuredValue(*Payload->Types, State,
                                            *Payload->Type, *Payload->Staged);
   Payload->Attempted = true;
@@ -178,16 +168,10 @@ ClassExposureResult PushExposedClassValue(lua_State *State,
                               Registered.ClassSymbol))
     return Refuse(ClassExposureStatus::UnavailableRequest);
 
-  // An object that does not exist yet is exactly what a construction is: the
-  // protocol in the intent creates it, and from the allocation step on this
-  // path owns every milestone of that object.
   const bool Creates = DeclaresObjectConstruction(Intent);
   if (Intent.Storage == nullptr && !Creates)
     return Refuse(ClassExposureStatus::NullStorage);
 
-  // A borrowed value declares its lifetime or it is not exposed at all. Both
-  // questions are asked here, before anything exists, and both are asked again
-  // by ownership establishment against the record it creates.
   if (Intent.Ownership == OwnershipModel::Borrowed) {
     if (!Intent.Handle.IsDeclared())
       return Refuse(ClassExposureStatus::UnestablishedOwnership,
@@ -208,10 +192,6 @@ ClassExposureResult PushExposedClassValue(lua_State *State,
   Wanted.Access = Intent.Access;
   Wanted.DispatchGeneration = Context.DispatchGeneration;
 
-  // The cache decides before anything is created: an incompatible re-exposure
-  // is refused here, so it can never produce a second owner of one object. An
-  // object being constructed has nothing to look up, because it does not exist
-  // yet and therefore cannot already be exposed.
   UserdataCacheLookup Decided;
   if (!Creates) {
     Decided = Context.Cache->Evaluate(Wanted);
@@ -222,15 +202,11 @@ ClassExposureResult PushExposedClassValue(lua_State *State,
   if (!lua_checkstack(State, 8))
     return Refuse(ClassExposureStatus::StackCapacityFailure);
 
-  // A value written here is read back through exactly the ordinary access gate,
-  // so the access context that gate resolves is published before the value is.
   if (!PublishUserdataAccessContext(State, Context.Access))
     return Refuse(ClassExposureStatus::ProtectedFailure);
   if (Intent.Ownership == OwnershipModel::Borrowed)
     Context.Access->HandleProbe = &ObserveLifetimeHandleGeneration;
 
-  // A live value is handed back as itself. No nonce is spent, no record is
-  // created, and no second owner exists.
   if (Decided.PermitsReuse()) {
     if (PushCachedUserdataValue(State, Intent.Storage)) {
       ClassExposureResult Result;
@@ -239,14 +215,9 @@ ClassExposureResult PushExposedClassValue(lua_State *State,
       return Result;
     }
 
-    // The virtual machine collected the value the cache recorded, so the stale
-    // record is dropped and one new value is created instead.
     static_cast<void>(Context.Cache->Forget(Decided.Entry->Identity));
   }
 
-  // The semantic allocation step, and the first milestone of a constructed
-  // value. An allocation that produced nothing needs no cleanup call at all, so
-  // a refusal here releases nothing.
   void *Storage = Intent.Storage;
   if (Creates) {
     const StorageAllocationOutcome Allocated =
@@ -276,19 +247,11 @@ ClassExposureResult PushExposedClassValue(lua_State *State,
 
   const OwnershipOutcome Staging = Context.Ownership->Stage(Prepared, Staged);
   if (!Staging.Succeeded) {
-    // Storage this path allocated and never staged is given straight back: no
-    // record describes it, so no release gate could.
     if (Creates)
       Context.Ownership->DiscardStorage(Intent.Allocator, Storage);
     return Refuse(ClassExposureStatus::UnestablishedOwnership, Staging.Failure);
   }
 
-  // Either Luna constructs the object now, inside the gate that owns its
-  // cleanup, or the object is already alive because whoever built it did so
-  // before asking for a value. Both paths end with known-constructed storage,
-  // so from here on release destroys a constructed object rather than raw
-  // storage, and a construction that refused or threw gives the storage back
-  // without destroying anything.
   const OwnershipOutcome Constructed =
       Creates ? Context.Ownership->Construct(Prepared, Intent.Construct)
               : Context.Ownership->Construct(Prepared);
@@ -308,13 +271,9 @@ ClassExposureResult PushExposedClassValue(lua_State *State,
                   Established.Failure);
   }
 
-  // From here on every failure is a publication failure, and every publication
-  // failure releases exactly what the steps above established.
   const int EntryDepth = lua_gettop(State);
   ClassExposureStatus Failed = ClassExposureStatus::ProtectedFailure;
   try {
-    // The block carries Luna's own userdata tag, which is what routes its
-    // collection into the one release gate.
     void *Block =
         lua_newuserdatatagged(State, sizeof(UserdataHeader), TypedUserdataTag);
     if (Block != nullptr) {
@@ -343,9 +302,6 @@ ClassExposureResult PushExposedClassValue(lua_State *State,
         if (Written != nullptr && Context.Cache->Record(Recorded)) {
           StoreCachedUserdataValue(State, Storage, ValueIndex);
 
-          // The value becomes published - the one state that permits native
-          // access - only once its ownership, its metatable, and its cache
-          // entry are all in place.
           const OwnershipOutcome Published =
               Context.Ownership->Publish(*Written);
           if (Published.Succeeded) {
@@ -394,11 +350,6 @@ WriteExposedClassValue(lua_State *State, const TypeGeneration &Types,
 
   const TypeDescriptor Type = TypeDescriptor::ForClass(Key);
 
-  // The intent is read before it is handed over, never in the same expression:
-  // the staged value takes ownership of it, so nothing may still be reaching
-  // through it by then. A constructing intent names no object yet - its storage
-  // does not exist until its allocation step runs - and the staged value
-  // carries the statement rather than the address in that case.
   void *const Exposed = Intent->Storage;
   const bool PermitsMutation = Intent->Access == ConstAccess::Mutable;
   const StructuredValue Staged = StructuredValue::ExposedHandle(

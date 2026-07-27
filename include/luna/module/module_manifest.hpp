@@ -1,13 +1,5 @@
 #pragma once
 
-// Immutable load-once module manifests. A manifest is a Luna-owned value: a
-// validated stable module identity, one parsed semantic version, normalized
-// dependency constraints, documentation, and normalized exported symbol
-// metadata. Versions and constraints are parsed once into structural records,
-// so resolution never reparses text and never depends on registration order,
-// locale, or unordered-container iteration. Nothing here refers to a State, a
-// virtual machine, a stack index, or a native target.
-
 // clang-format off
 #include <luna/reflection/ids.hpp>
 
@@ -22,7 +14,6 @@
 
 namespace Luna {
 
-// Deterministic reason one semantic-version text is accepted or rejected.
 enum class SemanticVersionStatus {
   Valid,
   Empty,
@@ -40,18 +31,10 @@ enum class SemanticVersionStatus {
 [[nodiscard]] std::string_view
 SemanticVersionStatusText(SemanticVersionStatus Status) noexcept;
 
-// One parsed semantic version. Precedence follows the standard rules: the core
-// triple compares numerically, a prerelease sorts below its release, numeric
-// prerelease identifiers compare numerically, alphanumeric identifiers compare
-// lexically by ASCII, a larger identifier set sorts above a shorter prefix, and
-// build metadata never participates in precedence.
 class SemanticVersion {
 public:
-  // Explicit Luna-owned policy bound on one version text.
   static constexpr std::size_t MaximumLength = 256;
 
-  // A default-constructed version is the reserved unspecified value: it has no
-  // precedence and never satisfies a constraint.
   SemanticVersion() = default;
 
   [[nodiscard]] static SemanticVersionStatus Classify(std::string_view Text);
@@ -82,21 +65,15 @@ public:
     return !PrereleaseValues.empty();
   }
 
-  // Canonical text of this version, including build metadata when present.
   [[nodiscard]] std::string ToString() const;
 
   [[nodiscard]] std::size_t Hash() const;
 
-  // Standard semantic-version precedence. Build metadata is ignored, so two
-  // versions differing only in build metadata compare equal here.
   [[nodiscard]] static std::strong_ordering
   ComparePrecedence(const SemanticVersion &Left, const SemanticVersion &Right);
 
   [[nodiscard]] bool HasSamePrecedence(const SemanticVersion &Other) const;
 
-  // Exact value equality, including build metadata. Manifest identity uses
-  // exact equality so a rebuilt definition is never mistaken for the loaded
-  // one, while resolution uses precedence.
   friend bool operator==(const SemanticVersion &Left,
                          const SemanticVersion &Right);
 
@@ -109,7 +86,6 @@ private:
   std::vector<std::string> BuildValues;
 };
 
-// Comparison one dependency constraint applies to a candidate version.
 enum class VersionComparator {
   Equal,
   NotEqual,
@@ -122,7 +98,6 @@ enum class VersionComparator {
 [[nodiscard]] std::string_view
 VersionComparatorText(VersionComparator Comparator) noexcept;
 
-// Deterministic reason one constraint text is accepted or rejected.
 enum class VersionConstraintStatus {
   Valid,
   Empty,
@@ -134,15 +109,11 @@ enum class VersionConstraintStatus {
 [[nodiscard]] std::string_view
 VersionConstraintStatusText(VersionConstraintStatus Status) noexcept;
 
-// One parsed dependency constraint. Satisfaction is evaluated with standard
-// precedence, so a prerelease candidate is compared by its prerelease rules
-// rather than by text.
 class VersionConstraint {
 public:
   static constexpr std::size_t MaximumLength =
       SemanticVersion::MaximumLength + 2;
 
-  // A default-constructed constraint is unspecified and satisfies nothing.
   VersionConstraint() = default;
 
   [[nodiscard]] static VersionConstraint Create(VersionComparator Comparator,
@@ -180,14 +151,10 @@ private:
   SemanticVersion VersionValue;
 };
 
-// Canonical constraint order: comparator, version precedence, then exact
-// version text as the final stable key.
 [[nodiscard]] std::strong_ordering
 CompareConstraint(const VersionConstraint &Left,
                   const VersionConstraint &Right);
 
-// One declared dependency: the stable identity of the required module and every
-// constraint the requiring manifest places on it.
 struct ModuleDependency final {
   std::string Identity;
   std::vector<VersionConstraint> Constraints;
@@ -196,8 +163,6 @@ struct ModuleDependency final {
 [[nodiscard]] bool operator==(const ModuleDependency &Left,
                               const ModuleDependency &Right);
 
-// One exported symbol a module publishes. Names are canonical dot-separated
-// qualified names and never carry an availability flag or a native target.
 struct ModuleExport final {
   SymbolKind Kind = SymbolKind::Namespace;
   std::string Name;
@@ -207,11 +172,9 @@ struct ModuleExport final {
 [[nodiscard]] bool operator==(const ModuleExport &Left,
                               const ModuleExport &Right);
 
-// Canonical export order: qualified name, then symbol kind.
 [[nodiscard]] std::strong_ordering CompareExport(const ModuleExport &Left,
                                                  const ModuleExport &Right);
 
-// Deterministic reason one manifest is accepted or rejected.
 enum class ModuleManifestStatus {
   Valid,
   EmptyIdentity,
@@ -229,17 +192,11 @@ enum class ModuleManifestStatus {
 [[nodiscard]] std::string_view
 ModuleManifestStatusText(ModuleManifestStatus Status) noexcept;
 
-// One immutable module manifest. `Create` validates every field and normalizes
-// the accepted result: dependencies are merged by identity and sorted, every
-// constraint list is canonically ordered and deduplicated, and exports are
-// canonically ordered. Two manifests describing the same definition therefore
-// compare equal regardless of the order their author declared them in.
 class ModuleManifest {
 public:
   static constexpr std::size_t MaximumIdentityLength = 256;
   static constexpr char IdentitySeparator = '.';
 
-  // A default-constructed manifest is unspecified and never valid.
   ModuleManifest() = default;
 
   [[nodiscard]] static ModuleManifestStatus
@@ -284,7 +241,6 @@ public:
     return ExportValues;
   }
 
-  // Canonical `Identity@Version` text used by module keys and dependency paths.
   [[nodiscard]] std::string Key() const;
 
   [[nodiscard]] const ModuleDependency *
@@ -292,8 +248,6 @@ public:
 
   [[nodiscard]] std::size_t Hash() const;
 
-  // Equality of the normalized definition. Load-once idempotence accepts a
-  // repeated registration only when this comparison holds.
   friend bool operator==(const ModuleManifest &Left,
                          const ModuleManifest &Right);
 
@@ -306,8 +260,6 @@ private:
   std::vector<ModuleExport> ExportValues;
 };
 
-// Canonical module order: stable identity, then version precedence, then exact
-// version text.
 [[nodiscard]] std::strong_ordering CompareManifest(const ModuleManifest &Left,
                                                    const ModuleManifest &Right);
 

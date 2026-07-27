@@ -6,4 +6,4 @@ namespace Luna::Detail {
 
 [[nodiscard]] int NativeTrampoline(lua_State *State);
 
-} // namespace Luna::Detail
+}

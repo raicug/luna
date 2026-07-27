@@ -1,17 +1,5 @@
 #pragma once
 
-// The canonical constant boundary. `RegisterConstant` accepts a C++ value and
-// must describe it the way every other Luna declaration is described: as one
-// canonical type plus one staged value. That normalization happens here, in the
-// consumer's translation unit, so the registration backend never needs the
-// consumer's type and no Luau type is ever involved.
-//
-// A request is deliberately explicit about refusal. An unsupported C++ type, a
-// user-defined leaf without its validated stable key, and a value outside the
-// canonical integer domain each produce a request that carries the reason
-// instead of a guessed conversion, and registration turns that reason into one
-// deterministic diagnostic.
-
 // clang-format off
 #include <luna/binding/value.hpp>
 #include <luna/type/stable_type_key.hpp>
@@ -27,11 +15,6 @@
 
 namespace Luna::Detail {
 
-// Why one constant value is accepted or refused before it reaches Luna.
-// `UnsupportedType` means the C++ type has no canonical Luna type today,
-// `MissingStableKey` that a user-defined leaf such as an enumeration needs its
-// explicit validated stable key, and `OutOfRange` that the value does not fit
-// the canonical integer domain Luna converts a constant through.
 enum class ConstantValueStatus {
   Supported,
   UnsupportedType,
@@ -54,17 +37,11 @@ ConstantValueStatusText(ConstantValueStatus Status) noexcept {
   return "unsupported-type";
 }
 
-// One normalized constant declaration: the canonical type the value is
-// reflected and converted as, and the staged value itself. An enumeration
-// constant keeps the enumeration's canonical type, so it never degrades into an
-// untyped integer.
 struct ConstantRequest final {
   ConstantValueStatus Status = ConstantValueStatus::UnsupportedType;
   TypeDescriptor Type;
   Value Constant;
 
-  // The value an out-of-range refusal received, reported verbatim by the
-  // diagnostic so nothing about the refusal is guessed.
   std::int64_t ReceivedInteger = 0;
 
   [[nodiscard]] bool IsSupported() const noexcept {
@@ -72,7 +49,6 @@ struct ConstantRequest final {
   }
 };
 
-// One refusal, carrying no type and no value.
 [[nodiscard]] inline ConstantRequest
 RefuseConstant(ConstantValueStatus Status, std::int64_t Received = 0) noexcept {
   ConstantRequest Request;
@@ -91,10 +67,6 @@ RefuseConstant(ConstantValueStatus Status, std::int64_t Received = 0) noexcept {
   return Request;
 }
 
-// The canonical integer domain Luna converts a constant through. It is the
-// intersection of the exact-integer range of the Luau number representation and
-// the signed 32-bit domain the canonical integer type describes, so no value is
-// ever narrowed, wrapped, or rounded on its way in.
 [[nodiscard]] constexpr bool
 FitsCanonicalInteger(std::int64_t Candidate) noexcept {
   constexpr std::int64_t Lowest =
@@ -104,9 +76,6 @@ FitsCanonicalInteger(std::int64_t Candidate) noexcept {
   return Candidate >= Lowest && Candidate <= Highest;
 }
 
-// Normalizes one C++ constant into its canonical type and staged value. A
-// user-defined leaf consumes the supplied stable key; every fixed leaf ignores
-// it.
 template <class ValueType>
 [[nodiscard]] ConstantRequest MakeConstantRequest(ValueType &&Constant,
                                                   StableTypeKey Key = {}) {

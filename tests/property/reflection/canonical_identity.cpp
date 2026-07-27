@@ -32,7 +32,6 @@ using Luna::Detail::SymbolDescriptor;
 using Luna::Detail::SymbolIdentityRegistry;
 using Luna::Detail::TypeIdentityRegistry;
 
-// Reserved Luna-owned leaves used by generated descriptors.
 constexpr std::array FixedKeyChoices{
     Luna::FixedTypeKey::Void,       Luna::FixedTypeKey::Boolean,
     Luna::FixedTypeKey::Int32,      Luna::FixedTypeKey::Float,
@@ -67,9 +66,6 @@ constexpr std::array<std::string_view, 3> ModuleVersionTexts{"1.0.0", "1.2.0",
 constexpr std::array<std::string_view, 3> EnumeratorTexts{"Red", "Green",
                                                           "Blue"};
 
-// Deterministic byte source. Two cursors over equal bytes always drive equal
-// construction decisions, so an equivalent descriptor can be rebuilt
-// independently without sharing any object.
 class ByteCursor final {
 public:
   explicit ByteCursor(std::span<const std::uint8_t> Bytes) noexcept
@@ -207,9 +203,6 @@ MakeSymbol(ByteCursor &Cursor, const std::vector<Luna::SymbolId> &Parents) {
   }
 }
 
-// Independent canonical-descriptor model. It renders a descriptor with
-// explicit lengths using only Luna-owned accessors, deliberately sharing no
-// code with the production encoder or digest.
 void AppendUnsigned(std::string &Text, std::uint64_t Value) {
   Text.append(std::to_string(Value));
   Text.push_back(';');
@@ -306,8 +299,6 @@ MakePermutation(std::size_t Count, std::span<const std::uint8_t> Bytes) {
   return Distinct.size();
 }
 
-// Hash-container storage in one insertion order, read back in canonical order
-// so container iteration order can never influence the comparison.
 template <class Identity>
 [[nodiscard]] std::vector<std::string>
 HashOrderedModelKeys(const std::vector<Identity> &Identities,
@@ -328,9 +319,6 @@ HashOrderedModelKeys(const std::vector<Identity> &Identities,
 
 namespace {
 
-// Equal descriptors resolve one identity in every registry, in every insertion
-// order, and in every hash-container order; unequal descriptors never share
-// one identity. The model decides equivalence independently.
 [[nodiscard]] std::vector<Luna::TypeId>
 VerifyTypeResolution(const std::vector<Luna::TypeDescriptor> &Types,
                      std::span<const std::uint8_t> PermutationBytes) {
@@ -449,9 +437,6 @@ VerifySymbolResolution(const std::vector<SymbolDescriptor> &Symbols,
   return ForwardIdentities;
 }
 
-// Identities never depend on live State objects, executions, or process-local
-// storage: the same descriptors resolve identically while two States run and
-// after both are destroyed.
 void VerifyStateAndExecutionIndependence(
     const std::vector<Luna::TypeDescriptor> &Types,
     const std::vector<Luna::TypeId> &ExpectedTypes,
@@ -503,10 +488,6 @@ void VerifyStateAndExecutionIndependence(
   }
 }
 
-// An injected digest collision between unequal descriptors is rejected with a
-// deterministic Internal diagnostic; no order-dependent fallback identity is
-// ever assigned, and equal descriptors stay idempotent under one forced
-// identity.
 void VerifyTypeCollisionRejection(const Luna::TypeDescriptor &First,
                                   const Luna::TypeDescriptor &Equivalent) {
   RC_ASSERT(First == Equivalent);
@@ -596,9 +577,6 @@ struct ModelWidget {
   int Field = 0;
 };
 
-// Normalization removes references and top-level cv-qualification while
-// pointer depth, pointee qualification, and leaf identity remain
-// identity-relevant.
 void VerifyNormalizationEquivalence() {
   const std::vector<Luna::StableTypeKey> WidgetKeys{
       Luna::StableTypeKey("studio.ui.Widget")};
@@ -653,7 +631,6 @@ void VerifyNormalizationEquivalence() {
 } // namespace
 
 int RunStableCanonicalIdentityProperties() {
-  // **Validates: Requirements 2.1, 2.2, 2.3, 2.4, 2.5, 2.6**
   // clang-format off
   // Feature: reflection-driven-binding-system, Property 18: Stable type and symbol identities follow canonical descriptors
   const bool Passed = rc::check(
@@ -662,9 +639,6 @@ int RunStableCanonicalIdentityProperties() {
       [](const std::vector<std::uint8_t> &TypeShape,
          const std::vector<std::uint8_t> &SymbolShape,
          const std::vector<std::uint8_t> &PermutationShape) {
-        // Descriptor seeds. Each seed is built twice through independent
-        // cursors, so an equivalent descriptor never shares any object with
-        // its counterpart.
         const std::size_t SeedCount = 1U + TypeShape.size() % 4U;
         std::vector<std::span<const std::uint8_t>> Seeds;
         Seeds.reserve(SeedCount);
@@ -687,7 +661,6 @@ int RunStableCanonicalIdentityProperties() {
         const std::vector<Luna::TypeId> TypeIdentities =
             VerifyTypeResolution(Types, PermutationShape);
 
-        // Parent scopes are canonical identities, never registration indices.
         std::vector<Luna::SymbolId> Parents{Luna::SymbolId()};
         for (const std::string_view Name : {"Studio", "engine.core"}) {
           const auto Parent = SymbolIdentityRegistry::ComputeIdentity(

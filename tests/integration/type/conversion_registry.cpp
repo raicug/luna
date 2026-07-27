@@ -1,22 +1,3 @@
-// Integration coverage of the canonical conversion registry through the real
-// Luau compiler and virtual machine.
-//
-// Every read and write here goes through a real registered callable and real
-// Luau tables: arguments are indexed out of script-created tables, returns are
-// stored back into script-created tables, and each failure family is driven
-// from script source rather than through a private conversion hook. After every
-// attempt the same invariants are checked: one deterministic diagnostic, the
-// exact root stack depth, the exact callback checkpoint (so a failure exposes
-// one error value and zero return values), the native target invoked at most
-// once, and a State that still converts, registers, and executes afterwards.
-//
-// Structural parameters and returns - sequences, maps, tuples, packs - are not
-// reachable from a registered callable yet: the trampoline still validates
-// through the pinned `ValueKind` callable metadata, and richer signatures
-// arrive with the parameter and return milestones (tasks 9.4 and 9.5). Their
-// reads and writes are exercised against real Luau tables through the private
-// structural hooks in the focused suites until then.
-
 // clang-format off
 #include <luna/luna.hpp>
 
@@ -89,8 +70,6 @@ void ResetCalls() {
          Owner.Bindings().Register("Silent", &Silent).IsSuccess();
 }
 
-// One representative pass that reads every argument out of a real Luau table
-// and writes every return back into another one.
 constexpr std::string_view RoundTripSource =
     "local Source = { Count = 20, Name = 'luna', Ratio = 0.5, Flag = true }\n"
     "local Results = {}\n"
@@ -120,9 +99,6 @@ HasFragments(const Luna::ErrorDiagnostic *Diagnostic,
   return true;
 }
 
-// The callback checkpoint a failed conversion must restore exactly: the stack
-// returns to its entry depth and carries only the one error value the failure
-// reports, so no partial return value survives.
 [[nodiscard]] bool RestoredCallbackCheckpoint(const Luna::State &Owner) {
   const auto Observation = Hooks::ObserveLastCallbackStackRestoration(Owner);
   return Observation.has_value() &&
@@ -147,7 +123,6 @@ void CheckRepresentativeReadsAndWrites() {
   Check(Hooks::ObserveRootStackDepth(Owner) == EntryDepth,
         "a successful pass restores the exact root stack depth");
 
-  // Repeating the pass keeps converting through the same captured generation.
   Check(Owner.Execute(RoundTripSource).IsSuccess() && EchoCalls == 2 &&
             SumCalls == 2,
         "the registry keeps converting on every later invocation");
@@ -158,8 +133,6 @@ void CheckDeterministicFailuresAndRecovery() {
   Check(Owner.IsReady() && RegisterConverters(Owner),
         "every foundation converter registers before the failure matrix");
 
-  // Each case names one representation the registry must refuse, sourced from a
-  // real Luau table wherever a table can carry it.
   const struct FailureCase final {
     std::string_view Description;
     std::string_view Source;
@@ -207,7 +180,6 @@ void CheckDeterministicFailuresAndRecovery() {
     Check(RestoredCallbackCheckpoint(Owner),
           "a refused conversion restores the exact callback checkpoint");
 
-    // The same diagnostic every time, and the State converts again right after.
     const auto Repeated = Owner.Execute(Case.Source);
     Check(!Repeated.IsSuccess() && Repeated.Diagnostic() != nullptr &&
               Failed.Diagnostic() != nullptr &&
@@ -223,8 +195,6 @@ void CheckDeterministicFailuresAndRecovery() {
           "recovery leaves the root stack at its entry depth");
   }
 
-  // The State is still an ordinary State: it registers and invokes new
-  // callables after the whole failure matrix.
   Check(Owner.Bindings()
             .Register(
                 "Triple", +[](int Value) { return Value * 3; })
@@ -242,8 +212,6 @@ void CheckReturnReservationFaults() {
 
   const auto EntryDepth = Hooks::ObserveRootStackDepth(Owner);
 
-  // A writer that cannot reserve the resources its publication needs refuses
-  // before publishing anything, after the native target has run exactly once.
   Hooks::InjectFault(Owner, FaultPoint::ReturnStackCapacity);
   const auto Unreserved = Owner.Execute("return Echo('luna')");
   Check(!Unreserved.IsSuccess() && HasFragments(Unreserved.Diagnostic(),
@@ -260,8 +228,6 @@ void CheckReturnReservationFaults() {
   Check(Hooks::PendingFaults(Owner, FaultPoint::ReturnStackCapacity) == 0,
         "the injected reservation fault is consumed exactly once");
 
-  // What the script observes is zero return values and one error, never a
-  // partially published result.
   ResetCalls();
   Hooks::InjectFault(Owner, FaultPoint::ReturnStackCapacity);
   const auto Observed = Owner.Execute(
@@ -275,8 +241,6 @@ void CheckReturnReservationFaults() {
   Check(EchoCalls == 1,
         "the refused publication invoked the native target exactly once");
 
-  // A publication failure after the value was written is contained the same
-  // way, and the State keeps converting afterwards.
   ResetCalls();
   Hooks::InjectFault(Owner, FaultPoint::ReturnWrite);
   const auto Unwritten = Owner.Execute("return Sum(1, 2)");
@@ -304,8 +268,6 @@ void CheckInheritedStringPolicyThroughCallables() {
 
   const auto EntryDepth = Hooks::ObserveRootStackDepth(Owner);
 
-  // The inherited per-string policy applies to a real Luau string in both
-  // directions: a string of exactly the permitted size round-trips.
   const auto AtLimit =
       Owner.Execute("local Source = { Text = string.rep('a', 1048576) }\n"
                     "assert(#Echo(Source.Text) == 1048576)\n"

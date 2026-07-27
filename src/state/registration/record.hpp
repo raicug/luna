@@ -1,20 +1,5 @@
 #pragma once
 
-// One installed callable path and the overload set behind it.
-//
-// A binding record owns every candidate that shares one canonical qualified
-// name. One candidate is one erased native target plus the canonical signature
-// and candidate `SymbolId` its declaration derived, so the record is exactly
-// the dispatch-side view of one reflected overload set.
-//
-// Candidate order is canonical - encoded signature first, candidate `SymbolId`
-// last - and never registration order, so two States that registered the same
-// candidates in different orders resolve calls through one identical sequence.
-//
-// A staged candidate belongs to an open transaction. It is invisible to
-// dispatch until publication commits it, which is what keeps pending work out
-// of every ordinary invocation while the transaction is still open.
-
 // clang-format off
 #include <luna/binding/callable_descriptor.hpp>
 #include <luna/reflection/ids.hpp>
@@ -35,14 +20,11 @@ namespace Luna::Detail {
 
 class FaultInjector;
 
-// One candidate of one overload set.
 struct OverloadCandidate final {
   ErasedCallableDescriptor Descriptor;
   CallableSignatureDescriptor Signature;
   SymbolId Identity;
 
-  // The candidate belongs to the committed generation. A staged candidate is
-  // still owned by an open transaction and no invocation may reach it.
   bool IsCommitted = false;
 
   OverloadCandidate(ErasedCallableDescriptor DescriptorValue,
@@ -52,9 +34,6 @@ struct OverloadCandidate final {
         Signature(std::move(SignatureValue)), Identity(IdentityValue) {}
 };
 
-// Canonical order of two candidates: the encoded canonical signature first, the
-// candidate identity as the final stable key. Registration order never
-// participates.
 [[nodiscard]] inline bool
 OverloadCandidatePrecedes(const OverloadCandidate &Left,
                           const OverloadCandidate &Right) {
@@ -86,8 +65,6 @@ public:
     return GlobalNameStorage;
   }
 
-  // The record holds at least one candidate the committed generation published,
-  // so the callable is reachable from the virtual machine.
   [[nodiscard]] bool IsCommitted() const noexcept {
     for (const auto &Candidate : Candidates) {
       if (Candidate && Candidate->IsCommitted)
@@ -126,9 +103,6 @@ public:
     return Index < Candidates.size() ? Candidates[Index].get() : nullptr;
   }
 
-  // The canonically first committed candidate. A single-candidate set resolves
-  // to exactly the one declaration that installed the path, which is what keeps
-  // one-candidate invocation behavior unchanged.
   [[nodiscard]] OverloadCandidate *PrimaryCandidate() noexcept {
     for (auto &Candidate : Candidates) {
       if (Candidate && Candidate->IsCommitted)
@@ -147,28 +121,16 @@ public:
 
   [[nodiscard]] FaultInjector *Faults() const noexcept { return FaultsStorage; }
 
-  // The permanent dispatch slot of this canonical callable path. It is the only
-  // thing the installed closure of the path carries, and it stays the same for
-  // the whole life of its State.
   [[nodiscard]] DispatchSlotId Slot() const noexcept { return SlotStorage; }
 
-  // The dispatch indirection this record's slot belongs to. It is owned by the
-  // State's callable store and outlives both the record and the virtual
-  // machine, so a closure resolves through it rather than through any record.
   [[nodiscard]] DispatchTable *Dispatch() const noexcept {
     return DispatchStorage;
   }
 
-  // The canonical type source this path's invocations capture at entry. The
-  // dispatch generation carries it too, so a retained generation is enough to
-  // run one call to completion.
   [[nodiscard]] const TypeGenerationSource *Types() const noexcept {
     return TypesStorage;
   }
 
-  // One invocation captures the current immutable type generation exactly once
-  // at entry, so viability, ranking, conversion, and diagnostics stay stable
-  // for the whole call even if a later registration publishes a new generation.
   [[nodiscard]] std::shared_ptr<const TypeGeneration>
   CaptureTypeGeneration() const {
     return TypesStorage ? TypesStorage->Capture() : nullptr;
@@ -185,9 +147,6 @@ private:
     return Candidates.back().get();
   }
 
-  // Publication accepts every candidate the attempt staged, and the whole set
-  // is reordered canonically afterwards so dispatch never observes an order
-  // that depends on when a candidate was registered.
   void CommitStagedCandidates() {
     for (auto &Candidate : Candidates) {
       if (Candidate)
@@ -202,8 +161,6 @@ private:
                      });
   }
 
-  // Restoration discards exactly the candidates the failed attempt staged and
-  // leaves every committed candidate of the set untouched.
   bool DiscardStagedCandidates() noexcept {
     const std::size_t Before = Candidates.size();
     Candidates.erase(std::remove_if(Candidates.begin(), Candidates.end(),

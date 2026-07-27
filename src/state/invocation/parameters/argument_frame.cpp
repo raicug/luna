@@ -10,9 +10,6 @@
 namespace Luna::Detail {
 namespace {
 
-// Every live argument frame of the current thread, keyed by its Luna-owned
-// token. Tokens are issued monotonically and never reused, so an ended frame's
-// token resolves to nothing instead of to some later frame.
 struct ArgumentFrameTable final {
   std::unordered_map<std::uint64_t, ArgumentFrame *> Frames;
   std::uint64_t NextToken = 1;

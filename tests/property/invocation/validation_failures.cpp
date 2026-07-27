@@ -56,9 +56,7 @@ IsProtectedInternalFailure(const Luna::ExecutionResult &Execution) {
 } // namespace
 
 int RunInternalValidationFailureProperties() {
-  // **Validates: Requirements 5.10, 5.11, 5.12**
   // clang-format off
-  // Feature: luau-binding-foundation, Property 11: Internal validation failure never invokes user code
   const bool Passed = rc::check(
       // clang-format on
       "Internal validation failure never invokes user code", [](int Argument) {

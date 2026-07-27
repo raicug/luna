@@ -17,9 +17,6 @@
 namespace Luna::Detail {
 namespace {
 
-// What one installation needs: the permanent dispatch slot the closure will
-// carry and the exact canonical path it is installed at. The record itself
-// never travels into the virtual machine.
 struct InstallationRequest final {
   DispatchSlotId Slot;
   const char *GlobalName = nullptr;
@@ -53,9 +50,6 @@ struct ObservationRequest final {
   return 0;
 }
 
-// The same installation at one exact nested canonical path. The parent table is
-// never created here: a scoped function plans its namespaces as their own
-// declarations, and canonical order installs a parent before its children.
 [[nodiscard]] int InstallScopedClosure(lua_State *State) {
   auto *Request =
       static_cast<InstallationRequest *>(lua_tolightuserdata(State, 1));
@@ -107,8 +101,6 @@ struct ObservationRequest final {
   return 0;
 }
 
-// The protected budget one scoped operation needs: the container chain, the
-// installed closure, and the protected call itself.
 [[nodiscard]] bool ReserveStack(lua_State *State, std::size_t Segments) {
   return lua_checkstack(State, static_cast<int>(Segments) + 8);
 }
@@ -139,9 +131,6 @@ InstallAtRootScope(lua_State *State, BindingRecord &Record,
   return ClosureInstallationStatus::ProtectedFailure;
 }
 
-// A scoped installation does not restore the path itself: the transaction
-// journal captured the exact prior value of this path before installation and
-// restores it in reverse order, exactly as it does for a scoped value.
 [[nodiscard]] ClosureInstallationStatus
 InstallAtScopedPath(lua_State *State, BindingRecord &Record,
                     bool InjectFailure) noexcept {
@@ -173,16 +162,9 @@ ClosureInstallationStatus InstallBindingClosure(lua_State *State,
   if (!Record.Slot().IsValid() || !Record.Dispatch())
     return ClosureInstallationStatus::ProtectedFailure;
 
-  // The machine names this State's dispatch table once, before the first
-  // closure of the State exists. Every closure installed afterwards carries
-  // only its slot, so resolution goes through the table rather than through the
-  // closure payload.
   if (!PublishDispatchTable(State, Record.Dispatch()))
     return ClosureInstallationStatus::StackCapacityFailure;
 
-  // A root-scope global keeps exactly the foundation's installation and
-  // self-rollback behavior; a scoped path installs into the namespace table its
-  // own declaration published.
   if (!IsNestedVmPath(Record.GlobalName()))
     return InstallAtRootScope(State, Record, InjectFailure);
   return InstallAtScopedPath(State, Record, InjectFailure);
@@ -227,8 +209,6 @@ ObserveInstalledBinding(lua_State *State,
   if (!Slot.IsValid())
     return nullptr;
 
-  // The installed path names a slot; the callable behind it is whatever the
-  // current dispatch generation of this machine's State resolves that slot to.
   const DispatchTable *Table = ObserveDispatchTable(State);
   if (!Table)
     return nullptr;

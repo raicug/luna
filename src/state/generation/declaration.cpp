@@ -1,15 +1,3 @@
-// Deterministic Luau `.d.lua` declaration generation. Everything declared here
-// comes from one captured immutable reflection snapshot, traversed in exactly
-// the canonical order the generation published (module provenance, qualified
-// name, symbol kind, declaration signature, stable identity), so the artifact
-// never depends on registration order, addresses, locale, hash iteration,
-// process-random values, or later changes to a live State.
-//
-// Only representable metadata is declared. Metadata Luau cannot declare, a type
-// Luau has no representation for, and metadata that contradicts itself each
-// produce one deterministic rejection carrying no bytes at all, because a
-// guessed declaration is worse than no artifact.
-
 // clang-format off
 #include <luna/generation/declaration.hpp>
 #include <luna/reflection/ids.hpp>
@@ -42,22 +30,15 @@ constexpr std::string_view StrictModeLine = "--!strict";
 constexpr std::string_view CommentPrefix = "-- ";
 constexpr std::string_view IndentStep = "  ";
 
-// Every Luau keyword. A declared name that collides with one could not be
-// spelled in a declaration file at all, so it is refused rather than emitted.
 constexpr std::string_view ReservedWords[] = {
     "and", "break",    "do",     "else", "elseif", "end",   "false",
     "for", "function", "if",     "in",   "local",  "nil",   "not",
     "or",  "repeat",   "return", "then", "true",   "until", "while"};
 
-// The names Luau reserves for its own type syntax. A declaration named by one
-// of them would parse as a type rather than as a member.
 constexpr std::string_view ReservedTypeNames[] = {
     "any",    "boolean", "never",   "nil",     "number",
     "string", "thread",  "unknown", "userdata"};
 
-// Which artifact shape one callable candidate takes. A table field and a class
-// member are different declarations, so a candidate that cannot be classified
-// is refused instead of guessed.
 enum class CallableCategory { Static, Method, Operator, Unknown };
 
 [[nodiscard]] CallableCategory CategoryOf(SymbolKind Kind) noexcept {
@@ -118,8 +99,6 @@ enum class CallableCategory { Static, Method, Operator, Unknown };
   return Text;
 }
 
-// One `.d.lua` generation. The generator owns its writer, so a rejection
-// discards the unpublished buffer and no partial declaration is ever exposed.
 class Generator final {
 public:
   Generator(const ReflectionSnapshot &Snapshot,
@@ -137,8 +116,6 @@ public:
 
 private:
   using IndexList = std::vector<std::size_t>;
-
-  // -- preparation ---------------------------------------------------------
 
   [[nodiscard]] bool Prepare() {
     const ReflectionRecordRange Symbols = SnapshotValue.Symbols();
@@ -170,8 +147,6 @@ private:
     return CheckScopes() && RegisterClassNames();
   }
 
-  // Every declaration names one scope that exists in the same captured
-  // generation and can actually contain it.
   [[nodiscard]] bool CheckScopes() {
     for (const ReflectionRecord &Record : Records) {
       if (Record.Scope().IsRoot()) {
@@ -193,8 +168,6 @@ private:
     return true;
   }
 
-  // Which symbol kinds one container kind may declare. The root scope is
-  // treated as a namespace, because it declares exactly the same categories.
   [[nodiscard]] static bool AcceptsChild(SymbolKind Owner,
                                          SymbolKind Child) noexcept {
     switch (Child) {
@@ -225,10 +198,6 @@ private:
     return false;
   }
 
-  // The Luau type name of every declared class. A qualified name is joined by
-  // underscores because a Luau class type is one identifier, and two classes
-  // that would claim the same identifier are a contradiction rather than a
-  // choice the generator gets to make.
   [[nodiscard]] bool RegisterClassNames() {
     for (const ReflectionRecord &Record : Records) {
       if (Record.Kind() != SymbolKind::Class)
@@ -273,8 +242,6 @@ private:
            Contains(std::span<const std::string_view>(ReservedTypeNames), Text);
   }
 
-  // -- lookups -------------------------------------------------------------
-
   [[nodiscard]] const IndexList &ChildrenOf(const SymbolId &Owner) const {
     static const IndexList Empty;
     const auto Found = ChildrenByScope.find(Owner);
@@ -286,18 +253,12 @@ private:
     return ChildrenOf(Record.Id());
   }
 
-  // -- type mapping --------------------------------------------------------
-
-  // The Luau type of one canonical Luna type. Anything Luau cannot spell in a
-  // value position is refused with the deterministic reason for it.
   [[nodiscard]] bool MapType(const TypeDescriptor &Type,
                              const std::string &Where, std::string &Out) {
     switch (Type.Kind()) {
     case TypeKind::Fixed:
       return MapFixed(Type, Where, Out);
     case TypeKind::Enumeration:
-      // An enumerator is published as its exact integer, so the declared type
-      // of an enumeration value is a number.
       Out = "number";
       return true;
     case TypeKind::Class:
@@ -305,8 +266,6 @@ private:
     case TypeKind::Pointer:
     case TypeKind::SharedOwnership:
     case TypeKind::BorrowedReference: {
-      // Every ownership wrapper and every pointer to a registered class is the
-      // same declared Luau value: the class itself.
       if (Type.ChildCount() != 1)
         return Writer.Refuse(GenerationStatus::InconsistentMetadata, Where);
       const TypeDescriptor &Pointee = Type.Children().front();
@@ -350,8 +309,6 @@ private:
     case TypeKind::Tuple:
     case TypeKind::ArgumentPack:
     case TypeKind::ReturnPack:
-      // An ordered pack is multiple Luau values, so it has no single value type
-      // to declare here; the return shape declares it instead.
       return Writer.Refuse(GenerationStatus::UnsupportedDeclaration, Where);
     case TypeKind::Unsupported:
       break;
@@ -386,7 +343,6 @@ private:
       return true;
     case FixedTypeKey::Void:
     case FixedTypeKey::ValuePack:
-      // Neither publishes one value, so neither is a value type.
       return Writer.Refuse(GenerationStatus::UnsupportedDeclaration, Where);
     }
     return Writer.Refuse(GenerationStatus::UnrepresentableType, Where);
@@ -401,11 +357,6 @@ private:
     return true;
   }
 
-  // -- call shapes ---------------------------------------------------------
-
-  // The declared parameter list of one candidate. `Named` selects the spelling
-  // one `declare function` and one class member use; a function type uses the
-  // unnamed spelling instead.
   [[nodiscard]] bool ParameterList(const ReflectionRecord &Record, bool Named,
                                    std::string_view SelfType,
                                    std::string &Out) {
@@ -425,9 +376,6 @@ private:
           Context(Subject, "parameter " + std::to_string(Index + 1));
       const ParameterDisposition Disposition = Parameter.Disposition();
 
-      // The declared call shape must be one Luau can spell: a required
-      // parameter after an omittable one, or a variadic tail that is not final,
-      // has no correct declaration at all.
       if (SawVariadic)
         return Writer.Refuse(GenerationStatus::InconsistentMetadata, Where);
       const bool Omittable = Disposition == ParameterDisposition::Optional ||
@@ -462,9 +410,6 @@ private:
     return true;
   }
 
-  // The declared return type of one candidate. Zero values are the empty type
-  // list, one value is that value's type, and several are the ordered list a
-  // Luau declaration spells for multiple returns.
   [[nodiscard]] bool ReturnType(const ReflectionRecord &Record,
                                 std::string &Out) {
     const std::string Subject(Record.QualifiedName());
@@ -472,8 +417,6 @@ private:
     const ReturnShape Shape = Record.Returns();
     const std::string Where = Context(Subject, "return shape");
 
-    // The reflected shape and the reflected values must agree; a scalar with no
-    // value, or a single value declared as multiple, is a contradiction.
     const bool Agrees = (Shape == ReturnShape::Zero && Count == 0) ||
                         (Shape == ReturnShape::Scalar && Count == 1) ||
                         (Shape == ReturnShape::Multiple && Count != 1);
@@ -481,8 +424,6 @@ private:
       return Writer.Refuse(GenerationStatus::InconsistentMetadata, Where);
 
     if (Count == 0) {
-      // A pack whose element count each invocation decides publishes an
-      // unbounded value list rather than a fixed one.
       Out = Shape == ReturnShape::Multiple ? "...any" : "()";
       return true;
     }
@@ -504,7 +445,6 @@ private:
     return true;
   }
 
-  // One candidate as a Luau function type.
   [[nodiscard]] bool FunctionType(const ReflectionRecord &Record,
                                   std::string_view SelfType, std::string &Out) {
     std::string Parameters;
@@ -516,8 +456,6 @@ private:
     return true;
   }
 
-  // The candidates of one declaration. An overload set declares its own
-  // candidates; a candidate that belongs to no set is its own only candidate.
   [[nodiscard]] bool Candidates(std::size_t Index, IndexList &Out) {
     const ReflectionRecord &Record = Records[Index];
     if (IsCallableKind(Record.Kind())) {
@@ -535,8 +473,6 @@ private:
     return true;
   }
 
-  // Every candidate of one name shares one artifact shape: a table field, a
-  // class member, or a metamethod, never a mixture of them.
   [[nodiscard]] bool CategoryOfSet(std::size_t Index, const IndexList &Group,
                                    CallableCategory &Out) {
     Out = CategoryOf(Records[Group.front()].Kind());
@@ -549,8 +485,6 @@ private:
     return true;
   }
 
-  // The declared type of one overload set: one function type, or the
-  // intersection Luau spells for several.
   [[nodiscard]] bool OverloadType(const IndexList &Group,
                                   std::string_view SelfType, std::string &Out) {
     if (Group.size() == 1)
@@ -578,8 +512,6 @@ private:
   std::map<std::string, std::string> ClassNames;
   std::map<std::string, std::string> DeclaredNames;
 
-  // -- emission -------------------------------------------------------------
-
   [[nodiscard]] static std::string Indentation(std::size_t Depth) {
     std::string Text;
     for (std::size_t Level = 0; Level < Depth; ++Level)
@@ -587,7 +519,6 @@ private:
     return Text;
   }
 
-  // One declared name, as exactly one Luau identifier.
   [[nodiscard]] bool WriteName(std::string_view Name,
                                const std::string &Where) {
     if (!IsIdentifier(Name) || IsReserved(Name))
@@ -595,9 +526,6 @@ private:
     return Writer.Inline(Name, Where);
   }
 
-  // The prose of one callable name. An overload set carries its own text when a
-  // consumer stated it on the name; otherwise the one candidate of the name
-  // carries it, and several candidates of one name carry no shared prose.
   void WriteCallableDocumentation(std::size_t Index, const IndexList &Group,
                                   std::size_t Depth) {
     const ReflectionRecord &Named = Records[Index];
@@ -617,7 +545,6 @@ private:
                      Context(Record.QualifiedName(), "documentation text")));
   }
 
-  // The module and version one declaration came from, as a trailing comment.
   void WriteProvenance(const ReflectionRecord &Record) {
     if (!OptionsValue.IncludesProvenance() || !Record.HasModule())
       return;
@@ -656,12 +583,7 @@ private:
     Writer.Break();
   }
 
-  // Every declared class as one Luau class type. Class types come first so a
-  // later value declaration can name any of them.
   void WriteClassSection() {
-    // A class is declared only after the base it extends, so no declaration
-    // ever names a class type that does not exist yet. Canonical order decides
-    // everything the base relationships leave open.
     std::vector<std::pair<std::size_t, std::string>> Pending;
     for (std::size_t Index = 0; Index < Records.size(); ++Index) {
       if (Records[Index].Kind() != SymbolKind::Class)
@@ -686,8 +608,6 @@ private:
         Writer.Break();
         Declared.emplace(NameOfClass(Entry.first), Entry.first);
       }
-      // A base relationship that never resolves is a cycle among the captured
-      // classes, and a cycle has no correct declaration order at all.
       if (Deferred.size() == Pending.size()) {
         static_cast<void>(Writer.Refuse(
             GenerationStatus::InconsistentMetadata,
@@ -699,7 +619,6 @@ private:
     }
   }
 
-  // The Luau type name of one declared class record.
   [[nodiscard]] std::string NameOfClass(std::size_t Index) const {
     const auto Named =
         ClassNames.find(std::string(Records[Index].Descriptor().Key().Text()));
@@ -735,9 +654,6 @@ private:
     return true;
   }
 
-  // The one base a Luau class declaration can extend. An inaccessible base is
-  // not part of the declared surface, and more than one reachable base has no
-  // representable declaration at all.
   [[nodiscard]] bool BaseOf(const ReflectionRecord &Record, std::string &Out) {
     const std::string Subject(Record.QualifiedName());
     for (std::size_t Index = 0; Index < Record.RelationCount(); ++Index) {
@@ -775,8 +691,6 @@ private:
                              Context(Subject, "permitted directions"));
       WriteDocumentation(Record, 1);
       Writer.Literal(Indentation(1));
-      // A member Luau may only read, or only write, declares that variance
-      // rather than pretending both directions exist.
       if (Record.IsReadable() != Record.IsWritable())
         Writer.Literal(Record.IsReadable() ? "read " : "write ");
       if (!WriteName(Record.Name(), Context(Subject, "member name")))
@@ -795,8 +709,6 @@ private:
     if (!CategoryOfSet(Index, Group, Category))
       return false;
 
-    // A static member of the class is declared on the class table instead, so
-    // it is written by that table rather than by the class type.
     if (Category == CallableCategory::Static)
       return true;
     if (Category == CallableCategory::Operator)
@@ -829,8 +741,6 @@ private:
       return true;
     }
 
-    // Several candidates of one member name are the intersection of their
-    // declared call shapes, which is how Luau declares an overloaded member.
     std::string Overloads;
     if (!OverloadType(Group, SelfType, Overloads))
       return false;
@@ -860,9 +770,6 @@ private:
     if (Described == nullptr)
       return Writer.Refuse(GenerationStatus::UnsupportedDeclaration, Where);
 
-    // Indexing and assignment stay behind Luna's own reserved dispatch, so
-    // they occupy no declarable metatable field; the artifact records the
-    // behaviour without inventing a declaration for it.
     if (Described->Metamethod.empty()) {
       Writer.Literal(Indentation(1));
       Writer.Literal(CommentPrefix);
@@ -902,7 +809,6 @@ private:
     return true;
   }
 
-  // Every root-scope declaration, in the canonical order of the generation.
   void WriteGlobalSection() {
     for (const std::size_t Index : RootChildren) {
       if (Writer.IsRejected())
@@ -916,9 +822,6 @@ private:
     const ReflectionRecord &Record = Records[Index];
     const std::string Subject(Record.QualifiedName());
 
-    // A module and a canonical type declaration publish no virtual-machine
-    // value, so neither has a Luau declaration; module provenance is already
-    // recorded in the header and on each declaration it contributed.
     if (Record.Kind() == SymbolKind::Module ||
         Record.Kind() == SymbolKind::Type)
       return true;
@@ -1003,7 +906,6 @@ private:
     return true;
   }
 
-  // The entries one container declares as a Luau table type.
   [[nodiscard]] bool TableEntries(std::size_t Index, IndexList &Out) {
     const ReflectionRecord &Record = Records[Index];
     for (const std::size_t Child : ChildrenOf(Record)) {
@@ -1021,8 +923,6 @@ private:
         CallableCategory Category = CallableCategory::Unknown;
         if (!CategoryOfSet(Child, Group, Category))
           return false;
-        // A class table declares its construction and static candidates; its
-        // instance members and operators belong to the class type instead.
         if (Category == CallableCategory::Static)
           Out.push_back(Child);
         continue;

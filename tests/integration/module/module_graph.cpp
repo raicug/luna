@@ -60,13 +60,11 @@ Manifest(std::string Identity, std::string_view VersionText,
   return Depth ? *Depth : -1;
 }
 
-// The units module: one namespace with one constant and one callable.
 void ConfigureUnits(Luna::NamespaceBuilder &Builder) {
   Luna::NamespaceBuilder Units = Builder.RegisterNamespace("Units");
   static_cast<void>(Units.RegisterConstant("Metre", 1));
 }
 
-// The physics module: its own namespace plus a nested one.
 void ConfigurePhysics(Luna::NamespaceBuilder &Builder) {
   Luna::NamespaceBuilder Physics = Builder.RegisterNamespace("Physics");
   static_cast<void>(Physics.RegisterConstant("Gravity", 10));
@@ -156,7 +154,6 @@ void CheckFailedGraphLeavesTheVirtualMachineUntouched() {
   Check(StackDepth(Owner) == EntryDepth,
         "a failed load restores the exact entry stack depth");
 
-  // The State stays fully usable, including for the same graph.
   Check(Registry
             .RegisterModule(Manifest("studio.physics", "1.0.0",
                                      {Dependency("studio.units", ">=1.0.0")}),
@@ -193,7 +190,6 @@ void CheckModulesStayIsolatedBetweenStates() {
   Check(Second.Execute("assert(Physics == nil)").IsSuccess(),
         "another State observes none of the loaded symbols");
 
-  // The second State cannot resolve a dependency the first one owns.
   const auto Missing = SecondRegistry.RegisterModule(
       Manifest("studio.physics", "1.0.0",
                {Dependency("studio.units", ">=1.0.0")}),

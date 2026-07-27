@@ -73,8 +73,6 @@ ObservedRepresentation(lua_State *State, int StackIndex) noexcept {
   }
 }
 
-// Ranks are compared as ordered categories, so a declared registry category
-// maps straight onto one probe rank.
 [[nodiscard]] constexpr ConversionRank
 DeclaredRank(ConversionRankCategory Category) noexcept {
   switch (Category) {
@@ -88,7 +86,6 @@ DeclaredRank(ConversionRankCategory Category) noexcept {
   return ConversionRank::User;
 }
 
-// The integral domain of one received number, without converting it.
 struct NumberDomain final {
   bool IsFinite = false;
   bool IsIntegral = false;
@@ -112,8 +109,6 @@ struct NumberDomain final {
   return Domain;
 }
 
-// The value-domain half of one probe: everything the representation alone does
-// not already guarantee.
 [[nodiscard]] std::optional<std::string>
 RejectNumberDomain(const TypeRecord &Record, lua_State *State, int StackIndex) {
   const bool WantsInteger = Record.ValueRepresentation.has_value() &&
@@ -146,8 +141,6 @@ RejectStringDomain(const TypeRecord &Record, lua_State *State, int StackIndex) {
   if (!Record.MaximumByteCount)
     return std::nullopt;
 
-  // The value is already a string, so reading its length converts nothing and
-  // leaves the stack untouched.
   std::size_t Length = 0;
   static_cast<void>(lua_tolstring(State, StackIndex, &Length));
   if (Length <= *Record.MaximumByteCount)
@@ -189,8 +182,6 @@ TypeDescriptor CanonicalReceivedType(lua_State *State, int StackIndex) {
 
 ArgumentProbe ProbeArgument(const TypeGeneration &Types, lua_State *State,
                             int StackIndex, const TypeDescriptor &Target) {
-  // One probe, counted before it inspects anything. The count is Luna-private
-  // instrumentation; it never changes what the probe reports.
   RecordArgumentProbe();
 
   if (!State)
@@ -207,7 +198,6 @@ ArgumentProbe ProbeArgument(const TypeGeneration &Types, lua_State *State,
                                    : Record->PublicName;
   const LuauRepresentation Observed = ObservedRepresentation(State, StackIndex);
 
-  // A nil is accepted only by a type that declares nil one of its own values.
   if (Observed == LuauRepresentation::Nil &&
       Record->Representation != LuauRepresentation::Nil) {
     if (!Record->IsNullable)
@@ -225,8 +215,6 @@ ArgumentProbe ProbeArgument(const TypeGeneration &Types, lua_State *State,
       return Rejected(std::move(*Rejection));
   }
 
-  // Rank. The canonical type of the received value is an exact match; every
-  // other conversion the registry still accepts is safe built-in or user.
   const TypeDescriptor Natural = CanonicalReceivedType(State, StackIndex);
   if (Natural.IsValid() && Natural == Target)
     return Viable(ConversionRank::Exact);

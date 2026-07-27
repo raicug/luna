@@ -44,9 +44,7 @@ constexpr std::string_view LaterCharacters =
 } // namespace
 
 int RunInvocableValidRegistrationProperties() {
-  // **Validates: Requirements 3.1, 3.2**
   // clang-format off
-  // Feature: luau-binding-foundation, Property 2: Valid registration installs an invocable global
   const bool Passed = rc::check(
       // clang-format on
       "Valid registration installs an invocable global",

@@ -1,12 +1,3 @@
-// Focused coverage of the two remaining boundaries of one registration
-// transaction: the private callback boundary that contains everything a nested
-// builder, module, or registration callback throws, and the isolation of every
-// ordinary query taken from outside an attempt that is still in flight.
-//
-// It also covers the protected-resource allocation fault together with the undo
-// journal, so an attempt that fails before installation stages nothing,
-// journals nothing, and leaves every committed callable exactly as it was.
-
 // clang-format off
 #include <luna/binding/binding_registry.hpp>
 #include <luna/binding/callable_descriptor.hpp>
@@ -98,8 +89,6 @@ HasDiagnostic(const std::optional<Luna::ErrorDiagnostic> &Value,
   return true;
 }
 
-// Requirements 4.7, 4.8, 19.8: a callback that throws is contained at the
-// private boundary, its attempt publishes nothing, and the State stays usable.
 void CheckCallbackExceptionsAreContained() {
   const auto Attempt = [](std::size_t ThrowAfter, bool StandardException,
                           std::string_view Kind, std::string_view Fragment,
@@ -133,7 +122,6 @@ void CheckCallbackExceptionsAreContained() {
     Check(Observed.JournalledEntries == 0 && Observed.InstalledPaths == 0,
           "an attempt that fails before installation journals nothing");
 
-    // Nothing the callback staged is observable, before or after.
     Check(Observed.GenerationWhileOpen == Baseline->Generation() &&
               Observed.GenerationSymbolsWhileOpen == Baseline->Symbols().Size(),
           "an ordinary generation query sees no pending symbol");
@@ -155,7 +143,6 @@ void CheckCallbackExceptionsAreContained() {
               !Hooks::HasActiveTransaction(Owner),
           "a contained callback failure leaves no trace on the State");
 
-    // The committed callable is the same object it was, and still invocable.
     Check(Hooks::BindingRecordAddress(Owner, "Base") == BaselineRecord &&
               Hooks::InstalledBindingRecordAddress(Owner, "Base") ==
                   BaselineRecord,
@@ -164,25 +151,19 @@ void CheckCallbackExceptionsAreContained() {
               Hooks::ObserveIntegerGlobal(Owner, "Kept") == 42,
           "the original callable keeps its behavior");
 
-    // The State is reusable, including for the names the callback abandoned.
     Check(Owner.Bindings().Register("Zulu", &AddIntegers).IsSuccess() &&
               Owner.Execute("After = Zulu(1, 2)").IsSuccess() &&
               Hooks::ObserveIntegerGlobal(Owner, "After") == 3,
           "the State stays reusable after a contained callback failure");
   };
 
-  // A standard exception and an unknown one, thrown partway through the group.
   Attempt(2, true, "standard", "registration callback failed", false);
   Attempt(2, false, "unknown", "unknown reason", false);
 
-  // A throw before the first declaration, and a throw after every declaration
-  // has staged its protected resource and the attempt was asked to publish.
   Attempt(0, true, "standard", "registration callback failed", false);
   Attempt(3, true, "standard", "registration callback failed", true);
 }
 
-// Requirements 4.5, 4.7, 19.8: an allocation fault fails before anything is
-// installed, so the journal has nothing to restore and nothing is staged.
 void CheckAllocationFaultsStageAndJournalNothing() {
   Luna::State Owner;
   Check(Owner.Bindings().Register("Base", &AddIntegers).IsSuccess(),
@@ -212,8 +193,6 @@ void CheckAllocationFaultsStageAndJournalNothing() {
                 BaselineRecord,
         "an allocation fault preserves the committed callable");
 
-  // The same fault inside a group taken all the way through publication: the
-  // ignored nested failure poisons the attempt, so the journal is never opened.
   Hooks::InjectFault(Owner, FaultPoint::BindingRecordAllocation);
   const JoinedSubmissionReport Report = Hooks::PublishJoinedFunctions(
       Owner, Declarations({"Zulu", "Alpha", "Mike"}), true);
@@ -239,8 +218,6 @@ void CheckAllocationFaultsStageAndJournalNothing() {
   Check(Hooks::ObserveRootStackDepth(Owner) == EntryDepth,
         "a failed group leaves the root stack at its entry depth");
 
-  // Everything still works: the same group publishes, and the committed
-  // callable of the baseline is untouched.
   const JoinedSubmissionReport Retried = Hooks::PublishJoinedFunctions(
       Owner, Declarations({"Zulu", "Alpha", "Mike"}), false);
   Check(Retried.Publication.IsPublished && Retried.CommittedBindingsAfter == 4,
@@ -252,8 +229,6 @@ void CheckAllocationFaultsStageAndJournalNothing() {
         "every published declaration and the baseline are invocable");
 }
 
-// Requirements 3.2, 4.4, 4.7: every ordinary query taken from outside an
-// in-flight attempt observes only the committed model.
 void CheckOrdinaryQueriesStayIsolated() {
   Luna::State Owner;
   Check(Owner.Bindings().Register("Base", &AddIntegers).IsSuccess(),
@@ -269,7 +244,6 @@ void CheckOrdinaryQueriesStayIsolated() {
   const Luna::ReflectionSnapshot Before = Database->Snapshot();
   const auto EntryDepth = Hooks::ObserveRootStackDepth(Owner);
 
-  // An attempt that stages three declarations and then rolls back.
   const CallbackBoundaryObservation Open = Hooks::SubmitThroughCallback(
       Owner, Declarations({"Zulu", "Charlie", "Mike"}), NeverThrows, true,
       false);
@@ -304,8 +278,6 @@ void CheckOrdinaryQueriesStayIsolated() {
   Check(Hooks::ObserveRootStackDepth(Owner) == EntryDepth,
         "a discarded attempt leaves the root stack at its entry depth");
 
-  // The same isolation across a successful publication: the snapshot taken
-  // while the attempt was open keeps observing its own generation afterwards.
   const CallbackBoundaryObservation Published = Hooks::SubmitThroughCallback(
       Owner, Declarations({"Zulu", "Charlie"}), NeverThrows, true, true);
   Check(Published.Published && Published.Status == TransactionStatus::Committed,

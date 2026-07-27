@@ -17,7 +17,6 @@ constexpr int SegmentUpvalue = 2;
 constexpr int ForwardedUpvalue = 3;
 constexpr int ResultUpvalue = 4;
 
-// Forwards every argument the call site supplied, however many that is.
 constexpr int ForwardsEveryArgument = -1;
 
 [[nodiscard]] int RaiseOperatorRefusal(lua_State *State) {
@@ -28,9 +27,6 @@ constexpr int ForwardsEveryArgument = -1;
   return 0;
 }
 
-// One operator metamethod. It holds the class table and the Luna-owned segment
-// of its operator rather than any Luna record, so a later registration can move
-// every record without invalidating an installed metamethod.
 [[nodiscard]] int ForwardClassOperator(lua_State *State) {
   if (State == nullptr)
     return 0;
@@ -42,9 +38,6 @@ constexpr int ForwardsEveryArgument = -1;
       static_cast<int>(lua_tointeger(State, lua_upvalueindex(ResultUpvalue)));
   const int ResultBase = Supplied;
 
-  // The virtual machine decides how many values an operator metamethod is
-  // entered with, and that count is not always the operand count of the
-  // operator. Only the operands the declaration names are forwarded.
   int Forwarded = Declared == ForwardsEveryArgument ? Supplied : Declared;
   if (Forwarded > Supplied)
     Forwarded = Supplied;
@@ -66,10 +59,6 @@ constexpr int ForwardsEveryArgument = -1;
   for (int Index = 1; Index <= Forwarded; ++Index)
     lua_pushvalue(State, Index);
 
-  // The candidate raises its own deterministic diagnostic when it refuses, and
-  // that refusal already restored its own callback checkpoint. A call operator
-  // keeps the ordinary callable's zero/one/many return shape; every other
-  // operator has the fixed result count its descriptor declares.
   lua_call(State, Forwarded, Results);
   if (Results == LUA_MULTRET)
     return lua_gettop(State) - ResultBase;

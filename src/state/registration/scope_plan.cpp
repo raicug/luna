@@ -45,8 +45,6 @@ DescriptorPlanEntry MakeNamespacePlanEntry(std::string QualifiedName,
   DescriptorPlanEntry Entry;
   Entry.Category = PlanEntryKind::Scope;
 
-  // The reflected table path is the canonical qualified name itself: a
-  // namespace installs its table at exactly the path its qualified name names.
   Entry.VmPath = QualifiedName;
   Entry.Symbol = MakeScopeSymbol(SymbolKind::Namespace, QualifiedName, Parent);
   if (const auto Identity =

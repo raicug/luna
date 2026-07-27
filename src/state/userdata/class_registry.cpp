@@ -97,8 +97,6 @@ ClassRegistry::InheritedMembersOf(const TypeId &Type) const {
     if (Declaring == nullptr)
       continue;
     for (const RegisteredClassDeclaration &Member : Declaring->Declarations) {
-      // A name the derived class declares itself is owned by that declaration,
-      // so it is never reported as inherited.
       bool DeclaredHere = false;
       for (const RegisteredClassDeclaration &Own : Derived->Declarations)
         DeclaredHere = DeclaredHere || Own.Segment == Member.Segment;
@@ -114,9 +112,6 @@ ClassRegistry::InheritedMembersOf(const TypeId &Type) const {
     }
   }
 
-  // One name owned by more than one declaring class is ambiguous. Several
-  // overload candidates owned by the same class remain one inherited overload
-  // set and are not an ambiguity by themselves.
   for (ClassInheritedMemberView &View : Enumerated) {
     std::vector<TypeId> Owners;
     for (const ClassInheritedMemberView &Other : Enumerated) {

@@ -36,9 +36,7 @@ enum class RequestKind : std::uint32_t {
 } // namespace
 
 int RunRegistrationStackBalanceProperties() {
-  // **Validates: Requirements 7.1, 7.2**
   // clang-format off
-  // Feature: luau-binding-foundation, Property 14: Registration preserves stack depth
   const bool Passed = rc::check(
       // clang-format on
       "Registration preserves stack depth",

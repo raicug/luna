@@ -18,7 +18,6 @@
 
 namespace {
 
-// The umbrella header alone exposes every consumer-facing type.
 static_assert(
     std::is_same_v<Luna::Value, std::variant<bool, int, double, std::string>>,
     "Luna::Value must be reachable through <luna/luna.hpp> alone.");
@@ -30,8 +29,6 @@ static_assert(static_cast<int>(Luna::ValueKind::Integer) >= 0,
 static_assert(static_cast<int>(Luna::ErrorCategory::Internal) >= 0,
               "Luna::ErrorCategory must be reachable through the umbrella.");
 
-// State remains the sole public virtual-machine owner with its established
-// operations, result types, and move behavior.
 static_assert(!std::is_copy_constructible_v<Luna::State>,
               "Luna::State must remain non-copyable.");
 static_assert(std::is_nothrow_move_constructible_v<Luna::State>,
@@ -71,9 +68,6 @@ static_assert(
         Luna::NamespaceBuilder &>,
     "A nested RegisterFunction must keep returning the same builder.");
 
-// Stable identities and owning reflection snapshots are consumer-facing values
-// reachable through the umbrella header alone: no Luau declaration, macro, or
-// link is ever needed to store, compare, format, query, or retain them.
 static_assert(!std::is_same_v<Luna::TypeId, Luna::SymbolId>,
               "Type and symbol identity must stay distinct consumer types.");
 static_assert(std::is_trivially_copyable_v<Luna::TypeId> &&
@@ -112,8 +106,6 @@ void VerifyConsumerBoundaryCompiles() {
 
 namespace {
 
-// One overloaded consumer function, selected without a macro and without a cast
-// through a virtual-machine type.
 [[nodiscard]] int ConsumerMeasure(int Value) { return Value; }
 [[nodiscard]] int ConsumerMeasure(int Value, int Scale) {
   return Value * Scale;
@@ -133,8 +125,6 @@ static_assert(Luna::ExactOverloadTarget<ConsumerScaling, double(double)>,
 
 } // namespace
 
-// Explicit function registration at the root scope and inside a namespace,
-// including overload selection, needs nothing beyond Luna and C++20.
 void VerifyFunctionRegistrationConsumerBoundaryCompiles() {
   Luna::State Owner;
   Luna::BindingRegistry Registry = Owner.Bindings();
@@ -156,8 +146,6 @@ void VerifyFunctionRegistrationConsumerBoundaryCompiles() {
   [[maybe_unused]] const Luna::RegistrationResult Published = Studio.Commit();
 }
 
-// Storing, comparing, formatting, and keying identities needs nothing beyond
-// Luna and the standard library.
 void VerifyIdentityConsumerBoundaryCompiles() {
   std::vector<Luna::TypeId> StoredTypes;
   std::map<Luna::SymbolId, std::string> OrderedSymbols;
@@ -180,7 +168,6 @@ void VerifyIdentityConsumerBoundaryCompiles() {
   [[maybe_unused]] const std::size_t Hashed = Symbol.Hash() + Other.Hash();
   [[maybe_unused]] const bool Valid = Other.IsValid() && !Symbol.IsValid();
 
-  // Canonical keys and descriptors are equally Luau-free consumer values.
   const Luna::StableTypeKey Key("studio.ui.Widget");
   [[maybe_unused]] const bool KeyIsValid =
       Key.IsValid() && Luna::StableTypeKey::IsValidText("studio.ui.Widget");
@@ -195,8 +182,6 @@ void VerifyIdentityConsumerBoundaryCompiles() {
       !Luna::TypeKindText(Number.Kind()).empty();
 }
 
-// Querying and retaining a snapshot needs no Luau declaration either, and the
-// snapshot outlives the State that produced it.
 void VerifySnapshotConsumerBoundaryCompiles() {
   Luna::ReflectionSnapshot Retained;
   {
@@ -213,8 +198,6 @@ void VerifySnapshotConsumerBoundaryCompiles() {
         Retained.FindType(Luna::TypeId()).IsValid();
   }
 
-  // Every enumeration, record, string, and nested view still reads the
-  // captured generation after the originating State is gone.
   const Luna::ReflectionRecordRange Symbols = Retained.Symbols();
   const Luna::ReflectionRecordRange Scoped =
       Retained.Symbols(Luna::ScopeId::Root());
@@ -238,7 +221,6 @@ void VerifySnapshotConsumerBoundaryCompiles() {
       First.Signature().empty() && Types.At(0).Name().empty() &&
       Modules.At(0).Version().empty();
 
-  // A snapshot is a value, so copying and reassigning it is ordinary code.
   Luna::ReflectionSnapshot Copied = Retained;
   Retained = Luna::ReflectionSnapshot();
   [[maybe_unused]] const bool StillReadable =
@@ -247,14 +229,10 @@ void VerifySnapshotConsumerBoundaryCompiles() {
 
 namespace {
 
-// Consumer enumerations a hierarchical registration exposes: one scoped, one
-// unscoped, and one used as a flag set.
 enum class ConsumerAlignment { Left = 0, Center = 1, Right = 2 };
 enum class ConsumerAccess : int { None = 0, Read = 1, Write = 2 };
 enum ConsumerLegacy { ConsumerLegacyFirst = 1, ConsumerLegacySecond = 2 };
 
-// Every hierarchical builder operation is reachable through the umbrella header
-// alone and keeps its Luna-owned result type.
 static_assert(
     std::is_same_v<
         decltype(std::declval<Luna::BindingRegistry &>().RegisterNamespace(
@@ -303,10 +281,6 @@ static_assert(Luna::ModuleConfiguration<void (&)(Luna::NamespaceBuilder &)>,
 
 } // namespace
 
-// One consumer registering a whole hierarchy: nested namespaces, constants,
-// scoped and unscoped enumerations, aliases, bitflags, documentation,
-// attributes, and modules. Nothing here needs a Luau declaration, an extra
-// include path, a link dependency, or a registration macro.
 void VerifyHierarchicalBuilderConsumerBoundaryCompiles() {
   Luna::State Owner;
   Luna::BindingRegistry Registry = Owner.Bindings();
@@ -344,8 +318,6 @@ void VerifyHierarchicalBuilderConsumerBoundaryCompiles() {
           .Example("Center", "Studio.Ui.Alignment.Center");
   static_cast<void>(StagedAlignments.QualifiedName());
 
-  // The documentation surface of a namespace and of the declarations staged
-  // inside it, which documentation and declaration generation read.
   Luna::NamespaceBuilder &Annotated =
       Nested.Documentation("The user-interface surface.")
           .Attribute("Stability", "stable")
@@ -375,8 +347,6 @@ void VerifyHierarchicalBuilderConsumerBoundaryCompiles() {
           .Bitflags(static_cast<std::int64_t>(3));
   static_cast<void>(StagedLegacies.QualifiedName());
 
-  // A module registers into the scope it is declared in, through the same
-  // builder operations.
   const auto ConfigureModule = [](Luna::NamespaceBuilder &Builder) {
     Luna::NamespaceBuilder Units = Builder.RegisterNamespace("Units");
     static_cast<void>(Units.RegisterConstant("Metre", 1));
@@ -408,8 +378,6 @@ void VerifyHierarchicalBuilderConsumerBoundaryCompiles() {
         Registry.RegisterModule(*Definition, ConfigureModule);
   }
 
-  // The whole plan commits as one transaction, and an abandoned builder simply
-  // goes out of scope.
   [[maybe_unused]] const Luna::RegistrationResult Committed = Studio.Commit();
   Luna::NamespaceBuilder Abandoned = Registry.RegisterNamespace("Discarded");
   Luna::NamespaceBuilder Moved = std::move(Abandoned);
@@ -420,7 +388,6 @@ void VerifyHierarchicalBuilderConsumerBoundaryCompiles() {
 
 namespace {
 
-// A consumer type a custom converter is written for.
 struct ConsumerVector final {
   double X = 0.0;
   double Y = 0.0;
@@ -430,10 +397,6 @@ struct ConsumerVector final {
 
 namespace Luna {
 
-// The custom conversion boundary is reachable through the umbrella header alone
-// and is built only from Luna-owned and standard-library types: no Luau type,
-// header, include path, pointer, stack index, registry reference, constant, or
-// macro appears in, or is required by, a converter.
 template <> class TypeConverter<ConsumerVector> {
 public:
   [[nodiscard]] ConversionProbe Probe(ValueView Source,
@@ -481,8 +444,6 @@ static_assert(Luna::ConversionCapable<ConsumerVector>,
 static_assert(std::is_trivially_copyable_v<Luna::ValueView> &&
                   std::is_trivially_copyable_v<Luna::ConversionContext>,
               "Transient conversion tokens must stay plain Luna values.");
-// A committing publication is unreachable through the const context a probe
-// receives, so probe purity is enforced by the type system itself.
 template <class Type>
 concept PublishesThroughConstContext =
     requires(const Type &Context, const Luna::OwnedValue &Published) {
@@ -499,8 +460,6 @@ static_assert(
 
 namespace {
 
-// An aggregate consumer type whose converter recurses through the boundary
-// entry points rather than through any Luna internal.
 struct ConsumerPolyline final {
   std::vector<ConsumerVector> Points;
 };
@@ -521,8 +480,6 @@ public:
       if (!Element.IsViable)
         return Element;
     }
-    // A nested user conversion is a user conversion, ranked as its own
-    // category rather than as a score.
     return ViableProbe(ConversionRank::User);
   }
 
@@ -534,7 +491,6 @@ public:
       const ConversionResult<ConsumerVector> Element =
           ReadValue<ConsumerVector>(Source.Element(Index), Context);
       if (!Element.IsSuccess()) {
-        // The nested view already names the complete element path.
         Result.Status = Element.Status;
         Result.Diagnostic = Element.Diagnostic;
         return Result;
@@ -548,8 +504,6 @@ public:
 
   [[nodiscard]] WriteResult Write(const ConsumerPolyline &Source,
                                   ConversionContext &Context) const {
-    // The complete aggregate is staged and reserved before anything is
-    // published, so a refusal exposes no partial table.
     OwnedValue Published = OwnedValue::Table();
     for (const ConsumerVector &Point : Source.Points) {
       OwnedValue Element = OwnedValue::Table();
@@ -579,10 +533,8 @@ static_assert(Luna::ConversionCapable<ConsumerPolyline>,
               "A nested consumer converter must satisfy the boundary concept "
               "without naming a virtual machine.");
 
-} // namespace
+}
 
-// Retaining a converted value needs no Luau declaration: the owning value and
-// pack are ordinary consumer values built from the standard library.
 void VerifyConversionConsumerBoundaryCompiles() {
   Luna::OwnedValue Retained = Luna::OwnedValue::Table();
   Retained.Append(Luna::OwnedValue::FromValue(Luna::Value(41)));
@@ -600,7 +552,6 @@ void VerifyConversionConsumerBoundaryCompiles() {
       Pack.At(0).Field("Name").ToText() == std::string("value") &&
       !Pack.At(1).ToValue().has_value();
 
-  // A transient view exposes shape only; an inert one answers as a value.
   const Luna::ValueView Inert;
   [[maybe_unused]] const bool Transient =
       !Inert.IsActive() && Inert.Kind() == Luna::ValueCategory::None &&
@@ -609,14 +560,6 @@ void VerifyConversionConsumerBoundaryCompiles() {
 
 namespace {
 
-// One consumer signature matrix, decided entirely at compile time. Every
-// accepted form below is registrable through the public API, and every rejected
-// one is refused by the same concept a registration is constrained on - so a
-// consumer learns about an unsupported signature from its own compiler, with no
-// Luau include, link, pointer, or macro anywhere in the picture.
-
-// The accepted forms: required parameters, a trailing optional, declared
-// defaults, both variadic forms, and zero, scalar, and multiple returns.
 [[nodiscard]] int ConsumerRequired(int Value, std::string Text) {
   return Value + static_cast<int>(Text.size());
 }
@@ -680,8 +623,6 @@ static_assert(Luna::SupportedCallable<
               "An overload selection of a supported signature must stay "
               "registrable.");
 
-// The rejected forms. Each one names a shape or a type Luna does not describe,
-// and the rejection is the concept's, not a diagnostic discovered at runtime.
 static_assert(!Luna::SupportedCallable<int (*)(std::string_view)>,
               "A parameter type Luna cannot convert must stay rejected.");
 static_assert(!Luna::SupportedCallable<std::string_view (*)(int)>,
@@ -714,9 +655,6 @@ static_assert(!Luna::ExactOverloadTarget<ConsumerScaling, int(std::string)>,
 static_assert(!Luna::ExactOverloadTarget<int (*)(int), int(int)>,
               "A function pointer keeps its own non-deduced overload form.");
 
-// One selection the helper itself refuses: the declared signature is not one
-// the target can be invoked with, so the call is ill-formed rather than a
-// weaker registration.
 template <class Signature, class Target>
 concept OverloadSelectable =
     requires(Target Selected) { Luna::Overload<Signature>(Selected); };
@@ -728,9 +666,6 @@ static_assert(!OverloadSelectable<int(std::string), ConsumerScaling>,
 
 } // namespace
 
-// The same matrix through the public registration API, at the root scope and
-// inside a namespace: rich parameters, declared defaults, both variadic forms,
-// and every return shape, retained and read as ordinary consumer values.
 void VerifyRichSignatureConsumerBoundaryCompiles() {
   Luna::State Owner;
   Luna::BindingRegistry Registry = Owner.Bindings();
@@ -753,8 +688,6 @@ void VerifyRichSignatureConsumerBoundaryCompiles() {
           .RegisterFunction("Reset", &ConsumerZeroReturn);
   [[maybe_unused]] const Luna::RegistrationResult Published = Staged.Commit();
 
-  // A declared parameter descriptor and a return pack are consumer values: a
-  // shape can be described, validated, and inspected without a State.
   const Luna::ParameterDescriptor Required =
       Luna::ParameterDescriptor::ForRequired(Luna::ValueKind::Integer);
   const Luna::ParameterDescriptor WithDefault =
@@ -782,8 +715,6 @@ void VerifyRichSignatureConsumerBoundaryCompiles() {
       Copied != Luna::ReturnPack::Empty() && Returns.Values().size() == 3 &&
       Luna::ReturnPack::Empty().IsEmpty();
 
-  // The owning variadic pack is equally a consumer value, retained past the
-  // callback that produced it, while an inert view answers as an empty one.
   Luna::ValuePack Values;
   Values.Append(Luna::OwnedValue::Number(1.0));
   const Luna::ArgumentPack Arguments(std::move(Values), 2);
@@ -796,8 +727,6 @@ void VerifyRichSignatureConsumerBoundaryCompiles() {
 
 namespace {
 
-// Two consumer classes a binding exposes as typed userdata: one plain value
-// type and one polymorphic type whose objects an engine owns.
 struct ConsumerTransform final {
   double Scale = 1.0;
   double Offset = 0.0;
@@ -813,8 +742,6 @@ private:
   int IdentifierValue = 0;
 };
 
-// Registering a class is reachable through the umbrella header alone, at the
-// root scope and inside a namespace, and keeps its typed builder result.
 static_assert(
     std::is_same_v<decltype(std::declval<Luna::BindingRegistry &>()
                                 .RegisterClass<ConsumerTransform>(
@@ -850,9 +777,6 @@ static_assert(
         std::string_view>,
     "A class builder's qualified name must stay an ordinary string view.");
 
-// The explicit lifetime of a borrowed object is an ownership statement, not a
-// pointer: it is copyable, movable, comparable by the lifetime it declares, and
-// built only from Luna-owned and standard-library types.
 static_assert(std::is_copy_constructible_v<Luna::LifetimeHandle> &&
                   std::is_move_constructible_v<Luna::LifetimeHandle> &&
                   std::is_copy_assignable_v<Luna::LifetimeHandle> &&
@@ -877,9 +801,6 @@ static_assert(
         bool>,
     "Comparing two declared lifetimes must stay a plain consumer query.");
 
-// A class whose objects a consumer holds by value, borrows, or shares is
-// describable as a canonical consumer descriptor for each of those forms, with
-// no Luau type anywhere in the picture.
 static_assert(
     Luna::TypeKindAcceptsChildCount(Luna::TypeKind::SharedOwnership, 1),
     "Shared ownership must stay a one-child structural consumer form.");
@@ -891,16 +812,10 @@ static_assert(Luna::TypeKindAcceptsChildCount(Luna::TypeKind::Class, 0),
 
 } // namespace
 
-// One consumer registering classes and stating how their objects are owned:
-// documentation and attributes on the class itself, an explicit lifetime handle
-// for a borrowed engine object, an object held by value, and an object held
-// through `std::shared_ptr`. Nothing here needs a Luau declaration, an extra
-// include path, a link dependency, or a registration macro.
 void VerifyClassOwnershipConsumerBoundaryCompiles() {
   Luna::State Owner;
   Luna::BindingRegistry Registry = Owner.Bindings();
 
-  // A root-scope class, documented and annotated through its own builder.
   Luna::ClassBuilder<ConsumerTransform> Transform =
       Registry.RegisterClass<ConsumerTransform>(
           "Transform", Luna::StableTypeKey("consumer.Transform"));
@@ -913,7 +828,6 @@ void VerifyClassOwnershipConsumerBoundaryCompiles() {
   [[maybe_unused]] const Luna::RegistrationResult PublishedTransform =
       StagedTransform.Commit();
 
-  // A nested class in a namespace plan, committed with the rest of that plan.
   Luna::NamespaceBuilder Studio = Registry.RegisterNamespace("Studio");
   Luna::ClassBuilder<ConsumerEntity> Entity =
       Studio.RegisterClass<ConsumerEntity>(
@@ -926,15 +840,12 @@ void VerifyClassOwnershipConsumerBoundaryCompiles() {
   [[maybe_unused]] const Luna::RegistrationResult PublishedStudio =
       Studio.Commit();
 
-  // An abandoned class builder is ordinary consumer code: it is move-only, and
-  // destroying it uncommitted is simply a scope exit.
   Luna::ClassBuilder<ConsumerTransform> Abandoned =
       Registry.RegisterClass<ConsumerTransform>(
           "Discarded", Luna::StableTypeKey("consumer.Discarded"));
   Luna::ClassBuilder<ConsumerTransform> MovedBuilder = std::move(Abandoned);
   Abandoned = std::move(MovedBuilder);
 
-  // The three ownership forms, exactly as a consumer holds them.
   ConsumerTransform ByValue;
   ByValue.Scale = 2.0;
   const std::shared_ptr<ConsumerEntity> SharedEntity =
@@ -942,8 +853,6 @@ void VerifyClassOwnershipConsumerBoundaryCompiles() {
   ConsumerEntity BorrowedEntity;
   [[maybe_unused]] const int Borrowed = BorrowedEntity.Identifier();
 
-  // The borrowed object's explicit lifetime: declared, copied, compared,
-  // invalidated once, and idempotent afterwards.
   Luna::LifetimeHandle Lifetime;
   const Luna::LifetimeHandle Shared = Lifetime;
   const Luna::LifetimeHandle Undeclared = Luna::LifetimeHandle::Undeclared();
@@ -960,14 +869,10 @@ void VerifyClassOwnershipConsumerBoundaryCompiles() {
       !Lifetime.IsValid() && !Shared.IsValid() &&
       Lifetime.Generation() != Live && Lifetime.IsDeclared();
 
-  // A second borrowed object gets its own lifetime, which the first one's
-  // invalidation never ended.
   Luna::LifetimeHandle Other;
   [[maybe_unused]] const bool Independent =
       Other.IsValid() && !Other.RefersToSame(Lifetime);
 
-  // Each ownership form is describable as a canonical consumer descriptor built
-  // only from Luna-owned values.
   const Luna::TypeDescriptor Value =
       Luna::TypeDescriptor::ForClass(Luna::StableTypeKey("consumer.Transform"));
   std::vector<Luna::TypeDescriptor> Owned;
@@ -987,9 +892,6 @@ void VerifyClassOwnershipConsumerBoundaryCompiles() {
 
 namespace {
 
-// One consumer arena a class's objects are allocated from. It is ordinary
-// consumer code: no Luna base class, no prescribed member names, and no virtual
-// machine anywhere in it.
 class ConsumerArena final {
 public:
   [[nodiscard]] void *Reserve(std::size_t ByteCount, std::size_t Alignment) {
@@ -1013,10 +915,6 @@ private:
   std::size_t Returns = 0;
 };
 
-// The semantic allocator protocol is reachable through the umbrella header
-// alone and is built only from Luna-owned and standard-library types: no Luau
-// type, header, include path, pointer, stack index, registry reference,
-// constant, or macro appears in, or is required by, a custom allocator.
 static_assert(std::is_copy_constructible_v<Luna::ClassAllocator> &&
                   std::is_move_constructible_v<Luna::ClassAllocator> &&
                   std::is_default_constructible_v<Luna::ClassAllocator>,
@@ -1046,16 +944,10 @@ static_assert(
 
 } // namespace
 
-// One consumer stating how a class's storage is obtained, how its objects are
-// constructed and destroyed, and how the storage is given back. Every step is a
-// plain callable over the consumer's own arena, and the whole protocol is one
-// copyable Luna value.
 void VerifyCustomAllocatorConsumerBoundaryCompiles() {
   const std::shared_ptr<ConsumerArena> Arena =
       std::make_shared<ConsumerArena>();
 
-  // The fully explicit protocol: allocate, construct, destroy a
-  // known-constructed object, deallocate.
   Luna::ClassAllocator::AllocateOperation Allocate =
       [Arena](const Luna::StorageRequest &Requested) -> void * {
     return Arena->Reserve(Requested.ByteCount, Requested.Alignment);
@@ -1084,15 +976,11 @@ void VerifyCustomAllocatorConsumerBoundaryCompiles() {
       "consumer.arena", Requested, std::move(Allocate), std::move(Construct),
       std::move(Destroy), std::move(Deallocate));
 
-  // The two ready-made protocols, for storage Luna obtains itself and for an
-  // object Luna destroys but does not deallocate.
   const Luna::ClassAllocator Ordinary =
       Luna::ClassAllocator::ForOwnedObject<ConsumerTransform>();
   const Luna::ClassAllocator Adopted =
       Luna::ClassAllocator::ForAdoptedObject<ConsumerEntity>("consumer.engine");
 
-  // A protocol whose storage the consumer owns while Luna keeps construction
-  // and destruction of the class type.
   const auto ReserveStorage = [Arena](const Luna::StorageRequest &Wanted) {
     return Arena->Reserve(Wanted.ByteCount, Wanted.Alignment);
   };
@@ -1116,8 +1004,6 @@ void VerifyCustomAllocatorConsumerBoundaryCompiles() {
       !Undeclared.IsDeclared() && !Undeclared.OwnsStorage() &&
       Arena->Balance() == 0;
 
-  // The semantic request itself is a consumer value: a byte count, an
-  // alignment, and nothing else.
   const Luna::StorageRequest Empty;
   const Luna::AllocatorStepResult Done = Luna::AllocatorStepResult::Done();
   const Luna::AllocatorStepResult Declined =
@@ -1131,10 +1017,6 @@ void VerifyCustomAllocatorConsumerBoundaryCompiles() {
 
 namespace {
 
-// One consumer stating how objects of its classes come into existence: default
-// and parameterized constructors, a factory that yields the class by value, a
-// factory that yields shared ownership, and singleton accessors in each of the
-// three forms an accessor may declare.
 struct ConsumerPoint final {
   double X = 0.0;
   double Y = 0.0;
@@ -1166,9 +1048,6 @@ struct ConsumerPoint final {
   return Origin;
 }
 
-// Every construction operation of a class builder is reachable through the
-// umbrella header alone and keeps returning the same builder, so a consumer
-// states a whole construction surface as one chain.
 static_assert(
     std::is_same_v<decltype(std::declval<Luna::ClassBuilder<ConsumerPoint> &>()
                                 .Constructor<double, double>()),
@@ -1199,9 +1078,6 @@ static_assert(
         Luna::ClassBuilder<ConsumerPoint> &>,
     "Allocator must keep returning the same builder.");
 
-// The ownership statement of a construction candidate is a Luna-owned value
-// too: three explicit forms, one coherence rule, and no virtual machine
-// anywhere.
 static_assert(std::is_copy_constructible_v<Luna::OwnershipPolicy> &&
                   std::is_default_constructible_v<Luna::OwnershipPolicy>,
               "An ownership policy must remain an ordinary consumer value.");
@@ -1222,10 +1098,6 @@ static_assert(
 
 } // namespace
 
-// One consumer declaring the whole construction surface of a class, including
-// the storage protocol its created values come from, stated both before and
-// after the candidates that use it. Nothing here needs a Luau declaration, an
-// extra include path, a link dependency, or a registration macro.
 void VerifyClassConstructionConsumerBoundaryCompiles() {
   const std::shared_ptr<ConsumerArena> Arena =
       std::make_shared<ConsumerArena>();
@@ -1240,7 +1112,6 @@ void VerifyClassConstructionConsumerBoundaryCompiles() {
   Luna::State Owner;
   Luna::BindingRegistry Registry = Owner.Bindings();
 
-  // The storage protocol stated first, then every candidate that uses it.
   Luna::ClassBuilder<ConsumerPoint> Point =
       Registry.RegisterClass<ConsumerPoint>(
           "Point", Luna::StableTypeKey("consumer.Point"));
@@ -1262,8 +1133,6 @@ void VerifyClassConstructionConsumerBoundaryCompiles() {
   [[maybe_unused]] const Luna::RegistrationResult PublishedPoint =
       WithConstructors.Commit();
 
-  // The three singleton forms, plus the explicit policies a consumer may state
-  // for them, with the storage protocol stated after the candidates instead.
   Luna::LifetimeHandle Lifetime;
   Luna::OwnershipPolicy Borrowed = Luna::OwnershipPolicy::Borrowed(Lifetime);
   Luna::OwnershipPolicy Shared = Luna::OwnershipPolicy::Shared();
@@ -1295,9 +1164,6 @@ void VerifyClassConstructionConsumerBoundaryCompiles() {
 
 namespace {
 
-// One consumer class hierarchy whose whole member surface a binding exposes: a
-// base declaring targets the derived class registers, a virtual member, an
-// overload set, a static member, every accessor form, and both field forms.
 struct ConsumerVehicle {
   virtual ~ConsumerVehicle() = default;
 
@@ -1347,9 +1213,6 @@ void ConsumerSetTruckLoad(ConsumerTruck &Target, int Value) {
   return static_cast<float>(Source.Load);
 }
 
-// The non-mutating compatibility check a consumer states for one safe downcast.
-// It is stateless and reads the object it was given, so nothing about it can
-// mutate the value it decides on.
 struct ConsumerVehicleIsTruck {
   [[nodiscard]] bool operator()(const ConsumerVehicle &Received) const {
     return Received.Wheels() == 6;
@@ -1358,9 +1221,6 @@ struct ConsumerVehicleIsTruck {
 
 using TruckBuilder = Luna::ClassBuilder<ConsumerTruck>;
 
-// Every class-member operation is reachable through the umbrella header alone
-// and keeps returning the same builder, so a consumer states a whole member
-// surface as one chain.
 static_assert(std::is_same_v<decltype(std::declval<TruckBuilder &>().Method(
                                  std::declval<std::string_view>(),
                                  &ConsumerTruck::Wheels)),
@@ -1410,9 +1270,6 @@ static_assert(
                    TruckBuilder &>,
     "A Field with an explicit policy must keep returning the same builder.");
 
-// The explicit relationship operations are reachable through the umbrella
-// header alone and keep returning the same builder, so a consumer states a
-// whole hierarchy and its safe downcast policy as one chain.
 static_assert(std::is_same_v<
                   decltype(std::declval<TruckBuilder &>().Base<ConsumerVehicle>(
                       std::declval<const Luna::StableTypeKey &>())),
@@ -1432,8 +1289,6 @@ static_assert(std::is_same_v<
                   TruckBuilder &>,
               "A declared-check Cast must keep returning the same builder.");
 
-// The declared policies are consumer values: constexpr text, constexpr
-// direction queries, and one coherence rule each.
 static_assert(Luna::MemberAccessText(Luna::MemberAccess::ReadWrite) ==
                   std::string_view("read-write"),
               "The reflected access text must stay a consumer-readable value.");
@@ -1453,8 +1308,6 @@ static_assert(std::is_copy_constructible_v<Luna::PropertyPolicy> &&
                   std::is_default_constructible_v<Luna::FieldPolicy>,
               "A member policy must remain an ordinary consumer value.");
 
-// The accepted member target forms. Each one states the object it operates on,
-// and the trait a registration is constrained on is what says so.
 template <class Target>
 constexpr bool MethodTargetAccepted =
     Luna::Detail::MethodTargetShape<ConsumerTruck, Target>::IsSupported;
@@ -1510,9 +1363,6 @@ static_assert(
     "An explicit overload selection of one class-scope signature is a method "
     "target.");
 
-// The rejected member target forms. Each rejection is the trait's, so a
-// consumer learns about an undeclarable member from its own compiler rather
-// than from a diagnostic discovered at runtime.
 static_assert(!MethodTargetAccepted<int (*)(int)>,
               "A callable whose first parameter is not the class declares no "
               "receiver.");
@@ -1559,10 +1409,6 @@ static_assert(!SetterAccepted<void (*)(int)>,
 
 } // namespace
 
-// One consumer declaring the whole member surface of a class: instance methods
-// through every accepted target form, one static method, every `PropertyPolicy`
-// mode, and every `FieldPolicy` factory. Nothing here needs a Luau declaration,
-// an extra include path, a link dependency, or a registration macro.
 void VerifyClassMemberConsumerBoundaryCompiles() {
   Luna::State Owner;
   Luna::BindingRegistry Registry = Owner.Bindings();
@@ -1571,9 +1417,6 @@ void VerifyClassMemberConsumerBoundaryCompiles() {
   Luna::ClassBuilder<ConsumerTruck> Truck = Fleet.RegisterClass<ConsumerTruck>(
       "Truck", Luna::StableTypeKey("consumer.Truck"));
 
-  // Methods: base-declared const and non-const member pointers, a virtual
-  // member, four wrapper forms, one overload set selected without a macro, and
-  // one static member.
   Luna::ClassBuilder<ConsumerTruck> &WithMethods =
       Truck.Constructor<>()
           .Method("Range", &ConsumerVehicle::Range)
@@ -1589,7 +1432,6 @@ void VerifyClassMemberConsumerBoundaryCompiles() {
                               &ConsumerTruck::Haul))
           .StaticMethod("Axles", &ConsumerTruck::Axles);
 
-  // Properties: both default forms plus every policy factory.
   Luna::ClassBuilder<ConsumerTruck> &WithProperties =
       WithMethods
           .Property("Capacity", &ConsumerTruck::Capacity,
@@ -1611,8 +1453,6 @@ void VerifyClassMemberConsumerBoundaryCompiles() {
                     &ConsumerTruck::Capacity, &ConsumerTruck::SetCapacity)
           .Property("Tally", &ConsumerTruckLoad, &ConsumerSetTruckLoad);
 
-  // Fields: the default policy, both explicit directions, a const data member,
-  // and an explicit ownership statement.
   Luna::ClassBuilder<ConsumerTruck> &WithFields =
       WithProperties.Field("Slots", &ConsumerTruck::Load)
           .Field("Balance", &ConsumerTruck::Spare,
@@ -1628,7 +1468,6 @@ void VerifyClassMemberConsumerBoundaryCompiles() {
   static_cast<void>(Described.QualifiedName());
   [[maybe_unused]] const Luna::RegistrationResult Published = Fleet.Commit();
 
-  // The declared policies answer as ordinary consumer values.
   const Luna::PropertyPolicy Default;
   const Luna::PropertyPolicy Lazy = Luna::PropertyPolicy::Lazy();
   const Luna::PropertyPolicy WriteOnly = Luna::PropertyPolicy::WriteOnly();
@@ -1660,9 +1499,6 @@ void VerifyClassMemberConsumerBoundaryCompiles() {
 
 namespace {
 
-// Compile-only relationship/operator consumers. Both accepted declarations and
-// declarations intentionally rejected at registration remain expressible using
-// only <luna/luna.hpp>, C++20, and standard-library types.
 struct ConsumerRelationshipBase {
   virtual ~ConsumerRelationshipBase() = default;
   int Value = 2;
@@ -1731,18 +1567,12 @@ void VerifyInheritanceOperatorConsumerBoundaryCompiles() {
       .Operator(Luna::ClassOperator::Negate,
                 &ConsumerRelationshipDerived::Negate)
       .Operator(Luna::ClassOperator::ToText, &ConsumerRelationshipDerived::Text)
-      // An operator is documented by what it answers, never by the Luna-owned
-      // segment it is published under.
       .Documentation(Luna::ClassOperator::Add, "Adds two derived values.")
       .Attribute(Luna::ClassOperator::Add, "Pure", "true")
       .Example(Luna::ClassOperator::Add, "local Sum = Left + Right")
       .Example("One derived value with two bases.");
   [[maybe_unused]] const Luna::RegistrationResult Accepted = Types.Commit();
 
-  // These forms intentionally describe registration-time refusals: an
-  // unrelated/inaccessible base, a cast with no safe policy, a value operator
-  // returning void, and an operator with the wrong operand count. Their public
-  // declarations compile without exposing Luau; Commit reports the rejection.
   Luna::ClassBuilder<ConsumerRelationshipDerived> Missing =
       Owner.Bindings().RegisterClass<ConsumerRelationshipDerived>(
           "MissingBase", Luna::StableTypeKey("consumer.rejected.Missing"));

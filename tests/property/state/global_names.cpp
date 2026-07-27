@@ -112,9 +112,6 @@ GeneratePartitionedNames(const std::vector<int> &Values) {
 } // namespace
 
 int RunGlobalNameGrammarProperties() {
-  // **Validates: Requirements 3.3**
-  // Feature: luau-binding-foundation, Property 3: Global name validation
-  // matches the specified grammar
   const bool Passed = rc::check(
       "Global name validation matches the specified grammar",
       [](const std::vector<int> &GeneratedValues) {

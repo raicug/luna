@@ -11,9 +11,6 @@
 
 namespace {
 
-// The whole semantic allocator protocol compiles from this header alone: no
-// other Luna header, no Luau include path, and nothing but the standard
-// library.
 struct StandaloneObject final {
   int Value = 0;
 };
@@ -28,8 +25,6 @@ static_assert(Luna::AllocatorStepResult::Done().Performed &&
                   !Luna::AllocatorStepResult::Declined().Performed,
               "A semantic step reports whether it performed its work.");
 
-// One arena, and the four operations over it, exactly as a consumer writes
-// them.
 class StandaloneArena final {
 public:
   [[nodiscard]] void *Reserve(std::size_t ByteCount, std::size_t Alignment) {
@@ -77,8 +72,6 @@ private:
       std::move(Deallocate));
 }
 
-// Every factory and every query of the protocol is reachable from this header
-// alone, and each one stays an ordinary consumer value or a plain answer.
 static_assert(
     std::is_same_v<decltype(StandaloneArenaProtocol()), Luna::ClassAllocator>,
     "An assembled protocol stays a consumer value.");

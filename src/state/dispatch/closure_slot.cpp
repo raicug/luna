@@ -12,12 +12,8 @@
 namespace Luna::Detail {
 namespace {
 
-// Luna's own registry slot for the dispatch table of this machine's State.
 constexpr const char *DispatchTableSlot = "Luna.DispatchTable";
 
-// The highest slot identity a Luau number represents exactly. A State issues
-// one slot per canonical callable path, so this bound is never approached; it
-// exists so an out-of-range payload can never be mistaken for a valid slot.
 constexpr double MaximumExactSlot = 9007199254740992.0;
 
 [[nodiscard]] DispatchSlotId DecodeSlot(lua_State *State, int Index) noexcept {

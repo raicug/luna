@@ -21,9 +21,6 @@ concept SupportedValue =
 
 namespace Detail {
 
-// One returned `std::pair` or `std::tuple` of supported values. Its element
-// types are fixed by the signature, so the published return count is known at
-// registration and every element is validated against its declared type.
 template <class Type> struct IsFixedReturnPack : std::false_type {};
 
 template <class First, class Second>
@@ -34,17 +31,12 @@ template <class... Elements>
 struct IsFixedReturnPack<std::tuple<Elements...>>
     : std::bool_constant<(SupportedValue<Elements> && ...)> {};
 
-// The dynamic pack: its element count and element types are decided by the
-// invocation rather than by the signature.
 template <class Type>
 inline constexpr bool IsDynamicReturnPack =
     std::same_as<std::remove_cvref_t<Type>, ReturnPack>;
 
 } // namespace Detail
 
-// One return shape Luna can describe and publish: zero values for `void`, one
-// value for a supported scalar, and ordered multiple values for a pair, a
-// tuple, or a dynamic return pack.
 template <class Type>
 concept SupportedReturn =
     std::same_as<Type, void> || SupportedValue<Type> ||
@@ -52,15 +44,12 @@ concept SupportedReturn =
 
 namespace Detail {
 
-// A `std::optional<T>` parameter of one supported value type. It maps omission
-// and explicit nil to the empty value.
 template <class Type> struct IsOptionalValueParameter : std::false_type {};
 
 template <class Type>
 struct IsOptionalValueParameter<std::optional<Type>>
     : std::bool_constant<SupportedValue<Type>> {};
 
-// A variadic parameter: the callback-lifetime view or the owning pack.
 template <class Type>
 inline constexpr bool IsVariadicParameterType =
     std::same_as<std::remove_cvref_t<Type>, ArgumentView> ||
@@ -68,8 +57,6 @@ inline constexpr bool IsVariadicParameterType =
 
 } // namespace Detail
 
-// One parameter Luna can describe and convert: a supported value, a trailing
-// optional of one, or the final variadic pack in either of its two forms.
 template <class Type>
 concept SupportedParameter =
     SupportedValue<Type> || Detail::IsOptionalValueParameter<Type>::value ||
@@ -80,9 +67,6 @@ concept SupportedParameter =
 
 namespace Detail {
 
-// At most one variadic parameter, and only as the final one. Every earlier
-// position must be a non-variadic parameter, which rejects both a variadic in
-// the middle and a second variadic anywhere.
 template <class... Parameters> struct VariadicParameterShape;
 
 template <> struct VariadicParameterShape<> {
@@ -99,7 +83,6 @@ struct VariadicParameterShape<First, Rest...> {
                                   VariadicParameterShape<Rest...>::IsValid;
 };
 
-// The value type of one optional parameter.
 template <class Candidate> struct OptionalParameterInner {
   using Type = void;
 };
@@ -108,7 +91,6 @@ template <class Inner> struct OptionalParameterInner<std::optional<Inner>> {
   using Type = Inner;
 };
 
-// One parameter the foundation's fixed-arity shape cannot describe.
 template <class Type>
 inline constexpr bool IsRelaxedParameter =
     IsOptionalValueParameter<Type>::value || IsVariadicParameterType<Type>;

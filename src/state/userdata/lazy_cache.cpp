@@ -24,9 +24,6 @@ const Value *LazyPropertyCache::Observe(const UserdataHeader &Header,
     return nullptr;
   }
 
-  // The header names a stable state-local node identity, never a node address.
-  // State and exact userdata identity must agree before any cached value can be
-  // observed.
   const LazyCacheNode *Node =
       Header.LazyCache.IsPopulated() ? Resolve(Header) : nullptr;
   if (Node == nullptr) {
@@ -34,9 +31,6 @@ const Value *LazyPropertyCache::Observe(const UserdataHeader &Header,
     return nullptr;
   }
 
-  // A generation change invalidates by mismatch: the node still names the
-  // generation its values were produced under, so one comparison rejects every
-  // entry it holds without traversing any of them.
   if (Node->Generation != Generation ||
       Header.LazyCache.Generation != Generation) {
     ++Counted.GenerationMismatch;
@@ -69,8 +63,6 @@ bool LazyPropertyCache::Store(UserdataHeader &Header, const SymbolId &Member,
     Node = Created.get();
     Nodes.push_back(std::move(Created));
   } else if (Node->Generation != Generation) {
-    // The node belongs to a generation that no longer dispatches, so its values
-    // are dropped rather than mixed with the new generation's.
     Node->Entries.clear();
     Node->Generation = Generation;
   }
@@ -106,7 +98,6 @@ LazyPropertyCache::InvalidateOwner(UserdataHeader &Header) noexcept {
   if (Removed != 0)
     ++Counted.Invalidate;
 
-  // The stable slot no longer names any value, so a later lookup misses.
   Withdraw(&Header);
   return Removed;
 }

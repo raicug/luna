@@ -1,35 +1,5 @@
 #pragma once
 
-// Construction candidates as ordinary callable candidates.
-//
-// A constructor, a factory, and a singleton accessor are not a separate
-// invocation pipeline. Each one is described by exactly the canonical callable
-// metadata every other declaration uses - one immutable parameter descriptor
-// per declared parameter, required, optional, defaulted, or variadic - and each
-// one is invoked through exactly the same erased adapter. The only thing they
-// add is the return shape: instead of a scalar or a pack, they publish one
-// value of the registered class, and they carry the ownership statement that
-// decides how that value is owned.
-//
-// What a candidate declares decides its ownership result, and Luna never
-// guesses it:
-//
-//   * a constructor states Lua ownership and hands Luna the storage protocol
-//     plus the one construction step that builds the object from the converted
-//     arguments, so allocation, construction, ownership, and publication are
-//     all milestones of one gate;
-//   * a factory returning the class by value states Lua ownership and moves the
-//     produced object into the storage that protocol allocates;
-//   * a factory or accessor returning `std::shared_ptr<T>` states shared
-//     ownership and retains exactly one reference;
-//   * a singleton accessor returning `T&` or `T*` states borrowed ownership,
-//     which is the singleton default, and therefore carries one explicit
-//     lifetime.
-//
-// An explicit `OwnershipPolicy` that contradicts the declared result is
-// recorded as the declaration's first deterministic refusal, so it fails the
-// whole transaction rather than being silently reinterpreted.
-
 // clang-format off
 #include <luna/binding/callable_descriptor.hpp>
 #include <luna/binding/callable_metadata.hpp>
@@ -51,10 +21,6 @@
 
 namespace Luna::Detail {
 
-// One staged construction candidate of one class: the erased candidate, the
-// reflected symbol kind it declares, the ownership result it publishes, the
-// canonical identity of the allocator policy behind it, and the first
-// deterministic refusal the declaration recorded, if any.
 struct ConstructionRequest final {
   std::optional<ErasedCallableDescriptor> Callable;
   SymbolKind Kind = SymbolKind::Constructor;
@@ -74,8 +40,6 @@ struct ConstructionRequest final {
   }
 };
 
-// One erased construction candidate: the ordinary callable adapter over a
-// target whose result is one staged object of the registered class `Class`.
 template <class... Parameters, class Target>
 [[nodiscard]] ErasedCallableDescriptor
 MakeConstructionDescriptor(const StableTypeKey &Class, Target &&Producer) {
@@ -89,33 +53,17 @@ MakeConstructionDescriptor(const StableTypeKey &Class, Target &&Producer) {
                                   Adapter(std::forward<Target>(Producer)));
 }
 
-// The storage protocol of one class Luna creates values of. It is built once
-// per candidate, captures nothing, and is retained by every value created
-// through it until that value's cleanup completes.
 template <class Type>
 [[nodiscard]] ClassAllocator ConstructedStorageProtocolFor() {
   return ClassAllocator::ForOwnedObject<Type>(ConstructedStoragePolicyName);
 }
 
-// The one storage protocol every candidate that creates a value of one
-// registered class allocates from and releases through.
-//
-// A class selects it once, and every creating candidate of that class reads the
-// selection where it creates its object rather than where it was declared. That
-// is what makes the selection order-independent: a consumer may state the
-// protocol before or after declaring its constructors and factories, and the
-// whole class still creates its values through exactly one protocol. An
-// undeclared selection is a class that never stated one, and its candidates
-// create their objects through Luna's own protocol of the class instead.
 using StorageSelection = std::shared_ptr<ClassAllocator>;
 
 [[nodiscard]] inline StorageSelection MakeStorageSelection() {
   return std::make_shared<ClassAllocator>();
 }
 
-// The protocol one candidate creates its object through: the class's selection
-// when it states one, and otherwise the ordinary protocol that candidate was
-// built with.
 [[nodiscard]] inline ClassAllocator
 SelectedStorageProtocol(const StorageSelection &Selected,
                         const ClassAllocator &Ordinary) {
@@ -124,9 +72,6 @@ SelectedStorageProtocol(const StorageSelection &Selected,
   return Ordinary;
 }
 
-// One construction step over arguments the call already converted. The captured
-// payload is held indirectly so the step stays copyable even when the class or
-// one of its arguments is move-only.
 template <class Type, class... Values>
 [[nodiscard]] ClassAllocator::ConstructOperation
 MakeConstructionStep(Values &&...Supplied) {
@@ -141,7 +86,6 @@ MakeConstructionStep(Values &&...Supplied) {
   };
 }
 
-// One constructor candidate of `Type`, built over its declared parameter list.
 template <class Type, class... Arguments>
 struct ConstructorCandidateBuilder final {
   [[nodiscard]] static ConstructionRequest Build(const StableTypeKey &Class,
@@ -180,7 +124,6 @@ MakeConstructorRequest(const StableTypeKey &Class, StorageSelection Selected) {
   return Builder::Build(Class, std::move(Selected));
 }
 
-// The ownership result one declared factory return type states.
 template <class Type, class Produced> struct FactoryResultTrait {
   static constexpr bool IsSupported = false;
 };
@@ -191,8 +134,6 @@ template <class Type> struct FactoryResultTrait<Type, Type> {
       ConstructionOwnership::LuaOwned;
   static constexpr std::string_view Policy = ConstructedStoragePolicyName;
 
-  // The produced object is moved into the storage the protocol allocates, so
-  // the value Luna publishes is the one Luna also destroys and deallocates.
   [[nodiscard]] static ConstructedInstance Adopt(const ClassAllocator &Protocol,
                                                  Type Source) {
     static_assert(std::is_move_constructible_v<Type>,
@@ -220,7 +161,6 @@ template <class Type> struct FactoryResultTrait<Type, std::shared_ptr<Type>> {
   }
 };
 
-// The ownership result one declared singleton accessor return type states.
 template <class Type, class Accessed> struct SingletonResultTrait {
   static constexpr bool IsSupported = false;
 };
@@ -246,8 +186,6 @@ template <class Type> struct SingletonResultTrait<Type, std::shared_ptr<Type>> {
   static constexpr ConstructionOwnership Result = ConstructionOwnership::Shared;
 };
 
-// The refusal an explicit policy earns when it contradicts what the declaration
-// states, or nothing when the two agree.
 [[nodiscard]] inline std::string
 ClassifyOwnershipPolicy(const OwnershipPolicy &Policy,
                         ConstructionOwnership Declared) {
@@ -263,7 +201,6 @@ ClassifyOwnershipPolicy(const OwnershipPolicy &Policy,
   return std::string();
 }
 
-// One factory candidate, built over the declared parameter list of its target.
 template <class Type, class Produced, class... Parameters>
 struct FactoryCandidateBuilder final {
   template <class Target>
@@ -318,9 +255,6 @@ MakeFactoryRequest(const StableTypeKey &Class, Target Producer,
   return Builder::Build(Class, std::move(Producer), std::move(Selected));
 }
 
-// One singleton accessor candidate. Borrowed ownership is the default, so the
-// declared result of `T&` or `T*` carries the explicit lifetime the policy
-// states; a shared accessor states shared ownership explicitly.
 template <class Type, class Accessed, class... Parameters>
 struct SingletonCandidateBuilder final {
   template <class Target>

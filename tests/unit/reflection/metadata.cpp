@@ -1,9 +1,3 @@
-// Focused coverage for the canonical documentation surface of reflection: the
-// documentation text, attributes, and usage examples every reflected category
-// publishes, and the module identity and version a declaration a module load
-// contributed reports as its provenance. Both are what documentation and
-// declaration generation read, so a gap here is a gap in generated material.
-
 // clang-format off
 #include <luna/binding/binding_registry.hpp>
 #include <luna/binding/class_builder.hpp>
@@ -37,9 +31,6 @@ void Check(bool Condition, std::string_view Description) {
   std::cerr << "reflection metadata check failed: " << Description << '\n';
 }
 
-// The canonical record of one qualified name in one symbol category. A
-// qualified name a callable owns resolves to its overload set, so a candidate
-// is always reached through its own category.
 [[nodiscard]] Luna::ReflectionRecord
 FindOfKind(const Luna::ReflectionSnapshot &Snapshot, Luna::SymbolKind Kind,
            std::string_view QualifiedName) {
@@ -83,9 +74,6 @@ struct Gadget final {
   return Created ? std::move(*Created) : Luna::ModuleManifest();
 }
 
-// Requirements 16.1, 16.8: a namespace, a function candidate, and a constant
-// each publish the documentation, attributes, and examples their declaration
-// stated.
 void CheckScopeDeclarationsPublishTheirDocumentationSurface() {
   Luna::State Owner;
   Luna::BindingRegistry Registry = Owner.Bindings();
@@ -134,8 +122,6 @@ void CheckScopeDeclarationsPublishTheirDocumentationSurface() {
             Candidate.Example(0) == "Studio.Double(21)",
         "a function candidate publishes its attributes and examples");
 
-  // Documentation belongs to the candidate that declared it, never to the
-  // overload set the name owns.
   const Luna::ReflectionRecord Set = Snapshot.Find("Studio.Double");
   Check(Set.Kind() == Luna::SymbolKind::OverloadSet &&
             Set.Documentation().empty() && Set.ExampleCount() == 0,
@@ -157,7 +143,6 @@ void CheckScopeDeclarationsPublishTheirDocumentationSurface() {
             Nested.Documentation() == "Mathematics helpers.",
         "a nested namespace is documented from the scope that declared it");
 
-  // Documentation is metadata only: the published surface still runs.
   Check(Owner
             .Execute("assert(Studio.Double(21) == 42)\n"
                      "assert(Studio.Gravity == 10)")
@@ -165,8 +150,6 @@ void CheckScopeDeclarationsPublishTheirDocumentationSurface() {
         "annotated declarations remain invocable through the real machine");
 }
 
-// Requirements 16.1, 16.5: metadata that names nothing is one deterministic
-// failure of the whole plan rather than annotation that belongs to no record.
 void CheckUnresolvableAnnotationsPublishNothing() {
   Luna::State Owner;
   Luna::BindingRegistry Registry = Owner.Bindings();
@@ -192,8 +175,6 @@ void CheckUnresolvableAnnotationsPublishNothing() {
           "an empty attribute name fails the commit");
   }
   {
-    // The root scope declares no symbol of its own, so it has no record to
-    // carry documentation.
     Luna::NamespaceBuilder Studio = Registry.RegisterNamespace("Studio");
     static_cast<void>(Studio.Documentation("Studio."));
     Check(Studio.Commit().IsSuccess(),
@@ -212,8 +193,6 @@ void CheckUnresolvableAnnotationsPublishNothing() {
         "the State stays usable and publishes nothing from a rejected plan");
 }
 
-// Requirements 16.1, 16.8: a class, its members, its operators, an enumeration,
-// and its enumerators all publish the documentation surface they declared.
 void CheckClassAndEnumerationDocumentationSurface() {
   Luna::State Owner;
   Luna::BindingRegistry Registry = Owner.Bindings();
@@ -269,8 +248,6 @@ void CheckClassAndEnumerationDocumentationSurface() {
             "The stored charge.",
         "a field publishes its documentation text");
 
-  // The class declares exactly one operator, so operator enumeration reaches it
-  // without spelling the Luna-owned segment it is published under.
   const Luna::ReflectionRecordRange Operators =
       Snapshot.Symbols(Luna::SymbolKind::Operator);
   const Luna::ReflectionRecord OperatorRecord =
@@ -301,9 +278,6 @@ void CheckClassAndEnumerationDocumentationSurface() {
         "an enumerator alias publishes its own examples");
 }
 
-// Requirements 16.1, 16.9: every declaration one module load contributed names
-// the module identity and version it came from, and a declaration no module
-// owns names none.
 void CheckModuleProvenanceReachesEveryContributedRecord() {
   Luna::State Owner;
   Luna::BindingRegistry Registry = Owner.Bindings();
@@ -344,8 +318,6 @@ void CheckModuleProvenanceReachesEveryContributedRecord() {
   Check(!Outside.HasModule() && !Outside.Module().IsValid(),
         "a declaration no module load contributed names no provenance");
 
-  // The provenance travels with the snapshot, so generation from a retained
-  // snapshot still identifies the module after the State is gone.
   const Luna::ReflectionSnapshot Retained = Snapshot;
   Check(Provenance(Retained.Find("Physics.Gravity")) == "studio.physics@2.1.0",
         "module provenance is owned by the captured generation");

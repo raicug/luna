@@ -64,9 +64,7 @@ GeneratedText(const std::vector<std::uint8_t> &Bytes) {
 } // namespace
 
 int RunSuccessfulValidationExactlyOnceProperties() {
-  // **Validates: Requirements 5.9**
   // clang-format off
-  // Feature: luau-binding-foundation, Property 10: Successful validation invokes exactly once
   const bool Passed = rc::check(
       // clang-format on
       "Successful validation invokes exactly once",

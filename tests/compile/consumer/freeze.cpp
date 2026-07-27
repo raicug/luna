@@ -1,8 +1,3 @@
-// The freeze-facing public API, compiled in a consumer that links only
-// `Luna::Luna`: no Luau include path, declaration, pointer, macro, or link
-// appears anywhere in, or is required by, freezing a State, querying it
-// afterwards, or retaining what it published.
-
 // clang-format off
 #include <luna/luna.hpp>
 
@@ -16,8 +11,6 @@
 
 namespace {
 
-// Freeze is one ordinary registry operation returning one ordinary Luna result,
-// reachable through the umbrella header alone.
 static_assert(
     std::is_same_v<decltype(std::declval<Luna::BindingRegistry &>().Freeze()),
                    Luna::RegistrationResult>,
@@ -30,7 +23,6 @@ static_assert(
 static_assert(std::is_copy_constructible_v<Luna::ReflectionSnapshot>,
               "A snapshot retained across freeze must stay a copyable value.");
 
-// A consumer type one frozen State exposes.
 struct ConsumerGauge final {
   int Charge = 3;
   [[nodiscard]] int Level() const { return Charge * 2; }
@@ -51,8 +43,6 @@ void ConfigureConsumerUnits(Luna::NamespaceBuilder &Builder) {
 
 } // namespace
 
-// One consumer that populates a State, freezes it, invokes and queries it
-// afterwards, and keeps what it captured once the State is gone.
 void VerifyFreezeConsumerBoundaryCompiles() {
   Luna::ReflectionSnapshot Retained;
   {
@@ -96,8 +86,6 @@ void VerifyFreezeConsumerBoundaryCompiles() {
           Registry.RegisterModule(*Units, &ConfigureConsumerUnits);
     }
 
-    // Freezing, and asking again, are both ordinary consumer calls whose
-    // refusals are ordinary Luna diagnostics.
     const Luna::RegistrationResult Frozen = Registry.Freeze();
     const Luna::RegistrationResult Repeated = Registry.Freeze();
     [[maybe_unused]] const bool Reported =
@@ -107,8 +95,6 @@ void VerifyFreezeConsumerBoundaryCompiles() {
     [[maybe_unused]] const bool Deterministic =
         Repeated.IsSuccess() || Repeated.Diagnostic() != nullptr;
 
-    // A frozen State still invokes and still answers queries; registration is
-    // simply refused through the same result type.
     [[maybe_unused]] const Luna::ExecutionResult Executed =
         Owner.Execute("return Increment(41)");
     [[maybe_unused]] const Luna::RegistrationResult Rejected =
@@ -122,8 +108,6 @@ void VerifyFreezeConsumerBoundaryCompiles() {
         !Retained.Find("Studio.Missing").IsValid();
   }
 
-  // What a frozen State published stays readable as an ordinary value after the
-  // State is gone.
   const Luna::ReflectionRecordRange Symbols = Retained.Symbols();
   std::vector<std::string> Names;
   Names.reserve(Symbols.Size());

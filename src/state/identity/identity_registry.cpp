@@ -23,8 +23,6 @@
 namespace Luna::Detail {
 namespace {
 
-// Compact canonical rendering used only inside deterministic diagnostics. It
-// contains no address, no RTTI name, and no registration order.
 [[nodiscard]] std::string DescribeType(const TypeDescriptor &Descriptor) {
   std::string Text;
   if (const auto FixedKey = Descriptor.FixedKey()) {
@@ -107,8 +105,6 @@ template <class Identity, class Descriptor, class Encode, class Describe>
 
   const std::vector<std::uint8_t> Bytes = EncodeDescriptor(Requested);
   if (Bytes.empty()) {
-    // Requirement 3.9: incomplete metadata fails with a non-empty Internal
-    // diagnostic instead of publishing a contradictory identity.
     Resolution.Diagnostic = ErrorDiagnostic::Create(
         ErrorCategory::Internal,
         "Internal identity failure: incomplete canonical " +
@@ -122,7 +118,6 @@ template <class Identity, class Descriptor, class Encode, class Describe>
     DigestBytes = *Forced;
   const Identity Candidate = Identity::FromBytes(DigestBytes);
 
-  // Every identity match compares the complete canonical descriptor.
   const auto Existing = Index.find(Candidate);
   if (Existing != Index.end()) {
     if (!(Existing->second == Requested)) {

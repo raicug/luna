@@ -7,8 +7,6 @@
 
 namespace {
 
-// The declared relationship facts compile from this header alone: no other Luna
-// header, no Luau include path, and nothing but the standard library.
 struct Root {
   virtual ~Root() = default;
   int Value = 0;
@@ -26,8 +24,6 @@ struct Hidden : private Root {
   int Kept = 0;
 };
 
-// The compatibility check of one declared cast policy: stateless, non-mutating,
-// and expressed over the consumer's own type.
 struct AcceptsEveryRoot {
   [[nodiscard]] bool operator()(const Root &Received) const {
     return Received.Value >= 0;

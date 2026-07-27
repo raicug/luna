@@ -1,9 +1,3 @@
-// The generator-facing public API, compiled in a consumer that links only
-// `Luna::Luna`: capturing one reflection snapshot, generating human-readable
-// documentation and Luau `.d.lua` declarations from it, and publishing both
-// artifacts require no Luau include path, declaration, pointer, macro, or link,
-// and hand the consumer no virtual-machine pointer of any kind.
-
 // clang-format off
 #include <luna/luna.hpp>
 
@@ -16,8 +10,6 @@
 
 namespace {
 
-// Generation reads one immutable snapshot plus one immutable options value, and
-// answers with one owned artifact of Luna and standard-library types only.
 static_assert(
     std::is_same_v<decltype(Luna::GenerateDocumentation(
                        std::declval<const Luna::ReflectionSnapshot &>(),
@@ -61,8 +53,6 @@ void ConfigureConsumerUnits(Luna::NamespaceBuilder &Builder) {
 
 } // namespace
 
-// One consumer that populates a State, captures one public snapshot, generates
-// both artifacts from it, and publishes them - all after the State is gone.
 void VerifyGenerationConsumerBoundaryCompiles() {
   Luna::ReflectionSnapshot Retained;
   {
@@ -102,8 +92,6 @@ void VerifyGenerationConsumerBoundaryCompiles() {
     Retained = Registry.Reflection();
   }
 
-  // Both generators, and both publications, are ordinary consumer calls over
-  // one retained snapshot the originating State no longer owns.
   const Luna::DocumentationOptions Documentation =
       Luna::DocumentationOptions::Create("Consumer Reference", true, true, true)
           .WithExamples(false);

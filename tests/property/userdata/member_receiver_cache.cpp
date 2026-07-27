@@ -1,42 +1,3 @@
-// Property 28: member access follows receiver precedence and lazy-cache
-// generations.
-//
-// Two halves are generated together, and both are compared with an independent
-// member model written here rather than with Luna's own accounting.
-//
-// The first half drives the one member gate directly, exactly the way a
-// property read, a property write, a field read, and a field write drive it. It
-// generates mutable and const values of one class, per-object policies that
-// decide whether that object's lazy getter and its marking setter refuse,
-// reads and writes of every declared direction - read-write, read-only,
-// write-only, immediate, lazy, and lazy read-write - plus values of another
-// canonical type, explicit cache invalidation, retirement, lifetime expiry, and
-// dispatch-generation replacement. The model predicts the earliest check that
-// refused, the receiver reason it reported, which half of the side-effect
-// boundary it belongs to, the value each successful read produced, how many
-// times each declared accessor ran, every cached entry, every header cache
-// slot, and all seven cache decision counters.
-//
-// The second half takes the same class through the real virtual machine, so
-// what the gate decides is observable exactly as a script sees it: the stage
-// that refused, the boundary that stage belongs to, the diagnostic that names
-// the class and the member, the two depths that prove the callback checkpoint
-// came back, and the root depth the whole access returned to. It generates
-// member reads and writes, unknown names, mistyped values, throwing getters and
-// setters, a refused publication of a value the getter already produced, and
-// one probe that runs `object:Method(args)`, `object.Method(object, args)`, and
-// `Class.Method(object, args)` against the same object and requires all three
-// to be one call - identical success or one identical diagnostic - together
-// with dot calls that supply no receiver at all and dot calls that supply a
-// receiver of no class.
-//
-// Both halves also check what a refusal must never cost. A failed getter is
-// never recorded. A refused write invalidates nothing, and a successful setter,
-// field write, or explicit invalidation removes every cached value of exactly
-// that object and no other. Every refusal taken before the declared target
-// began leaves the native object exactly as it was, and every refusal at all
-// restores the stack and leaves the State reusable.
-
 // clang-format off
 #include <luna/binding/binding_registry.hpp>
 #include <luna/binding/class_builder.hpp>
@@ -79,8 +40,6 @@ using Luna::Detail::MemberDispatchStageText;
 using Luna::Detail::OwnershipModel;
 using Luna::Detail::StateFaultPoint;
 
-// Deterministic byte source. Equal bytes always drive the equal scenario, so a
-// shrunk counterexample replays exactly the same member sequence.
 class ByteCursor final {
 public:
   explicit ByteCursor(const std::vector<std::uint8_t> &Bytes) noexcept
@@ -101,16 +60,6 @@ private:
   const std::vector<std::uint8_t> *BytesValue;
   std::size_t IndexValue = 0;
 };
-
-// ---------------------------------------------------------------------------
-// One representative class, plus the exact number of times each declared
-// accessor ran on it. Nothing in the model reads these counters; they are what
-// the model's predictions are compared against.
-//
-// Whether one object's lazy getter or its marking setter refuses is carried by
-// that object itself, never by where it happens to be stored, so recycled
-// storage can never inherit another object's behaviour.
-// ---------------------------------------------------------------------------
 
 std::size_t LevelReads = 0;
 std::size_t LevelWrites = 0;
@@ -139,7 +88,6 @@ struct Gadget final {
   const int Serial = 42;
   int Trace = 0;
 
-  // The per-object policy the declared targets read.
   bool LazyGetterRefuses = false;
   bool MarkingSetterRefuses = false;
 
@@ -153,8 +101,6 @@ struct Gadget final {
     Charge = Value;
   }
 
-  // A getter declared on a mutable object, so a const view refuses even the
-  // read.
   [[nodiscard]] double Weight() {
     ++WeightReads;
     return static_cast<double>(Charge) + 0.5;
@@ -182,8 +128,6 @@ struct Gadget final {
     Charge = Value;
   }
 
-  // The setter that makes the far side of the boundary observable: it changes
-  // the object first and only then refuses.
   void SetMarked(int Value) {
     ++MarkedWrites;
     Trace = Value;
@@ -224,12 +168,6 @@ RegisterGadget(Luna::BindingRegistry &Registry) {
   return WithGrow.Commit();
 }
 
-// ---------------------------------------------------------------------------
-// The independent member model.
-// ---------------------------------------------------------------------------
-
-// Every member the generated sequences reach, including one name the class
-// never declares.
 enum class MemberSlot : std::uint8_t {
   Level,
   Weight,
@@ -271,7 +209,6 @@ constexpr MemberTraits DeclaredMembers[] = {
   return std::string(TraitsOf(Slot).Name);
 }
 
-// The earliest check the gate can refuse at, named exactly as Luna names it.
 enum class ModelFailure : std::uint8_t {
   None,
   UnknownMember,
@@ -302,8 +239,6 @@ enum class ModelFailure : std::uint8_t {
   return "contained_exception";
 }
 
-// The dispatch step one gate failure belongs to. The order of the checks is the
-// order of the steps, so this is a naming of the model's own order.
 [[nodiscard]] std::string_view StageTextOf(ModelFailure Failure) noexcept {
   switch (Failure) {
   case ModelFailure::None:
@@ -323,21 +258,16 @@ enum class ModelFailure : std::uint8_t {
   return "target";
 }
 
-// Only an outcome that required the declared target to start is on the far side
-// of the boundary.
 [[nodiscard]] std::string_view BoundaryTextOf(ModelFailure Failure) noexcept {
   return Failure == ModelFailure::ContainedException ? "after_user_code"
                                                      : "before_user_code";
 }
 
-// One cached member value of one object.
 struct ModelEntry final {
   MemberSlot Member = MemberSlot::Expensive;
   int Cached = 0;
 };
 
-// What the cache holds for one object: the Luna-owned node, the generation its
-// values were produced under, and the header slot that names them.
 struct ModelCache final {
   bool HasNode = false;
   std::uint64_t NodeGeneration = 0;
@@ -357,7 +287,6 @@ struct ModelObject final {
   ModelCache Cache;
 };
 
-// Exactly how many times each declared accessor must have run.
 struct ModelAccessorCounters final {
   std::size_t LevelReads = 0;
   std::size_t LevelWrites = 0;
@@ -370,8 +299,6 @@ struct ModelAccessorCounters final {
   std::size_t GrowCalls = 0;
 };
 
-// The whole generated world: the objects, the dispatch generation they are
-// accessed under, the accessor counters, and the seven cache decisions.
 struct ModelWorld final {
   std::vector<ModelObject> Objects;
   std::uint64_t Generation = 0;
@@ -380,9 +307,6 @@ struct ModelWorld final {
   std::size_t PendingPublicationFaults = 0;
 };
 
-// The deterministic receiver reason one access earns, in exactly the order the
-// access gate asks its questions: the lifetime handle before the release state,
-// and the const permission last of all.
 [[nodiscard]] std::string_view
 ModelReceiverRefusal(const ModelObject &Object,
                      bool RequiresMutation) noexcept {
@@ -408,7 +332,6 @@ ModelReceiverRefusal(const ModelObject &Object,
   return Object.Cache.Entries.size();
 }
 
-// The value each declared getter produces from the object as it is.
 [[nodiscard]] int ProducedIntegerOf(const ModelObject &Object,
                                     MemberSlot Member) noexcept {
   switch (Member) {
@@ -428,9 +351,6 @@ ModelReceiverRefusal(const ModelObject &Object,
   return 0;
 }
 
-// One modelled read: the earliest refusal, the receiver reason, whether the
-// declared getter was skipped because its value was already recorded, and
-// whether this successful getter recorded its own.
 struct ModelReadOutcome final {
   ModelFailure Failure = ModelFailure::None;
   std::string Receiver = "none";
@@ -440,9 +360,6 @@ struct ModelReadOutcome final {
   double ProducedDouble = 0.0;
 };
 
-// The one read gate, expressed once against the model. Nothing here reads
-// Luna's accounting: every consequence is predicted from the generated action
-// and the model's own state.
 [[nodiscard]] ModelReadOutcome
 ModelRead(ModelWorld &World, std::size_t ObjectIndex, MemberSlot Member) {
   ModelObject &Object = World.Objects[ObjectIndex];
@@ -467,8 +384,6 @@ ModelRead(ModelWorld &World, std::size_t ObjectIndex, MemberSlot Member) {
     return Outcome;
   }
 
-  // A lazy member reuses only a value its own getter already produced, for this
-  // object, under this dispatch generation.
   if (Traits.Lazy) {
     if (!Object.Cache.SlotPopulated || !Object.Cache.HasNode) {
       ++World.Cache.Miss;
@@ -502,7 +417,6 @@ ModelRead(ModelWorld &World, std::size_t ObjectIndex, MemberSlot Member) {
     break;
   }
 
-  // A getter that threw records nothing at all.
   if (Member == MemberSlot::Expensive && Object.LazyGetterRefuses) {
     Outcome.Failure = ModelFailure::ContainedException;
     return Outcome;
@@ -516,9 +430,6 @@ ModelRead(ModelWorld &World, std::size_t ObjectIndex, MemberSlot Member) {
   if (!Traits.Lazy)
     return Outcome;
 
-  // The successful getter's value is recorded. A node whose generation no
-  // longer dispatches is re-keyed and emptied first, so a stale generation
-  // never leaves a value behind.
   ModelCache &Cache = Object.Cache;
   if (!Cache.HasNode) {
     Cache.HasNode = true;
@@ -555,8 +466,6 @@ struct ModelWriteOutcome final {
   std::size_t Invalidated = 0;
 };
 
-// Every entry of one object, dropped. This is what a successful setter or field
-// write and an explicit invalidation both perform.
 [[nodiscard]] std::size_t ModelInvalidateOwner(ModelWorld &World,
                                                ModelObject &Object) {
   if (!Object.Cache.HasNode)
@@ -571,9 +480,6 @@ struct ModelWriteOutcome final {
   return Removed;
 }
 
-// The one write gate. Every write mutates its object, so a const view is
-// refused before the direction of the member is even considered, and the
-// declared value type is compared before the setter runs.
 [[nodiscard]] ModelWriteOutcome ModelWrite(ModelWorld &World,
                                            std::size_t ObjectIndex,
                                            MemberSlot Member, bool Mistyped,
@@ -624,8 +530,6 @@ struct ModelWriteOutcome final {
     ++World.Accessors.MarkedWrites;
     Object.Trace = Written;
     if (Object.MarkingSetterRefuses) {
-      // The mutation the consumer's own code performed survives, because Luna
-      // promises no native rollback once user code has started.
       Outcome.Failure = ModelFailure::ContainedException;
       return Outcome;
     }
@@ -638,8 +542,6 @@ struct ModelWriteOutcome final {
   return Outcome;
 }
 
-// Retiring one value drops its whole node before anything is released, and the
-// header slot stops naming entries whether or not there was a node at all.
 void ModelRetire(ModelWorld &World, ModelObject &Object) {
   if (Object.Cache.HasNode) {
     ++World.Cache.Drop;
@@ -655,11 +557,6 @@ void ModelRetire(ModelWorld &World, ModelObject &Object) {
 } // namespace
 
 namespace {
-
-// ---------------------------------------------------------------------------
-// One State with the class registered, plus the exposure and access helpers the
-// generated sequences use.
-// ---------------------------------------------------------------------------
 
 [[nodiscard]] std::string PathOf(std::size_t Index) {
   return "Value_" + std::to_string(Index);
@@ -721,8 +618,6 @@ HoldsDouble(const Luna::Detail::ClassMemberAccessObservation &Observed,
   return Difference > -0.000001 && Difference < 0.000001;
 }
 
-// Every prediction of the model, compared with what Luna reports about its own
-// cache, its own headers, and the objects themselves.
 void VerifyWorld(const Luna::State &Owner, const ModelWorld &World,
                  const std::vector<Gadget *> &Objects) {
   RC_ASSERT(LevelReads == World.Accessors.LevelReads);
@@ -773,10 +668,6 @@ void VerifyWorld(const Luna::State &Owner, const ModelWorld &World,
   RC_ASSERT(Counted.Drop == World.Cache.Drop);
 }
 
-// ---------------------------------------------------------------------------
-// One generated action of the gate-driven half.
-// ---------------------------------------------------------------------------
-
 enum class GateActionKind : std::uint8_t {
   Read,
   Write,
@@ -794,8 +685,6 @@ struct GateAction final {
   int Written = 0;
 };
 
-// Biased toward reads and writes of the lazy members, so a value is recorded,
-// reused, invalidated, and re-recorded often, while every refusal still occurs.
 [[nodiscard]] MemberSlot ReadableSlot(std::size_t Choice) noexcept {
   switch (Choice % 10) {
   case 0:
@@ -884,18 +773,11 @@ struct GateAction final {
   return Action;
 }
 
-// ---------------------------------------------------------------------------
-// The gate-driven half: one generated member sequence, compared step by step
-// with the model above.
-// ---------------------------------------------------------------------------
-
 void VerifyGateDrivenMemberSequence(ByteCursor &Cursor) {
   ResetAccessorCounters();
 
   const std::size_t Count = 1 + Cursor.Pick(3);
 
-  // The objects and their lifetime generations outlive the State, and both have
-  // stable addresses, so a borrowed value never names storage that moved.
   std::vector<std::unique_ptr<Gadget>> Storage;
   std::vector<std::unique_ptr<std::uint64_t>> Lifetimes;
   std::vector<Gadget *> Objects;
@@ -986,8 +868,6 @@ void VerifyGateDrivenMemberSequence(ByteCursor &Cursor) {
           RC_ASSERT(!Taken.Recorded);
         }
 
-        // A read never changes the object, and a refusal taken before the
-        // getter began never even reached it.
         RC_ASSERT(Objects[Action.Object]->Charge == ChargeBefore);
         RC_ASSERT(Objects[Action.Object]->Trace == TraceBefore);
         break;
@@ -1015,9 +895,6 @@ void VerifyGateDrivenMemberSequence(ByteCursor &Cursor) {
           Invalidations += Predicted.Invalidated;
         }
 
-        // Every refusal taken before the setter began leaves the native object
-        // exactly as it was; the one refusal taken after it began keeps the
-        // mutation the consumer's own code performed.
         if (Predicted.Failure == ModelFailure::ContainedException) {
           RC_ASSERT(Objects[Action.Object]->Trace == Action.Written);
           RC_ASSERT(Objects[Action.Object]->Charge == ChargeBefore);
@@ -1042,7 +919,6 @@ void VerifyGateDrivenMemberSequence(ByteCursor &Cursor) {
         const bool Retired =
             Hooks::RetireClassUserdata(Owner, Objects[Action.Object]);
         if (AlreadyRetired) {
-          // The gate is idempotent: nothing is dropped a second time.
           RC_ASSERT(!Retired);
         } else {
           RC_ASSERT(Retired);
@@ -1069,7 +945,6 @@ void VerifyGateDrivenMemberSequence(ByteCursor &Cursor) {
       RC_ASSERT(Hooks::ObserveRootStackDepth(Owner) == EntryDepth);
     }
 
-    // Every refusal left the State usable.
     RC_ASSERT(Owner.IsReady());
     RC_ASSERT(Owner.Execute("Recovered = 11").IsSuccess());
     RC_ASSERT(Hooks::ObserveIntegerGlobal(Owner, "Recovered") ==
@@ -1093,11 +968,6 @@ void VerifyGateDrivenMemberSequence(ByteCursor &Cursor) {
 
 namespace {
 
-// ---------------------------------------------------------------------------
-// The virtual-machine half: the same class and the same model, reached exactly
-// the way a script reaches it.
-// ---------------------------------------------------------------------------
-
 [[nodiscard]] std::string Refusal(Luna::State &Owner,
                                   const std::string &Source) {
   const Luna::ExecutionResult Result = Owner.Execute(Source);
@@ -1111,8 +981,6 @@ namespace {
   return Text.find(Needle) != std::string_view::npos;
 }
 
-// The diagnostic subject one refusal must name: the class and the member, in
-// exactly the wording the one member vocabulary produces.
 [[nodiscard]] std::string ExpectedNeedle(ModelFailure Failure, bool Reading,
                                          MemberSlot Member) {
   const std::string Qualified = "Gadget." + NameOf(Member);
@@ -1136,7 +1004,6 @@ namespace {
   return std::string();
 }
 
-// The callback checkpoint one refused access restores exactly.
 [[nodiscard]] bool RestoredCheckpoint(const Luna::State &Owner) {
   const auto Observation = Hooks::ObserveLastCallbackStackRestoration(Owner);
   return Observation.has_value() &&
@@ -1144,8 +1011,6 @@ namespace {
          Observation->ErrorDepth == Observation->RestoredDepth + 1;
 }
 
-// Everything the dispatch of one member access must report, compared with the
-// model's own prediction of the step, the boundary, and the receiver reason.
 void VerifyDispatch(const Luna::State &Owner, bool Reading, MemberSlot Member,
                     std::string_view Stage, std::string_view Boundary,
                     std::string_view Receiver, bool Succeeded,
@@ -1164,8 +1029,6 @@ void VerifyDispatch(const Luna::State &Owner, bool Reading, MemberSlot Member,
   RC_ASSERT(Observed->MemberName == NameOf(Member));
   RC_ASSERT(Observed->PublishedCount == PublishedCount);
 
-  // Every refusal returns the metamethod to exactly the depth it was entered
-  // at, so no partial result can be left behind.
   if (!Succeeded)
     RC_ASSERT(Observed->EntryDepth == Observed->RestoredDepth);
 }
@@ -1321,9 +1184,6 @@ void VerifyVirtualMachineMemberSequence(ByteCursor &Cursor) {
               BoundaryTextOf(Predicted.Failure), Predicted.Receiver, false, 0);
           RC_ASSERT(RestoredCheckpoint(Owner));
         } else if (World.PendingPublicationFaults != 0) {
-          // The getter already produced its value, so the refusal belongs to
-          // the far half of the boundary unless the value came from the cache
-          // and no user code ran at all. Either way nothing is published.
           --World.PendingPublicationFaults;
           ++Unpublishable;
           RC_ASSERT(!Message.empty());
@@ -1388,8 +1248,6 @@ void VerifyVirtualMachineMemberSequence(ByteCursor &Cursor) {
       }
 
       case VmActionKind::ColonCall: {
-        // A declared method mutates its object without invalidating anything,
-        // so a lazy value recorded earlier stays exactly as it was recorded.
         ModelObject &Object = World.Objects[Action.Object];
         const std::string_view ReceiverRefusal =
             ModelReceiverRefusal(Object, true);
@@ -1410,8 +1268,6 @@ void VerifyVirtualMachineMemberSequence(ByteCursor &Cursor) {
                     std::optional<int>(Object.Charge));
         }
 
-        // A method is reached through the class table itself, so no typed
-        // accessor was ever consulted.
         RC_ASSERT(!Hooks::ObserveLastClassMemberDispatch(Owner).has_value());
         break;
       }
@@ -1428,8 +1284,6 @@ void VerifyVirtualMachineMemberSequence(ByteCursor &Cursor) {
         const std::string Scoped = Refusal(
             Owner, "Result = Gadget.Grow(" + Path + ", " + Argument + ")");
 
-        // The three spellings are one call: they succeed together, or they
-        // produce one identical diagnostic.
         RC_ASSERT(Colon == Dot);
         RC_ASSERT(Dot == Scoped);
         ++IdenticalSpellings;
@@ -1451,8 +1305,6 @@ void VerifyVirtualMachineMemberSequence(ByteCursor &Cursor) {
       }
 
       case VmActionKind::MissingReceiver: {
-        // A dot call that supplied no receiver fails receiver validation ahead
-        // of every ordinary-argument decision.
         const std::string Message = Refusal(Owner, "Result = Gadget.Grow()");
         ++Refusals;
         RC_ASSERT(Contains(Message, "receiver"));
@@ -1473,8 +1325,6 @@ void VerifyVirtualMachineMemberSequence(ByteCursor &Cursor) {
       }
 
       case VmActionKind::InjectPublicationFault:
-        // One injection states the pending count rather than adding to it, so
-        // asking twice still leaves exactly one refusal waiting.
         Hooks::InjectFault(Owner, StateFaultPoint::MemberValuePublication, 1);
         World.PendingPublicationFaults = 1;
         break;
@@ -1522,7 +1372,6 @@ void VerifyVirtualMachineMemberSequence(ByteCursor &Cursor) {
 
 int RunMemberReceiverAndLazyCacheProperties() {
   // clang-format off
-  // **Validates: Requirements 13.3, 13.4, 13.5, 13.7, 13.8, 13.9, 13.10**
   // Feature: reflection-driven-binding-system, Property 28: Member access follows receiver precedence and lazy-cache generations
   const bool Passed = rc::check(
       // clang-format on
