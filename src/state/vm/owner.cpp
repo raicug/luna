@@ -114,6 +114,11 @@ bool VirtualMachineOwner::RestoreVmPath(const std::string &Path,
   return RestoreVmPathValue(Handle, Path, Saved);
 }
 
+bool VirtualMachineOwner::ClearVmPath(const std::string &Path) noexcept {
+  if (!IsReady() || Path.empty())
+    return false;
+  return ClearVmPathValue(Handle, Path);
+}
 VmPathObservation
 VirtualMachineOwner::ObserveVmPath(const std::string &Path) const noexcept {
   return Luna::Detail::ObserveVmPath(Handle, Path);

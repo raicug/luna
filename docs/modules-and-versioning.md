@@ -96,7 +96,7 @@ One load resolves the whole graph before anything runs:
 
 Failures are canonical, not incidental. A dependency cycle, a version conflict with no satisfying candidate, a missing definition, and a callback refusal each produce one deterministic diagnostic naming the path involved. Because the whole load is one transaction, a refused graph leaves the State exactly as it was.
 
-Load-once means a repeated `RegisterModule` of an identity already loaded is idempotent only when the normalized manifest compares equal to the loaded one. A different definition of an already loaded identity is a conflict.
+Load-once means a repeated `RegisterModule` of an identity already loaded is idempotent only when the normalized manifest compares equal to the loaded one, and an idempotent repeat reruns no callback and publishes no new generation. Anything else is a conflict: an unequal definition at the same version, or any different version of that identity. A refused conflict leaves the loaded graph exactly as it was.
 
 ## Provenance
 
@@ -112,9 +112,11 @@ if (Record.HasModule()) {
 
 Declaration generation can carry that provenance into its output; see [reflection and generation](reflection-and-generation.md).
 
-## Not implemented
+## Load-only, and what that means
 
-Unload, hot reload, and replacement of a loaded module do not exist. Once a module is loaded into a State, it stays for the life of that State. If you need a different graph, build a new State.
+There is no public entry point that unloads, replaces, or hot reloads a loaded module. Registration is additive: once a module is loaded into a State, it stays for the life of that State. If you need a different graph, build a new State.
+
+That is a deliberate boundary rather than a missing check. The machinery those operations need is implemented and tested privately — affected-closure and blocker analysis over dependents, live userdata, rooted references, caches and retained generations; staging with reverse-order undo; and atomic publication of a new module, reflection, cache, and dispatch generation. What is absent is the decision to enable it: no State declares dynamic lifecycle support, so any such request is refused deterministically with a load-only diagnostic and changes nothing.
 
 ---
 

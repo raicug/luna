@@ -193,6 +193,9 @@ public:
 
   void RetireEverything() noexcept;
 
+  [[nodiscard]] bool
+  Publish(std::shared_ptr<const DispatchGeneration> Published) noexcept;
+
   [[nodiscard]] std::shared_ptr<const DispatchGeneration> Capture() const;
 
   [[nodiscard]] DispatchRetention Retain(DispatchRetainer Retainer) const;

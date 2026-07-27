@@ -23,6 +23,7 @@
 #include "state/transaction/generation_set.hpp"
 #include "state/transaction/installation.hpp"
 #include "state/transaction/lifecycle.hpp"
+#include "state/transaction/lifecycle_publication.hpp"
 #include "state/transaction/lifecycle_staging.hpp"
 #include "state/transaction/transaction.hpp"
 #include "state/userdata/access.hpp"
@@ -333,8 +334,16 @@ private:
       std::size_t ThrowAfterSubmissions, bool ThrowStandardException,
       bool PublishWhenComplete);
 
+  [[nodiscard]] Detail::LifecycleSubject DescribeLifecycleSubject() const;
+
+  [[nodiscard]] Detail::LifecycleAnalysis
+  AnalyzeLifecycleRequest(const Detail::LifecycleRequest &Request) const;
+
   [[nodiscard]] Detail::LifecycleAttemptObservation
   PrepareLifecycleAttempt(const Detail::LifecycleAttempt &Attempt);
+
+  [[nodiscard]] Detail::LifecycleCommitObservation
+  PublishLifecycleAttempt(const Detail::LifecycleCommitAttempt &Request);
 
   Detail::ReflectionDatabase Reflection;
   std::shared_ptr<const Detail::GenerationSet> Generations =

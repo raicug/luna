@@ -14,7 +14,7 @@ ctest --preset ninja-release
 
 CTest exposes four entries. `LunaTests` is the one unified test executable; `LunaBuildPolicy` checks project boundaries and configuration; `LunaTestApp.Build` builds the smoke target; and `LunaTestApp` runs the end-to-end consumer flow.
 
-The unified executable contains focused unit tests, compiler/VM integration tests, generation tests with golden artifacts, every standalone public-header compile check, the Luau-free consumer compile checks, and 30 RapidCheck properties. CTest sets `RC_PARAMS=max_success=100 verbose_shrinking=1`, so each property runs at least 100 successful generated cases and prints replay information on failure.
+The unified executable contains focused unit tests, compiler/VM integration tests, generation tests with golden artifacts, every standalone public-header compile check, the Luau-free consumer compile checks, and 31 RapidCheck properties. CTest sets `RC_PARAMS=max_success=100 verbose_shrinking=1`, so each property runs at least 100 successful generated cases and prints replay information on failure.
 
 Test sources are grouped by category under `tests/`: `unit/`, `property/`, `integration/`, `generation/`, and `compile/`. Every public header must have a matching standalone compile source under `tests/compile/standalone/`, or configuration fails outright.
 
@@ -57,9 +57,10 @@ It is also the best place to check a documentation claim, because it uses the pu
 
 Luna currently covers functions with overloads and rich call shapes, namespaces, constants, enums, classes as typed userdata, load-once versioned modules, canonical identity, immutable reflection, documentation and `.d.lua` generation with atomic publication, and freeze.
 
-Not implemented, and absent rather than partial:
+Module lifecycle is load-only through the public API: no consumer entry point unloads, replaces, or hot reloads a loaded module. The supporting machinery is implemented and tested privately, but no State enables dynamic lifecycle, so such a request is refused deterministically and mutates nothing.
 
-- module unload, hot reload, and replacement of a loaded module
+Not implemented at all, and absent rather than partial:
+
 - coroutines and asynchronous invocation
 - delegates, signals, and events
 - annotation helper macros

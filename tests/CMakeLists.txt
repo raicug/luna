@@ -55,8 +55,10 @@ set_target_properties(LunaStandalonePublicHeaderCompileChecks PROPERTIES
 
 add_library(LunaConsumerBoundaryCompileCheck OBJECT
     compile/consumer/boundary.cpp
+    compile/consumer/extensions.cpp
     compile/consumer/freeze.cpp
     compile/consumer/generation.cpp
+    compile/consumer/hot_reload.cpp
     compile/consumer/lifecycle.cpp
 )
 target_compile_features(LunaConsumerBoundaryCompileCheck PRIVATE cxx_std_20)

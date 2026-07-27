@@ -59,6 +59,8 @@ public:
   [[nodiscard]] bool RestoreVmPath(const std::string &Path,
                                    const SavedVmValue &Saved) noexcept;
 
+  [[nodiscard]] bool ClearVmPath(const std::string &Path) noexcept;
+
   [[nodiscard]] VmPathObservation
   ObserveVmPath(const std::string &Path) const noexcept;
 

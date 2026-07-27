@@ -50,6 +50,17 @@ namespace {
   return false;
 }
 
+[[nodiscard]] bool IsRetained(const LifecyclePlan &Plan,
+                              std::string_view Name) noexcept {
+  if (Name.empty())
+    return false;
+  for (const std::string &Retained : Plan.RetainedPaths) {
+    if (PathContains(Name, Retained))
+      return true;
+  }
+  return false;
+}
+
 [[nodiscard]] ErrorDiagnostic
 Refusal(ErrorCategory Category, const LifecyclePlan &Plan, std::string Reason) {
   std::string Message("Cannot ");
@@ -151,7 +162,7 @@ std::strong_ordering CompareStaged(const LifecycleStagedItem &Left,
 }
 
 PreparedLifecycle::~PreparedLifecycle() noexcept {
-  if (!RolledBack)
+  if (!RolledBack && !Committed)
     Rollback();
 }
 
@@ -179,6 +190,23 @@ void PreparedLifecycle::Rollback() noexcept {
   RolledBack = true;
   Observation.IsPrepared = false;
   Observation.IsRolledBack = true;
+}
+
+void PreparedLifecycle::Commit() noexcept {
+  if (RolledBack || Committed)
+    return;
+
+  if (Journal)
+    Journal->Commit();
+
+  ObserveLifecycleStaging(*this, Observation);
+
+  PreviousDispatch.Release();
+  PreviousCaches.reset();
+
+  Committed = true;
+  Observation.IsPrepared = true;
+  Observation.IsRolledBack = false;
 }
 
 void ObserveLifecycleStaging(const PreparedLifecycle &Prepared,
@@ -394,6 +422,10 @@ LifecycleStageStatus PrepareLifecycle(RegistrationTransaction &Transaction,
     const bool Retained =
         std::find(Plan.RetainedPaths.begin(), Plan.RetainedPaths.end(), Path) !=
         Plan.RetainedPaths.end();
+    if (Retained)
+      Prepared.RetainedPaths.push_back(Path);
+    else
+      Prepared.RemovedPaths.push_back(Path);
     Stage(LifecycleStagedKind::TablePath, Path,
           Retained ? "retained" : "removed");
   }
@@ -490,7 +522,12 @@ LifecycleStageStatus PrepareLifecycle(RegistrationTransaction &Transaction,
       continue;
     const bool BelongsToModule =
         Record->Module && RemovedModule && *Record->Module == *RemovedModule;
-    if (BelongsToModule || IsRemoved(Plan, Record->QualifiedName)) {
+    // A symbol a compatible replacement retains, and every scope it needs to
+    // stay reachable, keeps its canonical declaration and identity instead of
+    // being dropped with the rest of the module it came from.
+    const bool RetainedPath = IsRetained(Plan, Record->QualifiedName);
+    if (!RetainedPath &&
+        (BelongsToModule || IsRemoved(Plan, Record->QualifiedName))) {
       DroppedSymbols.insert(Record->Id);
       Stage(LifecycleStagedKind::Reflection, Record->QualifiedName, "removed");
       continue;
@@ -545,6 +582,7 @@ LifecycleStageStatus PrepareLifecycle(RegistrationTransaction &Transaction,
     RetainedSymbols.push_back(*Symbol);
   }
   Prepared.Symbols = CommittedSymbolTable::Build(std::move(RetainedSymbols));
+  Prepared.RemovedSymbols.assign(DroppedSymbols.begin(), DroppedSymbols.end());
 
   if (Sources.Faults->Consume(StateFaultPoint::LifecycleCachePreparation))
     return Refuse(LifecycleStageStatus::CacheFailure,

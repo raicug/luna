@@ -118,6 +118,22 @@ bool ModuleRegistry::Record(ModuleManifest Manifest) {
   return true;
 }
 
+bool ModuleRegistry::Publish(
+    const std::vector<ModuleManifest> &Graph) noexcept {
+  try {
+    std::map<std::string, ModuleManifest, std::less<>> Published;
+    for (const ModuleManifest &Member : Graph) {
+      if (!Member.IsValid())
+        return false;
+      if (!Published.try_emplace(Member.Identity(), Member).second)
+        return false;
+    }
+    Modules = std::move(Published);
+    return true;
+  } catch (...) {
+    return false;
+  }
+}
 const ModuleManifest *
 ModuleRegistry::Find(std::string_view Identity) const noexcept {
   const auto Loaded = Modules.find(Identity);

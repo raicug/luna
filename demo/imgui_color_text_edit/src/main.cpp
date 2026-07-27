@@ -9,8 +9,11 @@
 
 #include <array>
 #include <cmath>
+#include <coroutine>
 #include <cstddef>
 #include <cstdlib>
+#include <functional>
+#include <future>
 #include <iostream>
 #include <optional>
 #include <string>
@@ -25,6 +28,24 @@ namespace {
 enum class Channel : int { Debug = 10, Info = 20, Warning = 30, Error = 40 };
 
 enum class Access : unsigned int { Read = 1, Write = 2, Execute = 4 };
+
+// Luna's roadmap extensions are refused by the public constraints rather than
+// silently accepted, so the boundary is checked when this demo compiles.
+// Coroutines, asynchronous tasks, delegates, signals, and events declare no
+// canonical Luna type, so no descriptor can be derived from them.
+static_assert(!Luna::SupportedReturn<std::future<int>> &&
+                  !Luna::SupportedReturn<std::coroutine_handle<>>,
+              "Suspended work declares no supported return type.");
+static_assert(!Luna::SupportedParameter<std::function<void(int)>>,
+              "A delegate declares no supported parameter type.");
+static_assert(!Luna::SupportedCallable<std::future<int> (*)()>,
+              "An asynchronous callable is refused at compile time.");
+
+// The supported surface stays available, so the constraints refuse the
+// unavailable extensions rather than everything.
+static_assert(Luna::SupportedCallable<int (*)(int)> &&
+                  Luna::SupportedValue<std::string>,
+              "Ordinary callables and values stay supported.");
 
 [[nodiscard]] std::string NumberText(double Value) {
   std::string Formatted = std::to_string(Value);
@@ -107,7 +128,9 @@ public:
   return static_cast<int>(Text.size());
 }
 
-[[nodiscard]] int Measure(int Width, int Height) { return Width * Height; }
+[[nodiscard]] int Measure(int Width, int Height) {
+  return Width * Height;
+}
 
 [[nodiscard]] std::string Greet(std::string Name,
                                 std::optional<std::string> Title) {
@@ -190,7 +213,9 @@ public:
   return Described.empty() ? std::string("none") : Described;
 }
 
-[[nodiscard]] double ToPixels(double Metres) { return Metres * 64.0; }
+[[nodiscard]] double ToPixels(double Metres) {
+  return Metres * 64.0;
+}
 
 [[nodiscard]] std::string DescribePasses(int Passes) {
   return "render graph with " + std::to_string(Passes) + " pass(es)";
@@ -264,7 +289,30 @@ Exported(Luna::SymbolKind Kind, std::string Name, std::string Documentation) {
   return Created ? std::move(*Created) : Luna::ModuleManifest();
 }
 
+// Counts how often Luna actually runs a module's registration callback. A
+// second load of an identical definition is answered idempotently, so this
+// stays where the first load left it.
+int ModuleCallbackRuns = 0;
+
+// The same render module at a later version. Luna is load-once, so offering
+// this for an already loaded identity is a conflict rather than a reload.
+[[nodiscard]] Luna::ModuleManifest ReplacementRenderManifest() {
+  std::vector<Luna::ModuleDependency> Dependencies;
+  Dependencies.push_back(Dependency("studio.units", ">=1.0.0"));
+
+  std::vector<Luna::ModuleExport> Exports;
+  Exports.push_back(
+      Exported(Luna::SymbolKind::Namespace, "Render", "The render surface."));
+
+  std::optional<Luna::ModuleManifest> Created = Luna::ModuleManifest::TryCreate(
+      "studio.render", Version("2.2.0"), std::move(Dependencies),
+      "A later render module, offered after the graph is already loaded.",
+      std::move(Exports));
+  return Created ? std::move(*Created) : Luna::ModuleManifest();
+}
+
 void ConfigureUnits(Luna::NamespaceBuilder &Builder) {
+  ++ModuleCallbackRuns;
   Luna::NamespaceBuilder Units = Builder.RegisterNamespace("Units");
   Units.RegisterConstant("Metre", 1)
       .RegisterConstant("Pixel", 64)
@@ -274,6 +322,7 @@ void ConfigureUnits(Luna::NamespaceBuilder &Builder) {
 }
 
 void ConfigureRender(Luna::NamespaceBuilder &Builder) {
+  ++ModuleCallbackRuns;
   Luna::NamespaceBuilder Render = Builder.RegisterNamespace("Render");
   Render.RegisterConstant("Backend", "opengl3")
       .RegisterConstant("Passes", 2)
@@ -288,7 +337,7 @@ struct BoundFeature final {
   std::string_view Snippet;
 };
 
-constexpr std::array<BoundFeature, 14> BoundFeatures{{
+constexpr std::array<BoundFeature, 16> BoundFeatures{{
     {"Root function (Register)",
      R"(Registry.Register("HostLog", [this](std::string Message) {
   OutputLines.push_back(std::move(Message));
@@ -411,6 +460,27 @@ const Luna::GeneratedArtifact Documentation =
     Luna::GenerateDocumentation(Snapshot, Luna::DocumentationOptions());
 const Luna::GeneratedArtifact Declarations =
     Luna::GenerateDeclarations(Snapshot, Luna::DeclarationOptions());)"},
+    {"Load-once modules: idempotent reload and version conflict",
+     R"(// Loading the same identity and version again with an identical
+// definition succeeds idempotently and reruns no callback.
+Registry.RegisterModule(RenderManifest(), &ConfigureRender);
+
+// A different version of an already loaded identity is a conflict, not a
+// replacement. Registration is additive: there is no public unload or hot
+// reload, so this is refused deterministically and the loaded graph is
+// left exactly as it was. See the registration log for both outcomes.
+Registry.RegisterModule(ReplacementRenderManifest(), &ConfigureRender);)"},
+    {"Extension boundary: unavailable forms are refused",
+     R"(// Coroutines, asynchronous tasks, delegates, signals, and events have
+// no canonical Luna type, so the public constraints refuse them when this
+// demo compiles rather than failing somewhere inside a call.
+static_assert(!Luna::SupportedReturn<std::future<int>>);
+static_assert(!Luna::SupportedParameter<std::function<void(int)>>);
+static_assert(!Luna::SupportedCallable<std::future<int> (*)()>);
+
+// The supported surface is unaffected, so the constraints refuse the
+// unavailable extensions rather than everything.
+static_assert(Luna::SupportedCallable<int (*)(int)>);)"},
 }};
 
 struct ExampleScript final {
@@ -787,6 +857,24 @@ private:
            Registry.ProvideModule(UnitsManifest("1.2.0"), &ConfigureUnits));
     Record("RegisterModule(studio.render@2.1.0)",
            Registry.RegisterModule(RenderManifest(), &ConfigureRender));
+
+    // Modules are load-once. Loading the same identity and version again with
+    // an identical definition is answered idempotently and reruns no callback.
+    const int RunsAfterLoad = ModuleCallbackRuns;
+    Record("RegisterModule(studio.render@2.1.0) again",
+           Registry.RegisterModule(RenderManifest(), &ConfigureRender));
+    Record("Module callbacks rerun by the identical reload",
+           ModuleCallbackRuns == RunsAfterLoad,
+           ModuleCallbackRuns == RunsAfterLoad
+               ? std::string("none; the loaded definition was reused")
+               : std::string("the callback ran again unexpectedly"));
+
+    // A different version of an already loaded identity is a conflict, not a
+    // replacement. There is no public unload or hot reload, so the refusal is
+    // deterministic and the loaded graph is left exactly as it was.
+    Record(
+        "RegisterModule(studio.render@2.2.0)",
+        Registry.RegisterModule(ReplacementRenderManifest(), &ConfigureRender));
   }
 
   void Record(std::string Origin, const Luna::RegistrationResult &Result) {

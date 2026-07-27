@@ -2444,6 +2444,32 @@ ReflectionSnapshot State::Impl::CaptureReflection() const {
   return Reflection.Snapshot();
 }
 
+Detail::LifecycleSubject State::Impl::DescribeLifecycleSubject() const {
+  const std::shared_ptr<const Detail::ReflectionStorage> Captured =
+      Reflection.Capture();
+
+  Detail::LifecycleSubjectSources Sources;
+  Sources.Reflection = Captured.get();
+  Sources.Modules = &Modules;
+  Sources.Dispatch = &Bindings.Dispatch();
+  Sources.Userdata = &Userdata;
+  Sources.Classes = &Classes;
+  Sources.LazyValues = &LazyValues;
+  Sources.FrozenCaches = FrozenCaches.get();
+  Sources.Identities = &Identities;
+  Sources.Frozen = Lifecycle.IsFrozen();
+
+  // This milestone remains load-only: no module declares dynamic lifecycle
+  // support, so every unload or replacement request is refused before mutation.
+  Sources.DynamicLifecycleEnabled = false;
+  return Detail::DescribeLifecycleSubject(Sources);
+}
+
+Detail::LifecycleAnalysis State::Impl::AnalyzeLifecycleRequest(
+    const Detail::LifecycleRequest &Request) const {
+  return Detail::AnalyzeLifecycleRequest(Request, DescribeLifecycleSubject());
+}
+
 Detail::LifecycleAttemptObservation
 State::Impl::PrepareLifecycleAttempt(const Detail::LifecycleAttempt &Attempt) {
   Detail::LifecycleAttemptObservation Observed;
@@ -2527,6 +2553,186 @@ State::Impl::PrepareLifecycleAttempt(const Detail::LifecycleAttempt &Attempt) {
       Bindings.Dispatch().SupersededGenerationCount();
   Observed.RetainedDispatchGenerations =
       Bindings.Dispatch().RetainedGenerationCount();
+  Observed.LifecycleJournalRetainersAfter = Bindings.Dispatch().RetainerCount(
+      Detail::DispatchRetainer::LifecycleJournal);
+  return Observed;
+}
+
+Detail::LifecycleCommitObservation State::Impl::PublishLifecycleAttempt(
+    const Detail::LifecycleCommitAttempt &Request) {
+  Detail::LifecycleCommitObservation Observed;
+  const Detail::LifecycleAttempt &Attempt = Request.Staged;
+
+  const auto ReflectionIdentities = [this]() {
+    std::vector<std::string> Identities;
+    const std::shared_ptr<const Detail::ReflectionStorage> Captured =
+        Reflection.Capture();
+    if (!Captured)
+      return Identities;
+    for (std::size_t Index = 0; Index < Captured->RecordCount(); ++Index) {
+      const Detail::ReflectionRecordFields *Record = Captured->RecordAt(Index);
+      if (Record == nullptr)
+        continue;
+      Identities.push_back(Record->QualifiedName + "=" +
+                           Record->Id.ToString());
+    }
+    std::sort(Identities.begin(), Identities.end());
+    return Identities;
+  };
+
+  const auto PathKind = [this](const std::string &Path) {
+    if (!IsReady())
+      return std::string("<unavailable>");
+    Detail::SavedVmValue Saved;
+    if (!VirtualMachine.CaptureVmPath(Path, Saved))
+      return std::string("<unavailable>");
+    std::string Kind(Detail::VmValueKindText(Saved.Kind));
+    VirtualMachine.ReleaseSavedValue(Saved);
+    return Kind;
+  };
+
+  const auto RunSource = [this](const std::string &Source, bool &Succeeded,
+                                std::string &Diagnostic) {
+    if (Source.empty())
+      return;
+    const ExecutionResult Result = Execute(Source);
+    Succeeded = Result.IsSuccess();
+    if (const ErrorDiagnostic *Failure = Result.Diagnostic())
+      Diagnostic = Failure->Message();
+  };
+
+  Observed.GenerationBefore = CurrentGenerations()->Generation();
+  Observed.SymbolCountBefore = CurrentGenerations()->Symbols().Size();
+  Observed.ReflectionGenerationBefore = Reflection.Generation();
+  Observed.DispatchGenerationBefore = Bindings.Dispatch().Generation();
+  Observed.LifecycleGenerationBefore = Lifecycle.Generation();
+  Observed.ModuleCountBefore = Modules.Count();
+  Observed.OwnershipRecordsBefore = Userdata.RecordCount();
+  Observed.NamespaceOwnershipsBefore = Namespaces.Size();
+  Observed.ReflectionIdentitiesBefore = ReflectionIdentities();
+  Observed.StackDepthBefore = IsReady() ? VirtualMachine.StackDepth() : 0;
+  for (const std::string &Path : Request.ProbedPaths)
+    Observed.ProbedPathKindsBefore.push_back(PathKind(Path));
+
+  RunSource(Request.SourceBeforePublication, Observed.SourceBeforeSucceeded,
+            Observed.SourceBeforeDiagnostic);
+
+  {
+    Detail::RegistrationTransaction Transaction(CaptureTransactionEntry());
+    const Detail::ActiveTransactionScope Outer(ActiveTransaction, Transaction);
+    Detail::RegistrationTransaction &Active = Outer.Active();
+
+    Detail::LifecycleAnalysis Analysis;
+    Analysis.Operation = Attempt.Plan.Operation;
+    Analysis.Identity = Attempt.Plan.Identity;
+    Analysis.Blockers = Attempt.Blockers;
+
+    Detail::LifecycleStagingSources Sources;
+    Sources.Machine = &VirtualMachine;
+    Sources.Bindings = &Bindings;
+    Sources.Faults = &Faults;
+    Sources.Modules = &Modules;
+    Sources.Caches = FrozenCaches;
+
+    Detail::LifecycleStagingCallback Callback;
+    if (Attempt.RunCallback) {
+      Callback = [&Attempt]() -> std::optional<ErrorDiagnostic> {
+        if (Attempt.CallbackThrows)
+          throw std::runtime_error("replacement registration callback");
+        if (Attempt.CallbackFails)
+          return ErrorDiagnostic::Create(
+              ErrorCategory::Internal,
+              "The replacement registration callback refused.");
+        return std::nullopt;
+      };
+    }
+
+    Detail::PreparedLifecycle Prepared;
+    const Detail::LifecycleStageStatus Staged = Detail::PrepareLifecycle(
+        Active, Attempt.Plan, Analysis, Sources, Callback, Prepared);
+
+    Detail::DispatchRetention Held;
+    Detail::DispatchSlotId Probe;
+    if (Request.RetainInvocationGeneration) {
+      Held = Bindings.Dispatch().Retain(Detail::DispatchRetainer::Invocation);
+      for (const std::string &Path : Prepared.RemovedPaths) {
+        const std::optional<Detail::DispatchSlotId> Slot =
+            Bindings.Dispatch().FindSlot(Path);
+        if (!Slot)
+          continue;
+        Probe = *Slot;
+        Observed.RetainedProbe = Path;
+        break;
+      }
+    }
+
+    Detail::LifecyclePlan Plan = Attempt.Plan;
+    if (Request.PublishWithoutDynamicLifecycle)
+      Plan.DynamicLifecycleEnabled = false;
+    if (Request.PublishWithoutStaging)
+      Prepared.Rollback();
+
+    Detail::LifecyclePublicationTargets Targets;
+    Targets.Machine = &VirtualMachine;
+    Targets.Bindings = &Bindings;
+    Targets.Faults = &Faults;
+    Targets.Modules = &Modules;
+    Targets.Reflection = &Reflection;
+    Targets.LazyValues = &LazyValues;
+    Targets.Identities = &Identities;
+    Targets.Generations = &Generations;
+    Targets.Caches = &FrozenCaches;
+
+    static_cast<void>(Detail::PublishLifecycle(Active, Plan, Prepared, Targets,
+                                               Observed.Publication));
+
+    Observed.Staging = Prepared.Observed();
+    Observed.Staging.Status = Staged;
+
+    Observed.TransactionPoisoned = Active.IsPoisoned();
+    Observed.TransactionCommitted =
+        Active.Status() == Detail::TransactionStatus::Committed;
+    if (Active.Failure())
+      Observed.TransactionFailure = Active.Failure()->Message();
+    if (Active.IsOpen())
+      Active.MarkRolledBack();
+
+    Observed.SupersededDispatchGenerations =
+        Bindings.Dispatch().SupersededGenerationCount();
+    Observed.RetainedDispatchGenerations =
+        Bindings.Dispatch().RetainedGenerationCount();
+
+    if (Held.IsHeld()) {
+      Observed.RetainedGenerationNumber = Held.GenerationNumber();
+      const Detail::DispatchEntry *Entry =
+          Probe.IsValid() ? Held.Find(Probe) : nullptr;
+      Observed.RetainedGenerationResolvesOldTarget =
+          Entry != nullptr && Entry->IsAvailable();
+    }
+  }
+
+  Observed.ReclaimedAfterRelease = Bindings.Dispatch().ReclaimUnretained();
+
+  RunSource(Request.SourceAfterPublication, Observed.SourceAfterSucceeded,
+            Observed.SourceAfterDiagnostic);
+
+  Observed.GenerationAfter = CurrentGenerations()->Generation();
+  Observed.SymbolCountAfter = CurrentGenerations()->Symbols().Size();
+  Observed.ReflectionGenerationAfter = Reflection.Generation();
+  Observed.DispatchGenerationAfter = Bindings.Dispatch().Generation();
+  Observed.LifecycleGenerationAfter = Lifecycle.Generation();
+  Observed.ModuleCountAfter = Modules.Count();
+  Observed.OwnershipRecordsAfter = Userdata.RecordCount();
+  Observed.NamespaceOwnershipsAfter = Namespaces.Size();
+  Observed.ReflectionIdentitiesAfter = ReflectionIdentities();
+  Observed.StackDepthAfter = IsReady() ? VirtualMachine.StackDepth() : 0;
+  for (const std::string &Path : Request.ProbedPaths)
+    Observed.ProbedPathKindsAfter.push_back(PathKind(Path));
+
+  Observed.ModuleStillLoaded = Modules.IsLoaded(Attempt.Plan.Identity);
+  if (const ModuleManifest *Loaded = Modules.Find(Attempt.Plan.Identity))
+    Observed.LoadedVersionAfter = Loaded->Version().ToString();
+
   Observed.LifecycleJournalRetainersAfter = Bindings.Dispatch().RetainerCount(
       Detail::DispatchRetainer::LifecycleJournal);
   return Observed;

@@ -24,6 +24,7 @@ class LazyPropertyCache;
 class ModuleRegistry;
 class OwnershipRegistry;
 class ReflectionStorage;
+class UserdataIdentityCache;
 
 enum class LifecycleOperation : std::uint8_t { Unload, Replacement };
 
@@ -222,6 +223,14 @@ struct LifecycleAnalysis final {
 
   std::vector<LifecycleBlocker> Blockers;
 
+  std::vector<std::string> RemovedSubjects;
+
+  std::vector<std::string> RetainedSubjects;
+
+  std::vector<std::string> RemovedTypes;
+
+  std::vector<LifecycleCacheEntry> InvalidatedCaches;
+
   [[nodiscard]] bool IsPermitted() const noexcept { return Blockers.empty(); }
 
   [[nodiscard]] bool HasBlocker(LifecycleBlockerKind Kind) const noexcept;
@@ -243,6 +252,7 @@ struct LifecycleSubjectSources final {
   const ClassRegistry *Classes = nullptr;
   const LazyPropertyCache *LazyValues = nullptr;
   const FreezeCacheStorage *FrozenCaches = nullptr;
+  const UserdataIdentityCache *Identities = nullptr;
 
   bool DynamicLifecycleEnabled = false;
   bool Frozen = false;

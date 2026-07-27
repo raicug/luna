@@ -177,6 +177,10 @@ public:
   std::vector<LifecycleCacheEntry> InvalidatedCaches;
   std::vector<LifecycleStagedItem> Staged;
 
+  std::vector<std::string> RemovedPaths;
+  std::vector<std::string> RetainedPaths;
+  std::vector<SymbolId> RemovedSymbols;
+
   std::shared_ptr<const FreezeCacheStorage> PreviousCaches;
 
   DispatchRetention PreviousDispatch;
@@ -189,7 +193,11 @@ public:
 
   [[nodiscard]] bool IsRolledBack() const noexcept { return RolledBack; }
 
+  [[nodiscard]] bool IsCommitted() const noexcept { return Committed; }
+
   void Rollback() noexcept;
+
+  void Commit() noexcept;
 
   [[nodiscard]] const LifecycleStagingObservation &Observed() const noexcept {
     return Observation;
@@ -202,6 +210,7 @@ public:
 private:
   LifecycleStagingObservation Observation;
   bool RolledBack = false;
+  bool Committed = false;
 };
 
 using LifecycleStagingCallback =

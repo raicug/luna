@@ -31,19 +31,23 @@ Supported today:
 - **Hierarchy.** `RegisterNamespace` with nested `NamespaceBuilder`, `RegisterConstant`, and `RegisterEnum` with enumerators, aliases, bitflags, and an explicit unscoped opt-in.
 - **Classes.** `RegisterClass<T>` with constructors, factories, singletons, allocators, methods, static methods, properties, fields, base edges, checked casts, and operators. Objects are typed userdata, owned by Lua, borrowed behind a `LifetimeHandle`, or shared through `std::shared_ptr`.
 - **Modules.** Load-once versioned modules with semantic versions, constraint resolution that picks the highest satisfying version, and canonical cycle and conflict diagnostics.
+- **Dispatch indirection.** Native closures resolve a stable dispatch slot rather than holding a binding record, and an invocation retains the generation it began with, so publishing a new generation never retargets work already in flight.
 - **Canonical identity.** `TypeId`, `SymbolId`, `StableTypeKey`, and canonical descriptors. No RTTI name, address, or registration order participates in any persistent identity.
 - **Reflection.** `ReflectionSnapshot` captures one immutable committed generation that stays readable after later registration, freeze, a State move, destruction of the originating State, and from another thread.
 - **Generation.** `GenerateDocumentation` and `GenerateDeclarations` read a snapshot and nothing else, and `PublishArtifact`, `PublishDocumentation`, and `PublishDeclarations` replace a file atomically. Output is canonical UTF-8, no BOM, LF endings, byte-identical for equivalent content.
 - **Freeze.** `BindingRegistry::Freeze()` validates the whole committed model, publishes generation-keyed lookup caches, then refuses further registration while invocation and reflection keep working.
 - **Transactions.** Every category registers through one outermost transaction with reverse-order undo and atomic publication: a refused attempt publishes nothing.
 
-Not implemented yet. These are absent, not partial:
+Module lifecycle is load-only through the public API. Registration is additive, and no consumer entry point unloads, replaces, or hot reloads a loaded module. The supporting machinery exists — affected-closure and blocker analysis, staging with reverse-order undo, atomic generation publication, and retained dispatch generations — but no State enables dynamic lifecycle, so such a request is refused deterministically with a load-only diagnostic and changes nothing.
 
-- Module unload, hot reload, and replacement of a loaded module.
+Not implemented at all. These are absent, not partial:
+
 - Coroutines and asynchronous invocation.
 - Delegates, signals, and events.
 - Annotation helper macros. Documentation, attributes, and examples are declared through ordinary builder calls.
 - IDE and profiling integrations.
+
+None of these degrade quietly. An unsupported callable, parameter, or return fails the public `SupportedCallable`, `SupportedParameter`, and `SupportedReturn` constraints at compile time, and an unsupported value is refused at registration time with a deterministic diagnostic, no published descriptor, and no VM artifact.
 
 Two current limitations are worth knowing before you design a surface:
 
@@ -56,7 +60,7 @@ Two current limitations are worth knowing before you design a surface:
 - `src/state/` contains all Luau-aware implementation code and is not public API.
 - `demo/imgui_color_text_edit/src/main.cpp` is the largest worked example: it exercises most of the surface through the public API alone.
 - `app/src/main.cpp` is the smallest complete consumer example.
-- `tests/` contains unit tests, integration tests, compile checks, generation golden files, and 30 properties.
+- `tests/` contains unit tests, integration tests, compile checks, generation golden files, and 31 properties.
 
 ---
 

@@ -270,6 +270,20 @@ void DispatchTable::RetireEverything() noexcept {
   }
 }
 
+bool DispatchTable::Publish(
+    std::shared_ptr<const DispatchGeneration> Published) noexcept {
+  if (!Published)
+    return false;
+
+  DispatchLatchGuard Guard(Latch);
+  if (Published == Current)
+    return true;
+  if (Current && Published->Generation() <= Current->Generation())
+    return false;
+
+  PublishLocked(std::move(Published));
+  return true;
+}
 std::shared_ptr<const DispatchGeneration> DispatchTable::Capture() const {
   DispatchLatchGuard Guard(Latch);
   return CurrentLocked();

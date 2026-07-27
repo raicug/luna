@@ -157,6 +157,7 @@ The documentation under `docs/` was written with AI assistance and checked again
 - Classes as typed userdata: constructors, factories, singletons, allocators, methods, properties, fields, base edges, checked casts, and operators
 - Lua-owned, borrowed, and `std::shared_ptr` shared ownership with `LifetimeHandle` invalidation
 - Load-once versioned modules with semantic-version constraint resolution
+- Stable dispatch indirection: a call retains the generation it began with, so publication never retargets work in flight
 - Content-derived `TypeId` and `SymbolId`: no RTTI name, address, or registration order in any persistent identity
 - Owning immutable `ReflectionSnapshot` that outlives its State and reads from any thread
 - Deterministic documentation and `.d.lua` generation with atomic artifact publication
@@ -217,7 +218,7 @@ CTest registers four checks:
 - `LunaTestApp.Build` — smoke application build fixture
 - `LunaTestApp` — end-to-end State, registration, invocation, and result validation
 
-The unified suite contains 30 RapidCheck properties, each configured for at least 100 successful cases. Both Debug and Release presets are expected to pass all four CTest entries.
+The unified suite contains 31 RapidCheck properties, each configured for at least 100 successful cases. Both Debug and Release presets are expected to pass all four CTest entries.
 
 Benchmarks are separate and opt-in. `-DLUNA_BUILD_BENCHMARKS=ON` adds one target per measured area under `benchmarks/`, and every result records the build type, compiler, architecture, Luau version, corpus, warmup, sample count, and cache/freeze mode it was measured with. They stay outside the correctness CTest run unless `LUNA_ENABLE_BENCHMARK_REGRESSION_TESTS` is enabled.
 
@@ -241,13 +242,16 @@ All project source paths are lowercase. C/C++ include blocks are protected with 
 
 ## Current scope
 
-Not implemented yet. These are absent rather than partial:
+Module lifecycle is **load-only through the public API**. Registration is additive, and there is no consumer entry point for unloading, replacing, or hot reloading a loaded module. The machinery those operations need is in place — stable dispatch slots, retained dispatch generations, affected-closure and blocker analysis, staging with reverse-order undo, and atomic generation publication — but no State enables dynamic lifecycle, so any such request is refused deterministically with a load-only diagnostic and mutates nothing.
 
-- Module unload, hot reload, and replacement of a loaded module
+Not implemented at all. These are absent rather than partial:
+
 - Coroutines and asynchronous invocation
 - Delegates, signals, and events
 - Annotation helper macros — documentation, attributes, and examples are ordinary builder calls
 - IDE and profiling integrations
+
+Each is refused explicitly rather than silently ignored: unsupported callables, parameters, and returns fail the public `SupportedCallable` constraints at compile time, and an unsupported value is refused at registration time without publishing a descriptor or touching the VM.
 
 Two current limitations are worth knowing before designing a surface:
 

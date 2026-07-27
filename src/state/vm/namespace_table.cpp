@@ -82,6 +82,19 @@ struct PathRequest final {
   return 0;
 }
 
+[[nodiscard]] int ClearPath(lua_State *State) {
+  auto *Request = static_cast<PathRequest *>(lua_tolightuserdata(State, 1));
+  if (!Request || !Request->Segments)
+    return RaiseLiteral(State, "Internal error: invalid path clear request.");
+
+  if (!PushVmPathContainer(State, *Request->Segments))
+    return 0;
+
+  lua_pushnil(State);
+  SetVmPathField(State, *Request->Segments);
+  lua_pop(State, 1);
+  return 0;
+}
 [[nodiscard]] int InstallTable(lua_State *State) {
   auto *Request = static_cast<PathRequest *>(lua_tolightuserdata(State, 1));
   if (!Request || !Request->Segments || !Request->Installation)
@@ -300,6 +313,23 @@ bool RestoreVmPathValue(lua_State *State, const std::string &Path,
                        Request);
 }
 
+bool ClearVmPathValue(lua_State *State, const std::string &Path) noexcept {
+  if (!State || Path.empty())
+    return false;
+
+  const std::vector<std::string> Segments = SplitVmPath(Path);
+  if (Segments.empty())
+    return false;
+
+  StackCheckpoint Checkpoint(State);
+  if (!ReserveStack(State, Segments.size()))
+    return false;
+
+  PathRequest Request;
+  Request.Segments = &Segments;
+  return CallProtected(State, ClearPath, "Luna.ClearVirtualMachinePath",
+                       Request);
+}
 NamespaceTableInstallation
 InstallNamespaceTable(lua_State *State, const std::string &Path) noexcept {
   NamespaceTableInstallation Installation;

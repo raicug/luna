@@ -42,6 +42,9 @@ void SetVmPathField(lua_State *State,
 [[nodiscard]] bool RestoreVmPathValue(lua_State *State, const std::string &Path,
                                       const SavedVmValue &Saved) noexcept;
 
+[[nodiscard]] bool ClearVmPathValue(lua_State *State,
+                                    const std::string &Path) noexcept;
+
 enum class NamespaceTableStatus {
   Created,
   Reopened,

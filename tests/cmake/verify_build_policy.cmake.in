@@ -196,6 +196,7 @@ list(APPEND LUNA_CONSUMER_FILES
     "app/src/main.cpp"
     "demo/imgui_color_text_edit/src/main.cpp"
     "tests/compile/consumer/boundary.cpp"
+    "tests/compile/consumer/extensions.cpp"
     "tests/compile/consumer/freeze.cpp"
 )
 foreach(CONSUMER_FILE IN LISTS LUNA_CONSUMER_FILES)

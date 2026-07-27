@@ -1347,12 +1347,34 @@ PublicationObservation StateTestHooks::ProbeInstallationJournal(
   return Observed;
 }
 
+LifecycleSubject StateTestHooks::DescribeLifecycleSubject(const State &Owner) {
+  if (!Owner.Implementation)
+    return LifecycleSubject();
+  return Owner.Implementation->DescribeLifecycleSubject();
+}
+
+LifecycleAnalysis
+StateTestHooks::AnalyzeLifecycleRequest(const State &Owner,
+                                       const LifecycleRequest &Request) {
+  if (!Owner.Implementation)
+    return LifecycleAnalysis();
+  return Owner.Implementation->AnalyzeLifecycleRequest(Request);
+}
+
 LifecycleAttemptObservation
 StateTestHooks::PrepareLifecycleAttempt(State &Owner,
                                         const LifecycleAttempt &Attempt) {
   if (!Owner.Implementation)
     return LifecycleAttemptObservation();
   return Owner.Implementation->PrepareLifecycleAttempt(Attempt);
+}
+
+LifecycleCommitObservation
+StateTestHooks::PublishLifecycleAttempt(State &Owner,
+                                        const LifecycleCommitAttempt &Request) {
+  if (!Owner.Implementation)
+    return LifecycleCommitObservation();
+  return Owner.Implementation->PublishLifecycleAttempt(Request);
 }
 
 void StateTestHooks::InjectFault(State &Owner, StateFaultPoint Point,

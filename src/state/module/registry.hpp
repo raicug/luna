@@ -65,6 +65,8 @@ public:
 
   [[nodiscard]] bool Record(ModuleManifest Manifest);
 
+  [[nodiscard]] bool Publish(const std::vector<ModuleManifest> &Graph) noexcept;
+
   [[nodiscard]] const ModuleManifest *
   Find(std::string_view Identity) const noexcept;
 

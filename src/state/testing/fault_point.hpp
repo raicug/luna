@@ -19,6 +19,7 @@ enum class StateFaultPoint {
   LifecycleCachePreparation,
   LifecycleDispatchStaging,
   LifecyclePublication,
+  LifecycleGenerationPublication,
   ArgumentInspection,
   MemberValuePublication,
   ReturnStackCapacity,

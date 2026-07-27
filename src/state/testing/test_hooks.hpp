@@ -5,6 +5,7 @@
 
 #include "state/dispatch/generation.hpp"
 #include "state/freeze/cache.hpp"
+#include "state/module/lifecycle.hpp"
 #include "state/module/registry.hpp"
 #include "state/reflection/database.hpp"
 #include "state/registration/submission.hpp"
@@ -15,6 +16,7 @@
 #include "state/transaction/installation.hpp"
 #include "state/transaction/generation_set.hpp"
 #include "state/transaction/lifecycle.hpp"
+#include "state/transaction/lifecycle_publication.hpp"
 #include "state/transaction/lifecycle_staging.hpp"
 #include "state/userdata/allocator.hpp"
 #include "state/userdata/class_registry.hpp"
@@ -421,8 +423,17 @@ public:
                            const std::vector<InstallationScope> &Overlays,
                            bool RestoreInsteadOfCommit);
 
+  [[nodiscard]] static LifecycleSubject
+  DescribeLifecycleSubject(const State &Owner);
+
+  [[nodiscard]] static LifecycleAnalysis
+  AnalyzeLifecycleRequest(const State &Owner, const LifecycleRequest &Request);
+
   [[nodiscard]] static LifecycleAttemptObservation
   PrepareLifecycleAttempt(State &Owner, const LifecycleAttempt &Attempt);
+
+  [[nodiscard]] static LifecycleCommitObservation
+  PublishLifecycleAttempt(State &Owner, const LifecycleCommitAttempt &Request);
 
   static void InjectFault(State &Owner, StateFaultPoint Point,
                           std::size_t Count = 1) noexcept;

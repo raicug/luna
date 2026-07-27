@@ -38,6 +38,7 @@ int RunDescriptorPlanTests();
 int RunDispatchGenerationIntegrationTests();
 int RunDispatchSlotIndirectionTests();
 int RunDocumentationGenerationTests();
+int RunDynamicModuleLifecycleProperties();
 int RunEndToEndRegistrationInvocationMatrixTests();
 int RunExecutionRecoveryProperties();
 int RunExecutionStackBalanceProperties();
@@ -60,9 +61,13 @@ int RunInternalValidationFailureProperties();
 int RunInvalidIntegerClassificationProperties();
 int RunInvocableValidRegistrationProperties();
 int RunInvocationPrimitiveTests();
+int RunLifecycleBlockerMatrixTests();
+int RunLifecycleClosureTests();
+int RunLifecyclePublicationTests();
 int RunLifecycleStagingTests();
 int RunLoadOnceModuleResolutionProperties();
 int RunModuleGraphIntegrationTests();
+int RunModuleLifecycleIntegrationTests();
 int RunModuleLoadingTests();
 int RunModuleResolutionTests();
 int RunMemberReceiverAndLazyCacheProperties();
@@ -92,6 +97,7 @@ int RunStateOwnershipTransitionsProperties();
 int RunStateRegistrationIsolationProperties();
 int RunStructuralConverterTests();
 int RunTransactionCallbackBoundaryTests();
+int RunUnavailableExtensionBoundaryTests();
 int RunTransactionInstallationAndPublicationTests();
 int RunUnifiedTransactionIntegrationTests();
 int RunUserdataAccessAndCacheTests();
@@ -108,7 +114,7 @@ int RunWrongArgumentCountProperties();
 namespace {
 
 struct TestCase final {
-  std::string_view Name;
+  std ::string_view Name;
   int (*Run)();
 };
 
@@ -232,8 +238,16 @@ int main() {
       TestCase{"transactional module loading", RunModuleLoadingTests},
       TestCase{"module graph loading through the real virtual machine",
                RunModuleGraphIntegrationTests},
+      TestCase{"lifecycle closure analysis and canonical blockers",
+               RunLifecycleClosureTests},
+      TestCase{"every lifecycle blocker, dependency path, and userdata policy",
+               RunLifecycleBlockerMatrixTests},
       TestCase{"staged and restored dynamic module lifecycle attempts",
                RunLifecycleStagingTests},
+      TestCase{"atomically published compatible lifecycle generations",
+               RunLifecyclePublicationTests},
+      TestCase{"module unload and hot reload through the real machine",
+               RunModuleLifecycleIntegrationTests},
       TestCase{"hierarchical registration through the real virtual machine",
                RunHierarchicalRegistrationIntegrationTests},
       TestCase{"deterministic documentation generation from one snapshot",
@@ -244,6 +258,8 @@ int main() {
                RunArtifactPublicationTests},
       TestCase{"pinned golden and structural generated artifacts",
                RunGeneratorArtifactGoldenTests},
+      TestCase{"refused roadmap extensions publish nothing",
+               RunUnavailableExtensionBoundaryTests},
       TestCase{"property 1: state ownership transitions",
                RunStateOwnershipTransitionsProperties},
       TestCase{"property 2: invocable valid registrations",
@@ -306,21 +322,24 @@ int main() {
           RunInheritanceAndCastPathProperties},
       TestCase{"property 30: frozen caches equal uncached generation lookups",
                RunFrozenCacheEquivalenceProperties},
+      TestCase{"property 31: module lifecycle publication follows the "
+               "retained-generation state machine",
+               RunDynamicModuleLifecycleProperties},
   };
 
   for (const auto &Test : Tests) {
     try {
       const int Result = Test.Run();
       if (Result != 0) {
-        std::cerr << "Test failed: " << Test.Name << " (code " << Result
-                  << ")\n";
+        std ::cerr << "Test failed: " << Test.Name << " (code " << Result
+                   << ")\n";
         return Result;
       }
     } catch (const std::exception &Error) {
-      std::cerr << "Test threw: " << Test.Name << ": " << Error.what() << '\n';
+      std ::cerr << "Test threw: " << Test.Name << ": " << Error.what() << '\n';
       return 1;
     } catch (...) {
-      std::cerr << "Test threw an unknown exception: " << Test.Name << '\n';
+      std ::cerr << "Test threw an unknown exception: " << Test.Name << '\n';
       return 1;
     }
   }
