@@ -2,7 +2,7 @@
 
 Luna is a C++20 binding library for embedding [Luau](https://luau.org/) without exposing the Luau C API to application code. Its public API owns the VM, registers type-safe native callables, executes source through protected operations, and returns inspectable Luna-owned diagnostics.
 
-The current foundation supports global C++ functions, function pointers, and concrete lambdas using `bool`, `int`, `double`, and `std::string` parameters. Callables may return one of those values or `void`.
+Every exposed symbol originates from one canonical reflected descriptor. Functions, overload sets, namespaces, constants, enums, classes, and versioned modules all register through a single atomic transaction, and the committed model can be captured as an immutable reflection snapshot, frozen for read-only invocation, or turned into documentation and Luau `.d.lua` declarations.
 
 ## Example
 
@@ -44,7 +44,7 @@ Consumers include only Luna headers and link only `Luna::Luna`. Luau headers, VM
 
 ## Documentation
 
-Start with the [setup guide](docs/setup.md) to add Luna through CMake. The [full documentation](docs/README.md) covers State ownership, function registration, value conversion, execution, diagnostics, architecture, and testing.
+Start with the [setup guide](docs/setup.md) to add Luna through CMake. The [full documentation](docs/README.md) covers State ownership, function registration, value conversion, namespaces and enums, classes and userdata, modules and versioning, reflection and generation, freeze, execution, diagnostics, architecture, and testing.
 
 ## AI assistance disclosure
 
@@ -52,11 +52,20 @@ The documentation under `docs/` was written with AI assistance and checked again
 
 ## Features
 
-- Move-only `Luna::State` with deterministic VM ownership
-- Type-safe registration through `Luna::BindingRegistry`
-- Automatic callable metadata deduction
-- Protected Luau compilation and execution
-- Transactional registration with duplicate and rollback protection
+- Move-only `Luna::State` with deterministic VM ownership and owner-thread affinity
+- Functions through `Register` and `RegisterFunction`, with macro-free `Overload<Signature>` disambiguation
+- Canonical overload sets resolved by Pareto dominance over conversion ranks
+- Trailing `std::optional` parameters, immutable defaults via `WithDefaults`, and variadic `ArgumentView` / `ArgumentPack`
+- Zero, scalar, and ordered multiple returns via `std::pair`, `std::tuple`, and `ReturnPack`, published atomically
+- Nested namespaces, constants, and enums with aliases, bitflags, and an explicit unscoped opt-in
+- Classes as typed userdata: constructors, factories, singletons, allocators, methods, properties, fields, base edges, checked casts, and operators
+- Lua-owned, borrowed, and `std::shared_ptr` shared ownership with `LifetimeHandle` invalidation
+- Load-once versioned modules with semantic-version constraint resolution
+- Content-derived `TypeId` and `SymbolId`: no RTTI name, address, or registration order in any persistent identity
+- Owning immutable `ReflectionSnapshot` that outlives its State and reads from any thread
+- Deterministic documentation and `.d.lua` generation with atomic artifact publication
+- `Freeze()` to validate the model and publish generation-keyed lookup caches
+- Transactional registration across every category, with reverse-order undo
 - Deterministic argument validation and conversion diagnostics
 - Embedded-NUL string support up to 1,048,576 bytes
 - Exception translation at the native callback boundary
@@ -93,7 +102,7 @@ Luau and RapidCheck are fetched at pinned revisions through CMake `FetchContent`
 
 ## Interactive editor demo
 
-An optional desktop demo combines Luna with [Dear ImGui](https://github.com/ocornut/imgui), [GLFW](https://www.glfw.org/), and [ImGuiColorTextEdit](https://github.com/BalazsJako/ImGuiColorTextEdit). It provides a small Luau editor, a Run button, execution diagnostics, and output from registered C++ callbacks.
+An optional desktop demo combines Luna with [Dear ImGui](https://github.com/ocornut/imgui), [GLFW](https://www.glfw.org/), and [ImGuiColorTextEdit](https://github.com/BalazsJako/ImGuiColorTextEdit). It is a binding playground: a syntax-highlighted Luau editor with example scripts, host output, a filterable reflection browser, the generated documentation and `.d.lua` artifacts, the exact C++ snippet each feature was bound with, and a log of every registration result. It registers most of Luna's surface through the public API alone, so it doubles as the largest worked example.
 
 ```bat
 cmake --preset ninja-debug -DLUNA_BUILD_IMGUI_DEMO=ON
@@ -112,25 +121,39 @@ CTest registers four checks:
 - `LunaTestApp.Build` — smoke application build fixture
 - `LunaTestApp` — end-to-end State, registration, invocation, and result validation
 
-The unified suite contains 17 RapidCheck properties, each configured for at least 100 successful cases. Both Debug and Release presets are expected to pass all four CTest entries.
+The unified suite contains 30 RapidCheck properties, each configured for at least 100 successful cases. Both Debug and Release presets are expected to pass all four CTest entries.
+
+Benchmarks are separate and opt-in. `-DLUNA_BUILD_BENCHMARKS=ON` adds one target per measured area under `benchmarks/`, and every result records the build type, compiler, architecture, Luau version, corpus, warmup, sample count, and cache/freeze mode it was measured with. They stay outside the correctness CTest run unless `LUNA_ENABLE_BENCHMARK_REGRESSION_TESTS` is enabled.
 
 ## Project layout
 
 ```text
-include/luna/   Public Luna-owned API
-src/state/      Private State, VM, binding, invocation, and execution code
-app/src/        Consumer smoke application
-demo/           Optional interactive ImGui playground
-tests/unit/     Focused and integration tests
-tests/property/ Property-based tests
-tests/compile/  Standalone-header and consumer-boundary checks
-cmake/          Dependency configuration
+include/luna/     Public Luna-owned API
+src/state/        Private State, VM, binding, invocation, and execution code
+app/src/          Consumer smoke application
+demo/             Optional interactive ImGui binding playground
+benchmarks/       Opt-in measurement targets, outside the correctness run
+tests/unit/       Focused tests
+tests/integration/ Tests through the real compiler and virtual machine
+tests/property/   Property-based tests
+tests/generation/ Generator tests and pinned golden artifacts
+tests/compile/    Standalone-header and consumer-boundary checks
+cmake/            Dependency configuration
 ```
 
 All project source paths are lowercase. C/C++ include blocks are protected with clang-format disable/enable markers to preserve deliberate include ordering.
 
 ## Current scope
 
-This foundation intentionally does not yet provide tables, global value proxies, userdata/classes, methods, overload sets, optional or variadic arguments, containers, multiple returns, modules, custom converters, coroutines, hot reload, or asynchronous bindings.
+Not implemented yet. These are absent rather than partial:
 
-The next planned milestone is global values and tables: typed `State::Set`/`Get`, `State::operator[]`, registry-backed table references, nested table access, and module tables. Usertype/class binding follows after that foundation is stable.
+- Module unload, hot reload, and replacement of a loaded module
+- Coroutines and asynchronous invocation
+- Delegates, signals, and events
+- Annotation helper macros — documentation, attributes, and examples are ordinary builder calls
+- IDE and profiling integrations
+
+Two current limitations are worth knowing before designing a surface:
+
+- A registered class cannot be used as a **parameter** type of a `Method` or an `Operator`. It works as a receiver and as a construction result, but an operand or argument is one of the supported value types.
+- Inherited **fields** are not reachable through a derived class. Reach them through a value of the class that declared them.

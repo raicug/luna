@@ -46,7 +46,17 @@ int main() {
 }
 ```
 
-Build normally with CMake. Do not add Luau include paths or link Luau yourself; `Luna::Luna` handles that.
+`<luna/luna.hpp>` is the single entry point: every consumer-facing type is reachable from it. Build normally with CMake. Do not add Luau include paths or link Luau yourself; `Luna::Luna` keeps the VM and compiler as private, link-only dependencies.
+
+## Options you may want
+
+Luna's own build exposes three options. None of them is needed to consume the library.
+
+| Option | Default | Effect |
+|---|---|---|
+| `LUNA_BUILD_IMGUI_DEMO` | `OFF` | Builds the `LunaImGuiDemo` binding playground. Stays outside CTest. |
+| `LUNA_BUILD_BENCHMARKS` | `OFF` | Builds the measurement targets under `benchmarks/`. |
+| `LUNA_ENABLE_BENCHMARK_REGRESSION_TESTS` | `OFF` | Registers bounded benchmark CTest entries. Requires `LUNA_BUILD_BENCHMARKS`. |
 
 ---
 

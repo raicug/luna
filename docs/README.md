@@ -1,31 +1,62 @@
 # Luna documentation
 
-Luna is intentionally small at this stage, but a fair amount happens between registering a C++ function and calling it from Luau. These pages describe the public API first, then work inward toward validation, execution, and the private implementation.
+Luna binds C++ to Luau without letting a single Luau type reach consumer code. A fair amount happens between describing a C++ declaration and calling it from a script: canonical identity, one registration transaction, overload resolution, conversion, dispatch, reflection. These pages describe the public API first, then work inward toward validation, execution, and the private implementation.
 
 ## Reading order
 
 1. [Setup](setup.md) — add Luna with FetchContent or a local copy.
 2. [Getting started](getting-started.md) — build Luna and run a first script.
-3. [State and lifetime](state-and-lifetime.md) — understand VM ownership and moves.
-4. [Registering functions](registering-functions.md) — expose C++ callables safely.
-5. [Values and validation](values-and-validation.md) — learn the supported types and conversion rules.
-6. [Executing Luau](executing-luau.md) — see how source is compiled and isolated.
-7. [Errors and results](errors-and-results.md) — handle registration and execution failures.
-8. [Architecture](architecture.md) — follow a call through Luna's private layers.
-9. [Testing and contributing](testing-and-contributing.md) — run the checks and follow project conventions.
+3. [State and lifetime](state-and-lifetime.md) — VM ownership, moves, thread affinity, lifecycle.
+4. [Registering functions](registering-functions.md) — callables, overloads, parameters, returns.
+5. [Values and validation](values-and-validation.md) — supported types, canonical types, conversion.
+6. [Namespaces, constants and enums](namespaces-constants-and-enums.md) — hierarchical registration.
+7. [Classes and userdata](classes-and-userdata.md) — typed objects, members, ownership.
+8. [Modules and versioning](modules-and-versioning.md) — manifests, resolution, load-once.
+9. [Reflection and generation](reflection-and-generation.md) — snapshots, documentation, `.d.lua`.
+10. [Freeze and performance](freeze-and-performance.md) — sealing a surface and measuring it.
+11. [Executing Luau](executing-luau.md) — see how source is compiled and isolated.
+12. [Errors and results](errors-and-results.md) — handle registration and execution failures.
+13. [Architecture](architecture.md) — follow a call through Luna's private layers.
+14. [Testing and contributing](testing-and-contributing.md) — run the checks and follow project conventions.
 
 ## What Luna currently does
 
-The public entry point is `<luna/luna.hpp>`. A `Luna::State` owns one Luau VM, `State::Bindings()` provides function registration, and `State::Execute()` compiles and runs source. Consumer code never needs a Luau header, VM pointer, stack operation, or compile definition.
+The public entry point is `<luna/luna.hpp>`. A `Luna::State` owns one Luau VM, `State::Bindings()` returns the `BindingRegistry` every declaration goes through, and `State::Execute()` compiles and runs source. Consumer code never needs a Luau header, VM pointer, stack operation, or compile definition.
 
-Supported callable values are `bool`, signed 32-bit `int`, `double`, and `std::string`; a callable may also return `void`. Tables, usertypes, containers, overloads, multiple returns, and coroutines are future work rather than partially implemented features.
+Supported today:
+
+- **Functions.** `Register` and `RegisterFunction` accept free functions, function pointers, lambdas, functors, static methods, and explicit member wrappers. `Overload<Signature>` selects one C++ target by its declared signature, with no macro, and several declarations under one name form a canonical overload set resolved by Pareto dominance over conversion ranks.
+- **Rich call shapes.** Trailing `std::optional` parameters, immutable defaults through `WithDefaults`, and one final variadic parameter as `ArgumentView` (callback lifetime) or `ArgumentPack` (owning).
+- **Multiple returns.** `void` publishes zero values, a supported scalar publishes one, and `std::pair`, `std::tuple`, and `ReturnPack` publish ordered multiple values, atomically.
+- **Hierarchy.** `RegisterNamespace` with nested `NamespaceBuilder`, `RegisterConstant`, and `RegisterEnum` with enumerators, aliases, bitflags, and an explicit unscoped opt-in.
+- **Classes.** `RegisterClass<T>` with constructors, factories, singletons, allocators, methods, static methods, properties, fields, base edges, checked casts, and operators. Objects are typed userdata, owned by Lua, borrowed behind a `LifetimeHandle`, or shared through `std::shared_ptr`.
+- **Modules.** Load-once versioned modules with semantic versions, constraint resolution that picks the highest satisfying version, and canonical cycle and conflict diagnostics.
+- **Canonical identity.** `TypeId`, `SymbolId`, `StableTypeKey`, and canonical descriptors. No RTTI name, address, or registration order participates in any persistent identity.
+- **Reflection.** `ReflectionSnapshot` captures one immutable committed generation that stays readable after later registration, freeze, a State move, destruction of the originating State, and from another thread.
+- **Generation.** `GenerateDocumentation` and `GenerateDeclarations` read a snapshot and nothing else, and `PublishArtifact`, `PublishDocumentation`, and `PublishDeclarations` replace a file atomically. Output is canonical UTF-8, no BOM, LF endings, byte-identical for equivalent content.
+- **Freeze.** `BindingRegistry::Freeze()` validates the whole committed model, publishes generation-keyed lookup caches, then refuses further registration while invocation and reflection keep working.
+- **Transactions.** Every category registers through one outermost transaction with reverse-order undo and atomic publication: a refused attempt publishes nothing.
+
+Not implemented yet. These are absent, not partial:
+
+- Module unload, hot reload, and replacement of a loaded module.
+- Coroutines and asynchronous invocation.
+- Delegates, signals, and events.
+- Annotation helper macros. Documentation, attributes, and examples are declared through ordinary builder calls.
+- IDE and profiling integrations.
+
+Two current limitations are worth knowing before you design a surface:
+
+- A registered class cannot be used as a **parameter** type of a `Method` or an `Operator`. It works as a receiver and as a construction result, but an operand or argument is one of the supported value types.
+- Inherited **fields** are not reachable through a derived class. Reach them through a value of the class that declared them.
 
 ## Useful source landmarks
 
-- `include/luna/` contains the consumer-facing headers.
-- `src/state/` contains all Luau-aware implementation code.
+- `include/luna/` contains the consumer-facing headers. They are Luau-free by construction and checked as such.
+- `src/state/` contains all Luau-aware implementation code and is not public API.
+- `demo/imgui_color_text_edit/src/main.cpp` is the largest worked example: it exercises most of the surface through the public API alone.
 - `app/src/main.cpp` is the smallest complete consumer example.
-- `tests/` contains compile checks, examples, integration tests, and properties.
+- `tests/` contains unit tests, integration tests, compile checks, generation golden files, and 30 properties.
 
 ---
 

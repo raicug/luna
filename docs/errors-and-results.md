@@ -11,23 +11,53 @@ if (!Result.IsSuccess()) {
 
 Both `RegistrationResult` and `ExecutionResult` follow the same invariant: success has no diagnostic, while failure owns exactly one non-empty diagnostic. `Diagnostic()` therefore returns `nullptr` on success and a pointer to result-owned data on failure.
 
+Every builder `Commit()`, `BindingRegistry::Freeze()`, `ProvideModule`, and `RegisterModule` returns a `RegistrationResult` too, so one shape covers the whole registration surface.
+
 ## Categories
+
+`ErrorCategory` has seven values:
 
 | Category | Meaning |
 |---|---|
 | `StateNotReady` | The State has no VM, usually after failed creation or a move |
-| `InvalidGlobalName` | A registration name failed the ASCII identifier grammar |
+| `InvalidGlobalName` | A name segment failed the ASCII identifier grammar |
 | `DuplicateGlobalName` | The State already has a Luna binding with that name |
 | `NullCallable` | A registered function pointer was null |
 | `Compilation` | Source could not be compiled or loaded |
 | `Runtime` | Protected Luau execution failed, including native caller errors |
 | `Internal` | Luna could not complete required bookkeeping, conversion, or VM work |
 
-Compilation, runtime, and internal execution messages use stable prefixes. Luna supplies a category-specific fallback whenever an underlying layer provides no usable text.
+The category is a coarse channel; the message carries the specifics. A refused registration names what was refused and why — a stale builder, a frozen State, an ambiguous overload pair, an out-of-range enumerator, an unregistered base, an incoherent property policy, a module cycle, a version conflict. Equivalent inputs always produce the same message, which is what makes a refusal something you can assert on.
+
+Compilation, runtime, and internal execution messages use stable prefixes. Luna supplies a category-specific fallback whenever an underlying layer provides no usable text, so a diagnostic message is never empty.
+
+## Status enums
+
+Several subsystems expose their own deterministic status enum alongside the diagnostic, each with a `…Text` function returning a stable lowercase name. They are useful when you want to branch on a reason rather than parse a message.
+
+| Enum | Domain |
+|---|---|
+| `StableTypeKeyStatus` | validity of a user-defined leaf key |
+| `ParameterShapeStatus` | a declared parameter shape, with the offending one-based position |
+| `ConstantValueStatus` | normalization of a declared constant |
+| `ConversionStatus`, `WriteStatus` | a committing read, a reservation or publication |
+| `SemanticVersionStatus`, `VersionConstraintStatus`, `ModuleManifestStatus` | module metadata parsing and validation |
+| `GenerationStatus` | a documentation or declaration generation attempt |
+| `PublicationStatus` | an atomic artifact publication |
+
+Generation and publication carry their status *and* an `ErrorDiagnostic`, through `GeneratedArtifact::Status()`/`Diagnostic()` and `ArtifactPublication::Status()`/`Diagnostic()`.
+
+## Diagnostic precedence
+
+When more than one problem exists, Luna reports one deterministic result rather than the first one it happened to notice. Root-scope callable registration orders its refusals as: invalid name, State not ready, null callable, duplicate name.
+
+Invocation orders its refusals by the validation sequence in [values and validation](values-and-validation.md): metadata, then the receiver for a member, then arity, then candidate selection, then arguments left to right. So a bad receiver is always reported as a receiver refusal, never as a shifted argument.
 
 ## Native exceptions
 
-A `std::exception` thrown by a registered callable is caught at the private callback boundary. Its message and the global name are included in the resulting runtime diagnostic. Unknown C++ exceptions become a non-empty internal callback message. No C++ exception is allowed to cross the C ABI.
+A `std::exception` thrown by a registered callable is caught at the private callback boundary. Its message and the symbol name are included in the resulting runtime diagnostic. Unknown C++ exceptions become a non-empty internal callback message. No C++ exception is allowed to cross the C ABI.
+
+The same containment applies to a module registration callback and to an allocator step: the loader or the release path contains the exception, restores the pre-attempt state, and reports it, rather than letting it escape through a garbage collector or a State destructor.
 
 Diagnostics own their strings, so they remain inspectable after the operation returns. Results are copyable and movable without changing the success/diagnostic relationship.
 

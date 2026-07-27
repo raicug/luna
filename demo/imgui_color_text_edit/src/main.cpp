@@ -640,6 +640,32 @@ void TextView(std::string_view Text) {
   ImGui::TextUnformatted(Text.data(), Text.data() + Text.size());
 }
 
+// One labelled row of the detail view.
+void DetailRow(const char *Label, std::string_view Value) {
+  ImGui::TextDisabled("%s", Label);
+  ImGui::SameLine();
+  TextView(Value);
+}
+
+// One editable path buffer, seeded with its default contents.
+template <std::size_t Count>
+[[nodiscard]] std::array<char, Count> PathBuffer(std::string_view Text) {
+  static_assert(Count > 1, "an editable buffer needs room for text");
+  std::array<char, Count> Buffer{};
+  const std::size_t Length = Text.size() < Count - 1 ? Text.size() : Count - 1;
+  for (std::size_t Index = 0; Index < Length; ++Index)
+    Buffer[Index] = Text[Index];
+  return Buffer;
+}
+
+// The canonical text of one module identity and version.
+[[nodiscard]] std::string ModuleKeyOf(const Luna::ModuleRecord &Module) {
+  std::string Key(Module.Identity());
+  Key.push_back('@');
+  Key.append(Module.Version());
+  return Key;
+}
+
 // ---------------------------------------------------------------------------
 // The playground window
 // ---------------------------------------------------------------------------
@@ -1003,6 +1029,39 @@ private:
                                        "tab shows the diagnostic."));
   }
 
+  // Publication revalidates the complete bytes, writes them to one unpublished
+  // file beside the destination, verifies that file, and only then replaces the
+  // destination. Any refusal leaves a prior destination exactly as it was.
+  void PublishArtifacts() {
+    const Luna::ArtifactPublication Documented = Luna::PublishDocumentation(
+        Snapshot, DocumentationChoices(), DocumentationPath.data());
+    Record("PublishDocumentation", Documented.IsPublished(),
+           Documented.IsPublished()
+               ? std::to_string(Documented.Size()) + " bytes written to " +
+                     std::string(DocumentationPath.data())
+               : std::string(Luna::PublicationStatusText(Documented.Status())) +
+                     " - " + Describe(Documented.Diagnostic()));
+
+    const Luna::ArtifactPublication Declared = Luna::PublishDeclarations(
+        Snapshot, DeclarationChoices(), DeclarationPath.data());
+    Record("PublishDeclarations", Declared.IsPublished(),
+           Declared.IsPublished()
+               ? std::to_string(Declared.Size()) + " bytes written to " +
+                     std::string(DeclarationPath.data())
+               : std::string(Luna::PublicationStatusText(Declared.Status())) +
+                     " - " + Describe(Declared.Diagnostic()));
+
+    DocumentationPublication =
+        std::string(Luna::PublicationStatusText(Documented.Status()));
+    DeclarationPublication =
+        std::string(Luna::PublicationStatusText(Declared.Status()));
+
+    const bool Both = Documented.IsPublished() && Declared.IsPublished();
+    SetStatus(Both, Both ? "Replaced both destinations atomically."
+                         : "Publication was refused; the Diagnostics tab names "
+                           "the reason.");
+  }
+
   // -- panels ---------------------------------------------------------------
 
   void DrawToolbar() {
@@ -1096,55 +1155,276 @@ private:
                 Snapshot.Size(), Snapshot.Types().Size(),
                 Snapshot.Modules().Size());
 
-    SymbolFilter.Draw("Filter (name or kind)", 320.0f);
+    SymbolFilter.Draw("Filter (name or kind)", 300.0f);
     ImGui::SameLine();
     if (ImGui::Button("Clear filter"))
       SymbolFilter.Clear();
+    ImGui::SameLine();
+    ImGui::TextDisabled("| group");
+    ImGui::SameLine();
+    if (ImGui::RadioButton("by module provenance", !GroupByKind))
+      GroupByKind = false;
+    ImGui::SameLine();
+    if (ImGui::RadioButton("by symbol kind", GroupByKind))
+      GroupByKind = true;
 
-    constexpr ImGuiTableFlags TableFlags =
-        ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg |
-        ImGuiTableFlags_Resizable | ImGuiTableFlags_ScrollY |
-        ImGuiTableFlags_SizingStretchProp;
-
-    if (ImGui::BeginTable("Symbols", 5, TableFlags, ImVec2(0.0f, 0.0f))) {
-      ImGui::TableSetupScrollFreeze(0, 1);
-      ImGui::TableSetupColumn("qualified name");
-      ImGui::TableSetupColumn("kind");
-      ImGui::TableSetupColumn("signature");
-      ImGui::TableSetupColumn("documentation");
-      ImGui::TableSetupColumn("module");
-      ImGui::TableHeadersRow();
-
-      const Luna::ReflectionRecordRange Symbols = Snapshot.Symbols();
-      for (std::size_t Index = 0; Index < Symbols.Size(); ++Index) {
-        const Luna::ReflectionRecord Record = Symbols.At(Index);
-        const std::string Qualified(Record.QualifiedName());
-        const std::string Kind(Luna::SymbolKindText(Record.Kind()));
-        if (!SymbolFilter.PassFilter(Qualified.c_str()) &&
-            !SymbolFilter.PassFilter(Kind.c_str()))
-          continue;
-
-        ImGui::TableNextRow();
-        ImGui::TableNextColumn();
-        TextView(Qualified);
-        ImGui::TableNextColumn();
-        ImGui::TextDisabled("%s", Kind.c_str());
-        ImGui::TableNextColumn();
-        TextView(Record.Signature());
-        ImGui::TableNextColumn();
-        TextView(Record.Documentation());
-        ImGui::TableNextColumn();
-        if (!Record.HasModule()) {
-          ImGui::TextDisabled("-");
-          continue;
-        }
-        const Luna::ModuleRecord Module = Record.Module();
-        ImGui::Text("%s@%s", std::string(Module.Identity()).c_str(),
-                    std::string(Module.Version()).c_str());
-      }
-      ImGui::EndTable();
-    }
+    const float TreeWidth = ImGui::GetContentRegionAvail().x * 0.42f;
+    ImGui::BeginChild("SymbolTree", ImVec2(TreeWidth, 0.0f), true);
+    DrawSymbolTree();
+    ImGui::EndChild();
+    ImGui::SameLine();
+    ImGui::BeginChild("SymbolDetail", ImVec2(0.0f, 0.0f), true);
+    DrawSymbolDetail();
+    ImGui::EndChild();
     ImGui::EndTabItem();
+  }
+
+  // The captured symbols, grouped by the module that contributed them or by
+  // their kind, in the canonical order the snapshot enumerates.
+  void DrawSymbolTree() {
+    const Luna::ReflectionRecordRange Symbols = Snapshot.Symbols();
+    std::vector<std::string> Groups;
+    std::vector<std::vector<std::size_t>> Members;
+
+    for (std::size_t Index = 0; Index < Symbols.Size(); ++Index) {
+      const Luna::ReflectionRecord Record = Symbols.At(Index);
+      const std::string Qualified(Record.QualifiedName());
+      const std::string Kind(Luna::SymbolKindText(Record.Kind()));
+      if (!SymbolFilter.PassFilter(Qualified.c_str()) &&
+          !SymbolFilter.PassFilter(Kind.c_str()))
+        continue;
+
+      const std::string Group =
+          GroupByKind ? Kind
+                      : (Record.HasModule() ? ModuleKeyOf(Record.Module())
+                                            : std::string("(no module)"));
+      std::size_t Slot = Groups.size();
+      for (std::size_t Candidate = 0; Candidate < Groups.size(); ++Candidate) {
+        if (Groups[Candidate] == Group) {
+          Slot = Candidate;
+          break;
+        }
+      }
+      if (Slot == Groups.size()) {
+        Groups.push_back(Group);
+        Members.emplace_back();
+      }
+      Members[Slot].push_back(Index);
+    }
+
+    if (Groups.empty()) {
+      ImGui::TextDisabled("no reflected symbol matches the filter");
+      return;
+    }
+
+    for (std::size_t Slot = 0; Slot < Groups.size(); ++Slot) {
+      std::string Header = Groups[Slot];
+      Header.append(" (");
+      Header.append(std::to_string(Members[Slot].size()));
+      Header.push_back(')');
+      if (!ImGui::TreeNodeEx(Header.c_str(), ImGuiTreeNodeFlags_DefaultOpen))
+        continue;
+      for (const std::size_t Index : Members[Slot]) {
+        const Luna::ReflectionRecord Record = Symbols.At(Index);
+        std::string Label(Record.QualifiedName());
+        if (!GroupByKind) {
+          Label.append("  [");
+          Label.append(Luna::SymbolKindText(Record.Kind()));
+          Label.push_back(']');
+        }
+        ImGui::PushID(static_cast<int>(Index));
+        if (ImGui::Selectable(Label.c_str(), Record.Id() == SelectedSymbol))
+          SelectedSymbol = Record.Id();
+        ImGui::PopID();
+      }
+      ImGui::TreePop();
+    }
+  }
+
+  [[nodiscard]] std::string TypeNameOf(const Luna::TypeId &Id) const {
+    if (!Id.IsValid())
+      return "-";
+    const Luna::TypeRecord Type = Snapshot.FindType(Id);
+    if (!Type.IsValid())
+      return Id.ToString();
+    std::string Text(Type.Name());
+    Text.append(" (");
+    Text.append(Luna::TypeKindText(Type.Kind()));
+    Text.push_back(')');
+    return Text;
+  }
+
+  [[nodiscard]] std::string SymbolNameOf(const Luna::SymbolId &Id) const {
+    if (!Id.IsValid())
+      return "-";
+    const Luna::ReflectionRecord Found = Snapshot.Find(Id);
+    return Found.IsValid() ? std::string(Found.QualifiedName()) : Id.ToString();
+  }
+
+  // Everything one reflected record describes, read from the captured
+  // generation alone.
+  void DrawSymbolDetail() {
+    if (!SelectedSymbol.IsValid()) {
+      ImGui::TextDisabled("Select a symbol to read its reflected record.");
+      return;
+    }
+    const Luna::ReflectionRecord Record = Snapshot.Find(SelectedSymbol);
+    if (!Record.IsValid()) {
+      ImGui::TextDisabled("That symbol is not part of the captured "
+                          "generation.");
+      return;
+    }
+
+    ImGui::SeparatorText("Identity");
+    DetailRow("kind:", Luna::SymbolKindText(Record.Kind()));
+    DetailRow("qualified name:", Record.QualifiedName());
+    DetailRow("name:", Record.Name());
+    if (!Record.Signature().empty())
+      DetailRow("signature:", Record.Signature());
+    DetailRow("scope:", Record.Scope().IsRoot()
+                            ? std::string("(root)")
+                            : SymbolNameOf(Record.Scope().Owner()));
+    if (Record.Declaration().IsValid())
+      DetailRow("declared by:", SymbolNameOf(Record.Declaration()));
+    if (Record.OverloadSet().IsValid())
+      DetailRow("overload set:", SymbolNameOf(Record.OverloadSet()));
+    DetailRow("canonical type:", TypeNameOf(Record.Type()));
+    DetailRow("stable id:", Record.Id().ToString());
+    if (Record.HasValue())
+      DetailRow("value:", Record.ValueText());
+    if (!Record.OwnershipResult().empty())
+      DetailRow("ownership result:", Record.OwnershipResult());
+    if (!Record.AllocatorPolicy().empty())
+      DetailRow("allocator policy:", Record.AllocatorPolicy());
+
+    if (Record.Receiver().IsValid()) {
+      ImGui::SeparatorText("Member surface");
+      DetailRow("receiver:", TypeNameOf(Record.Receiver()));
+      DetailRow("const receiver permitted:",
+                Record.ReceiverPermitsConst() ? "yes" : "no");
+      DetailRow("readable:", Record.IsReadable() ? "yes" : "no");
+      DetailRow("writable:", Record.IsWritable() ? "yes" : "no");
+      DetailRow("access policy:", Record.AccessPolicy());
+      DetailRow("evaluation:", Record.Evaluation());
+      DetailRow("value ownership:", Record.MemberOwnershipPolicy());
+    }
+
+    ImGui::SeparatorText("Call shape");
+    DetailRow("return shape:", Luna::ReturnShapeText(Record.Returns()));
+    DrawParameterTable(Record);
+    for (std::size_t Index = 0; Index < Record.ReturnCount(); ++Index) {
+      const Luna::ReturnRecord Returned = Record.Return(Index);
+      std::string Label("return ");
+      Label.append(std::to_string(Index + 1));
+      Label.push_back(':');
+      std::string Text(Returned.Name());
+      if (!Text.empty())
+        Text.append(" : ");
+      Text.append(TypeNameOf(Returned.Type()));
+      DetailRow(Label.c_str(), Text);
+    }
+
+    if (!Record.Documentation().empty()) {
+      ImGui::SeparatorText("Documentation");
+      ImGui::TextWrapped("%s", std::string(Record.Documentation()).c_str());
+    }
+
+    if (Record.AttributeCount() != 0) {
+      ImGui::SeparatorText("Attributes");
+      for (std::size_t Index = 0; Index < Record.AttributeCount(); ++Index) {
+        const Luna::AttributeRecord Attribute = Record.Attribute(Index);
+        std::string Label(Attribute.Name());
+        Label.push_back(':');
+        DetailRow(Label.c_str(), Attribute.Value());
+      }
+    }
+
+    if (Record.ExampleCount() != 0) {
+      ImGui::SeparatorText("Examples");
+      for (std::size_t Index = 0; Index < Record.ExampleCount(); ++Index)
+        TextView(Record.Example(Index));
+    }
+
+    if (Record.RelationCount() != 0) {
+      ImGui::SeparatorText("Type relations");
+      for (std::size_t Index = 0; Index < Record.RelationCount(); ++Index) {
+        const Luna::TypeRelation Relation = Record.Relation(Index);
+        std::string Label(Luna::TypeRelationKindText(Relation.Kind()));
+        Label.push_back(':');
+        std::string Text = TypeNameOf(Relation.Type());
+        if (!Relation.Note().empty()) {
+          Text.append(" - ");
+          Text.append(Relation.Note());
+        }
+        DetailRow(Label.c_str(), Text);
+      }
+    }
+
+    ImGui::SeparatorText("Module provenance");
+    if (!Record.HasModule()) {
+      ImGui::TextDisabled("no module contributed this symbol");
+      return;
+    }
+    const Luna::ModuleRecord Module = Record.Module();
+    DetailRow("module:", ModuleKeyOf(Module));
+    if (!Module.Documentation().empty())
+      DetailRow("about:", Module.Documentation());
+    for (std::size_t Index = 0; Index < Module.DependencyCount(); ++Index) {
+      const Luna::ModuleDependencyRecord Required = Module.Dependency(Index);
+      std::string Text(Required.Identity());
+      Text.push_back('@');
+      Text.append(Required.Version());
+      Text.append(" [");
+      Text.append(Required.Constraints());
+      Text.push_back(']');
+      DetailRow("resolved dependency:", Text);
+    }
+    for (std::size_t Index = 0; Index < Module.ExportCount(); ++Index) {
+      const Luna::ModuleExportRecord Exported = Module.Export(Index);
+      std::string Text(Luna::SymbolKindText(Exported.Kind()));
+      Text.push_back(' ');
+      Text.append(Exported.Name());
+      DetailRow("declared export:", Text);
+    }
+    for (std::size_t Index = 0; Index < Module.NamespaceCount(); ++Index)
+      DetailRow("declares namespace:", Module.Namespace(Index));
+    for (std::size_t Index = 0; Index < Module.TypeCount(); ++Index)
+      DetailRow("declares type:", Module.TypeName(Index));
+  }
+
+  // Every declared parameter, with the disposition and the immutable default
+  // the registration recorded for it.
+  void DrawParameterTable(const Luna::ReflectionRecord &Record) {
+    if (Record.ParameterCount() == 0) {
+      ImGui::TextDisabled("no declared parameters");
+      return;
+    }
+    constexpr ImGuiTableFlags TableFlags = ImGuiTableFlags_Borders |
+                                           ImGuiTableFlags_RowBg |
+                                           ImGuiTableFlags_SizingStretchProp;
+    if (!ImGui::BeginTable("Parameters", 4, TableFlags))
+      return;
+    ImGui::TableSetupColumn("name");
+    ImGui::TableSetupColumn("canonical type");
+    ImGui::TableSetupColumn("disposition");
+    ImGui::TableSetupColumn("default");
+    ImGui::TableHeadersRow();
+    for (std::size_t Index = 0; Index < Record.ParameterCount(); ++Index) {
+      const Luna::ParameterRecord Parameter = Record.Parameter(Index);
+      ImGui::TableNextRow();
+      ImGui::TableNextColumn();
+      TextView(Parameter.Name());
+      ImGui::TableNextColumn();
+      TextView(TypeNameOf(Parameter.Type()));
+      ImGui::TableNextColumn();
+      TextView(Luna::ParameterDispositionText(Parameter.Disposition()));
+      ImGui::TableNextColumn();
+      if (Parameter.HasDefault())
+        TextView(Parameter.DefaultText());
+      else
+        ImGui::TextDisabled("-");
+    }
+    ImGui::EndTable();
   }
 
   void DrawArtifactTab() {
@@ -1171,6 +1451,22 @@ private:
     ImGui::Checkbox("doc comments", &WithDeclarationDocumentation);
     ImGui::SameLine();
     ImGui::TextDisabled("| declaration options");
+
+    ImGui::SetNextItemWidth(340.0f);
+    ImGui::InputText("markdown destination", DocumentationPath.data(),
+                     DocumentationPath.size());
+    ImGui::SameLine();
+    ImGui::TextDisabled("%s", DocumentationPublication.c_str());
+    ImGui::SetNextItemWidth(340.0f);
+    ImGui::InputText("d.lua destination", DeclarationPath.data(),
+                     DeclarationPath.size());
+    ImGui::SameLine();
+    ImGui::TextDisabled("%s", DeclarationPublication.c_str());
+    if (ImGui::Button("Write both to disk"))
+      PublishArtifacts();
+    ImGui::SameLine();
+    ImGui::TextDisabled("PublishDocumentation and PublishDeclarations replace "
+                        "each destination in one step, or not at all.");
 
     if (ImGui::BeginTabBar("Artifacts")) {
       if (ImGui::BeginTabItem("documentation.md")) {
@@ -1272,6 +1568,14 @@ private:
   std::string DocumentationStatus;
   std::string DeclarationText;
   std::string DeclarationStatus;
+  std::string DocumentationPublication = "not published";
+  std::string DeclarationPublication = "not published";
+  std::array<char, 256> DocumentationPath =
+      PathBuffer<256>("luna-playground-api.md");
+  std::array<char, 256> DeclarationPath =
+      PathBuffer<256>("luna-playground-api.d.lua");
+  Luna::SymbolId SelectedSymbol;
+  bool GroupByKind = false;
   std::size_t SelectedExample = 0;
   std::size_t ProbeCount = 0;
   bool StatusSucceeded = false;
