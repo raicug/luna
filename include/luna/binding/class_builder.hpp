@@ -236,58 +236,52 @@ public:
 
   // A property whose value type is not a foundation scalar (a `Vector3`,
   // for instance) converts through the value type's own
-  // `Luna::TypeConverter<T>` specialization. It names that type's key the
-  // same way `Base<T>` and `Cast<T>` name a related class's key.
-  template <class Getter>
-    requires(!std::is_same_v<std::decay_t<Getter>, PropertyPolicy>)
-  ClassBuilder &Property(std::string_view Name, const StableTypeKey &ValueKey,
-                         Getter Accessor) {
+  // `Luna::TypeConverter<T>` specialization instead, named explicitly as
+  // `Property<Vector3>(Name, Getter, Setter)`.
+  template <class Value, class Getter>
+  ClassBuilder &Property(std::string_view Name, Getter Accessor) {
     const PropertyPolicy Policy = PropertyPolicy::ReadOnly();
     Detail::MemberRequest Request =
-        Detail::MakeReadableConvertedPropertyRequest<Type, Getter>(
-            ClassKey, ValueKey, Policy, std::move(Accessor));
+        Detail::MakeReadableConvertedPropertyRequest<Type, Value, Getter>(
+            ClassKey, Name, Policy, std::move(Accessor));
     Staging.StageAccessor(Name, std::move(Request));
     return *this;
   }
 
-  template <class Getter, class Setter>
-    requires(!std::is_same_v<std::decay_t<Getter>, PropertyPolicy>)
-  ClassBuilder &Property(std::string_view Name, const StableTypeKey &ValueKey,
-                         Getter Accessor, Setter Mutator) {
+  template <class Value, class Getter, class Setter>
+  ClassBuilder &Property(std::string_view Name, Getter Accessor,
+                         Setter Mutator) {
     const PropertyPolicy Policy = PropertyPolicy::ReadWrite();
     Detail::MemberRequest Request =
-        Detail::MakeConvertedPropertyRequest<Type, Getter, Setter>(
-            ClassKey, ValueKey, Policy, std::move(Accessor),
-            std::move(Mutator));
+        Detail::MakeConvertedPropertyRequest<Type, Value, Getter, Setter>(
+            ClassKey, Name, Policy, std::move(Accessor), std::move(Mutator));
     Staging.StageAccessor(Name, std::move(Request));
     return *this;
   }
 
-  template <class Accessor>
-  ClassBuilder &Property(std::string_view Name, const StableTypeKey &ValueKey,
-                         PropertyPolicy Policy, Accessor Target) {
+  template <class Value, class Accessor>
+  ClassBuilder &Property(std::string_view Name, PropertyPolicy Policy,
+                         Accessor Target) {
     if constexpr (Detail::MemberReadShape<Type, Accessor>::IsSupported) {
       Detail::MemberRequest Request =
-          Detail::MakeReadableConvertedPropertyRequest<Type, Accessor>(
-              ClassKey, ValueKey, Policy, std::move(Target));
+          Detail::MakeReadableConvertedPropertyRequest<Type, Value, Accessor>(
+              ClassKey, Name, Policy, std::move(Target));
       Staging.StageAccessor(Name, std::move(Request));
     } else {
       Detail::MemberRequest Request =
-          Detail::MakeWritableConvertedPropertyRequest<Type, Accessor>(
-              ClassKey, ValueKey, Policy, std::move(Target));
+          Detail::MakeWritableConvertedPropertyRequest<Type, Value, Accessor>(
+              ClassKey, Name, Policy, std::move(Target));
       Staging.StageAccessor(Name, std::move(Request));
     }
     return *this;
   }
 
-  template <class Getter, class Setter>
-  ClassBuilder &Property(std::string_view Name, const StableTypeKey &ValueKey,
-                         PropertyPolicy Policy, Getter Accessor,
-                         Setter Mutator) {
+  template <class Value, class Getter, class Setter>
+  ClassBuilder &Property(std::string_view Name, PropertyPolicy Policy,
+                         Getter Accessor, Setter Mutator) {
     Detail::MemberRequest Request =
-        Detail::MakeConvertedPropertyRequest<Type, Getter, Setter>(
-            ClassKey, ValueKey, Policy, std::move(Accessor),
-            std::move(Mutator));
+        Detail::MakeConvertedPropertyRequest<Type, Value, Getter, Setter>(
+            ClassKey, Name, Policy, std::move(Accessor), std::move(Mutator));
     Staging.StageAccessor(Name, std::move(Request));
     return *this;
   }
@@ -320,6 +314,7 @@ public:
   }
 
   template <class Held>
+    requires SupportedValue<std::remove_cv_t<Held>>
   ClassBuilder &Field(std::string_view Name, Held Type::*Member) {
     const FieldPolicy Policy;
     Detail::MemberRequest Request =
@@ -329,6 +324,7 @@ public:
   }
 
   template <class Held>
+    requires SupportedValue<std::remove_cv_t<Held>>
   ClassBuilder &Field(std::string_view Name, Held Type::*Member,
                       FieldPolicy Policy) {
     Detail::MemberRequest Request =
@@ -362,25 +358,24 @@ public:
   }
 
   // A field whose value type is not a foundation scalar converts through
-  // that type's own `Luna::TypeConverter<T>` specialization, named by key
-  // the same way a converted property names one.
-  template <class Held>
-  ClassBuilder &Field(std::string_view Name, const StableTypeKey &ValueKey,
-                      Held Type::*Member) {
+  // that type's own `Luna::TypeConverter<T>` specialization instead, named
+  // explicitly as `Field<Vector3>(Name, &Type::Member)`.
+  template <class Value, class Held>
+  ClassBuilder &Field(std::string_view Name, Held Type::*Member) {
     const FieldPolicy Policy;
     Detail::MemberRequest Request =
-        Detail::MakeConvertedFieldRequest<Type, Held>(ClassKey, ValueKey,
-                                                      Policy, Member);
+        Detail::MakeConvertedFieldRequest<Type, Value, Held>(ClassKey, Name,
+                                                             Policy, Member);
     Staging.StageAccessor(Name, std::move(Request));
     return *this;
   }
 
-  template <class Held>
-  ClassBuilder &Field(std::string_view Name, const StableTypeKey &ValueKey,
-                      Held Type::*Member, FieldPolicy Policy) {
+  template <class Value, class Held>
+  ClassBuilder &Field(std::string_view Name, Held Type::*Member,
+                      FieldPolicy Policy) {
     Detail::MemberRequest Request =
-        Detail::MakeConvertedFieldRequest<Type, Held>(ClassKey, ValueKey,
-                                                      Policy, Member);
+        Detail::MakeConvertedFieldRequest<Type, Value, Held>(ClassKey, Name,
+                                                             Policy, Member);
     Staging.StageAccessor(Name, std::move(Request));
     return *this;
   }

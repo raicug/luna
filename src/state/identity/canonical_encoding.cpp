@@ -49,7 +49,8 @@ EncodeTypeNode(const TypeDescriptor &Descriptor) {
   }
 
   if (Descriptor.Kind() == TypeKind::Enumeration ||
-      Descriptor.Kind() == TypeKind::Class) {
+      Descriptor.Kind() == TypeKind::Class ||
+      Descriptor.Kind() == TypeKind::Converted) {
     WriteComponentTag(Encoder, ComponentTag::UserLeaf);
     Encoder.WriteText(Descriptor.Key().Text());
   } else {
@@ -90,7 +91,9 @@ void CanonicalEncoder::WriteRootTag(CanonicalDomain Domain) {
   WriteTag(static_cast<std::uint8_t>(Domain));
 }
 
-void CanonicalEncoder::WriteTag(std::uint8_t Tag) { BytesValue.push_back(Tag); }
+void CanonicalEncoder::WriteTag(std::uint8_t Tag) {
+  BytesValue.push_back(Tag);
+}
 
 void CanonicalEncoder::WriteUnsigned(std::uint64_t Value) {
   for (std::size_t Index = 0; Index < 8; ++Index)

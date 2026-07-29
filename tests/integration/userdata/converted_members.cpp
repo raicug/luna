@@ -48,10 +48,6 @@ struct Body final {
   return Luna::StableTypeKey("Studio.ConvertedBody");
 }
 
-[[nodiscard]] Luna::StableTypeKey Vector3Key() {
-  return Luna::StableTypeKey("Studio.Vector3");
-}
-
 } // namespace
 
 namespace Luna {
@@ -106,10 +102,10 @@ namespace {
       Studio.RegisterClass<Body>("Body", BodyKey());
 
   Luna::ClassBuilder<Body> &WithConstructor = Class.Constructor<>();
-  Luna::ClassBuilder<Body> &WithProperty = WithConstructor.Property(
-      "Position", Vector3Key(), &Body::GetPosition, &Body::SetPosition);
+  Luna::ClassBuilder<Body> &WithProperty = WithConstructor.Property<Vector3>(
+      "Position", &Body::GetPosition, &Body::SetPosition);
   Luna::ClassBuilder<Body> &WithField =
-      WithProperty.Field("Velocity", Vector3Key(), &Body::Velocity);
+      WithProperty.Field<Vector3>("Velocity", &Body::Velocity);
   static_cast<void>(WithField.QualifiedName());
   return Studio.Commit().IsSuccess();
 }

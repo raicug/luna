@@ -147,16 +147,16 @@ The callback receives the object by reference and the value already written, by 
 
 ### Custom value types
 
-A property or field value is not limited to the four supported value types. Any type with its own `Luna::TypeConverter<T>` specialization — a `Vector3`, a `Color`, anything a consumer has already taught Luna to convert (see [values and validation](values-and-validation.md#custom-conversions)) — may be a property's or a field's value too. Name the value type's own key, the same way `Base<T>` and `Cast<T>` name a related class's key:
+A property or field value is not limited to the four supported value types. Any type with its own `Luna::TypeConverter<T>` specialization — a `Vector3`, a `Color`, anything a consumer has already taught Luna to convert (see [custom conversions](values-and-validation.md#custom-conversions)) — may be a property's or a field's value too. Name it explicitly as the first template argument, the same way `Base<T>` and `Cast<T>` name a related class explicitly:
 
 ```cpp
 Studio.RegisterClass<Body>("Body", BodyKey())
     .Constructor<>()
-    .Property("Position", Vector3Key(), &Body::GetPosition, &Body::SetPosition)
-    .Field("Velocity", Vector3Key(), &Body::Velocity);
+    .Property<Vector3>("Position", &Body::GetPosition, &Body::SetPosition)
+    .Field<Vector3>("Velocity", &Body::Velocity);
 ```
 
-The getter and setter, or the field itself, still declare their native C++ type exactly as they would for a scalar member — `Vector3 GetPosition() const`, `void SetPosition(Vector3)`, `Vector3 Velocity`. Reading the member runs the value type's `Write`; writing it runs the value type's `Read`; both go through the identical probe/read/write boundary a converted parameter or return value uses, so a converted member gets the same diagnostics, the same reservation discipline, and the same atomicity guarantees. A getter or setter whose value type declares no `Luna::TypeConverter<T>` specialization is refused at compile time, the same way an unsupported scalar type is.
+The getter and setter, or the field itself, still declare their native C++ type exactly as they would for a scalar member — `Vector3 GetPosition() const`, `void SetPosition(Vector3)`, `Vector3 Velocity`. Reading the member runs the value type's `Write`; writing it runs the value type's `Read`; both go through the identical probe/read/write boundary a converted parameter or return value uses, so a converted member gets the same diagnostics, the same reservation discipline, and the same atomicity guarantees. A getter or setter whose value type declares no `Luna::TypeConverter<T>` specialization is refused at compile time, the same way an unsupported scalar type is. `Property<Value>` and `Field<Value>` accept the same policy, on-change, and getter/setter-shape overloads their scalar counterparts do.
 
 ## Inheritance and casts
 

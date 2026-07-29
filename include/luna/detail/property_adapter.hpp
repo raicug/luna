@@ -192,6 +192,18 @@ inline constexpr bool IsConvertedMemberValue =
     !SupportedValue<Declared> && std::is_class_v<Declared> &&
     ConversionCapable<Declared>;
 
+// A converted member's value type needs some `StableTypeKey`, the same way
+// a registered class or enum leaf does, but the key never has to be a
+// consumer-supplied identity: nothing outside the declaring member ever
+// looks a converted value up by it, so one synthesized from the class key
+// and the member's own name is exactly as stable as the declaration itself.
+[[nodiscard]] inline StableTypeKey
+SyntheticConvertedValueKey(const StableTypeKey &ClassKey,
+                           std::string_view MemberName) {
+  return StableTypeKey(std::string(ClassKey.Text()) + ".converted." +
+                       std::string(MemberName));
+}
+
 template <class Declared>
 [[nodiscard]] inline TypeDescriptor
 MemberValueDescriptor(const StableTypeKey &ConvertedKey = StableTypeKey()) {
@@ -367,21 +379,29 @@ MakeReadablePropertyRequest(const StableTypeKey &Key,
 
 // A property or field whose declared value type is not one of the four
 // foundation scalars converts through the consumer's own
-// `Luna::TypeConverter<T>` specialization instead. These converted-value
-// builders take an explicit `StableTypeKey` for that value type, the same
-// way `Base<T>`/`Cast<T>` take one for a related class.
-template <class Class, class Getter>
+// `Luna::TypeConverter<T>` specialization instead. `Value` is named
+// explicitly at the call site — `Property<Vector3>(Name, Getter, Setter)` —
+// exactly like `Base<T>`/`Cast<T>` name a related class explicitly; the
+// `StableTypeKey` such a value type needs is synthesized from the class key
+// and the member's own segment, since nothing outside the declaring member
+// ever looks a converted value up by that key.
+template <class Class, class Value, class Getter>
 [[nodiscard]] MemberRequest MakeReadableConvertedPropertyRequest(
-    const StableTypeKey &Key, const StableTypeKey &ValueKey,
+    const StableTypeKey &Key, std::string_view Name,
     const PropertyPolicy &Policy, Getter Accessor) {
   using Shape = MemberReadShape<Class, Getter>;
+  static_assert(
+      std::is_same_v<std::remove_cv_t<typename Shape::Declared>, Value>,
+      "A converted property's named value type must match its getter's "
+      "declared return type.");
 
   MemberRequest Request;
   Request.Kind = SymbolKind::Property;
   Request.Access = Policy.Access();
   Request.Evaluation = Policy.Evaluation();
   Request.ReceiverType = TypeDescriptor::ForClass(Key);
-  Request.ValueType = MemberValueDescriptor<typename Shape::Declared>(ValueKey);
+  Request.ValueType =
+      MemberValueDescriptor<Value>(SyntheticConvertedValueKey(Key, Name));
   Request.ReadRequiresMutableReceiver = Shape::RequiresMutableReceiver;
   Request.ConvertedRead =
       MakeMemberConvertedReader<Class, Getter>(std::move(Accessor));
@@ -406,18 +426,23 @@ MakeWritablePropertyRequest(const StableTypeKey &Key,
   return Request;
 }
 
-template <class Class, class Setter>
+template <class Class, class Value, class Setter>
 [[nodiscard]] MemberRequest MakeWritableConvertedPropertyRequest(
-    const StableTypeKey &Key, const StableTypeKey &ValueKey,
+    const StableTypeKey &Key, std::string_view Name,
     const PropertyPolicy &Policy, Setter Mutator) {
   using Shape = MemberWriteShape<Class, Setter>;
+  static_assert(
+      std::is_same_v<std::remove_cv_t<typename Shape::Declared>, Value>,
+      "A converted property's named value type must match its setter's "
+      "declared parameter type.");
 
   MemberRequest Request;
   Request.Kind = SymbolKind::Property;
   Request.Access = Policy.Access();
   Request.Evaluation = Policy.Evaluation();
   Request.ReceiverType = TypeDescriptor::ForClass(Key);
-  Request.ValueType = MemberValueDescriptor<typename Shape::Declared>(ValueKey);
+  Request.ValueType =
+      MemberValueDescriptor<Value>(SyntheticConvertedValueKey(Key, Name));
   Request.ConvertedWrite =
       MakeMemberConvertedWriter<Class, Setter>(std::move(Mutator));
   Request.Refusal = ClassifyPropertyPolicy(Policy, false, true);
@@ -448,16 +473,21 @@ MakePropertyRequest(const StableTypeKey &Key, const PropertyPolicy &Policy,
   return Request;
 }
 
-template <class Class, class Getter, class Setter>
-[[nodiscard]] MemberRequest MakeConvertedPropertyRequest(
-    const StableTypeKey &Key, const StableTypeKey &ValueKey,
-    const PropertyPolicy &Policy, Getter Accessor, Setter Mutator) {
+template <class Class, class Value, class Getter, class Setter>
+[[nodiscard]] MemberRequest
+MakeConvertedPropertyRequest(const StableTypeKey &Key, std::string_view Name,
+                             const PropertyPolicy &Policy, Getter Accessor,
+                             Setter Mutator) {
   using ReadShape = MemberReadShape<Class, Getter>;
   using WriteShape = MemberWriteShape<Class, Setter>;
   static_assert(std::is_same_v<typename ReadShape::Declared,
                                typename WriteShape::Declared>,
                 "A Luna read-write property declares one value type for both "
                 "its getter and its setter.");
+  static_assert(
+      std::is_same_v<std::remove_cv_t<typename ReadShape::Declared>, Value>,
+      "A converted property's named value type must match its getter and "
+      "setter's declared value type.");
 
   MemberRequest Request;
   Request.Kind = SymbolKind::Property;
@@ -465,7 +495,7 @@ template <class Class, class Getter, class Setter>
   Request.Evaluation = Policy.Evaluation();
   Request.ReceiverType = TypeDescriptor::ForClass(Key);
   Request.ValueType =
-      MemberValueDescriptor<typename ReadShape::Declared>(ValueKey);
+      MemberValueDescriptor<Value>(SyntheticConvertedValueKey(Key, Name));
   Request.ReadRequiresMutableReceiver = ReadShape::RequiresMutableReceiver;
   Request.ConvertedRead =
       MakeMemberConvertedReader<Class, Getter>(std::move(Accessor));
@@ -534,20 +564,23 @@ MakeFieldRequest(const StableTypeKey &Key, const FieldPolicy &Policy,
   return Request;
 }
 
-template <class Class, class Held>
+template <class Class, class Value, class Held>
 [[nodiscard]] MemberRequest
-MakeConvertedFieldRequest(const StableTypeKey &Key,
-                          const StableTypeKey &ValueKey,
+MakeConvertedFieldRequest(const StableTypeKey &Key, std::string_view Name,
                           const FieldPolicy &Policy, Held Class::*Member) {
   using Pointer = Held Class::*;
   constexpr bool IsWritable = !std::is_const_v<Held>;
+  static_assert(std::is_same_v<std::remove_cv_t<Held>, Value>,
+                "A converted field's named value type must match the "
+                "declared data member's type.");
 
   MemberRequest Request;
   Request.Kind = SymbolKind::Field;
   Request.Evaluation = PropertyEvaluation::Immediate;
   Request.Ownership = Policy.Ownership();
   Request.ReceiverType = TypeDescriptor::ForClass(Key);
-  Request.ValueType = MemberValueDescriptor<std::remove_cv_t<Held>>(ValueKey);
+  Request.ValueType =
+      MemberValueDescriptor<Value>(SyntheticConvertedValueKey(Key, Name));
   Request.ConvertedRead = MakeMemberConvertedReader<Class, Pointer>(Member);
 
   const bool PermitsWrite = Policy.PermitsWrite() && IsWritable;

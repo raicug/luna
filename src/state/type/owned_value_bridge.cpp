@@ -54,18 +54,13 @@ constexpr int MaximumBridgeDepth = 64;
         if (Position > 0 &&
             Position == static_cast<double>(static_cast<long long>(Position)))
           Table.Append(BuildFrom(State, ValueIndex, Depth + 1));
-        else
-          lua_pop(State, 2);
-        continue;
-      }
-      if (lua_type(State, KeyIndex) == LUA_TSTRING) {
+      } else if (lua_type(State, KeyIndex) == LUA_TSTRING) {
         std::size_t Length = 0;
         const char *Bytes = lua_tolstring(State, KeyIndex, &Length);
         Table.SetField(std::string_view(Bytes ? Bytes : "", Length),
                        BuildFrom(State, ValueIndex, Depth + 1));
-        continue;
       }
-      lua_pop(State, 2);
+      lua_settop(State, ValueIndex - 2);
     }
     return Table;
   }
