@@ -14,7 +14,7 @@ ctest --preset ninja-release
 
 CTest exposes four entries. `LunaTests` is the one unified test executable; `LunaBuildPolicy` checks project boundaries and configuration; `LunaTestApp.Build` builds the smoke target; and `LunaTestApp` runs the end-to-end consumer flow.
 
-The unified executable contains focused unit tests, compiler/VM integration tests, generation tests with golden artifacts, every standalone public-header compile check, the Luau-free consumer compile checks, and 31 RapidCheck properties. CTest sets `RC_PARAMS=max_success=100 verbose_shrinking=1`, so each property runs at least 100 successful generated cases and prints replay information on failure.
+The unified executable contains focused unit tests, compiler/VM integration tests, generation tests with golden artifacts, every standalone public-header compile check, the Luau-free consumer compile checks, and 33 RapidCheck properties. CTest sets `RC_PARAMS=max_success=100 verbose_shrinking=1`, so each property runs at least 100 successful generated cases and prints replay information on failure.
 
 Test sources are grouped by category under `tests/`: `unit/`, `property/`, `integration/`, `generation/`, and `compile/`. Every public header must have a matching standalone compile source under `tests/compile/standalone/`, or configuration fails outright.
 

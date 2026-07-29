@@ -44,6 +44,8 @@ Several subsystems expose their own deterministic status enum alongside the diag
 | `SemanticVersionStatus`, `VersionConstraintStatus`, `ModuleManifestStatus` | module metadata parsing and validation |
 | `GenerationStatus` | a documentation or declaration generation attempt |
 | `PublicationStatus` | an atomic artifact publication |
+| `AsyncStage` | a suspended call: `Pending`, `Ready`, `Failed`, `Cancelled` |
+| `DelegateStatus` | one call through a subscribed handler: `Ready`, `Released`, `ForeignThread`, `HandlerFailed`, `ResultMismatch` |
 
 Generation and publication carry their status *and* an `ErrorDiagnostic`, through `GeneratedArtifact::Status()`/`Diagnostic()` and `ArtifactPublication::Status()`/`Diagnostic()`.
 

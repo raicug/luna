@@ -61,7 +61,7 @@ Two current limitations are worth knowing before you design a surface:
 - `src/state/` contains all Luau-aware implementation code and is not public API.
 - `demo/imgui_color_text_edit/src/main.cpp` is the largest worked example: it exercises most of the surface through the public API alone.
 - `app/src/main.cpp` is the smallest complete consumer example.
-- `tests/` contains unit tests, integration tests, compile checks, generation golden files, and 31 properties.
+- `tests/` contains unit tests, integration tests, compile checks, generation golden files, and 33 properties.
 
 ---
 

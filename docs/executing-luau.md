@@ -17,6 +17,8 @@ Luna copies the supplied source, compiles it with the pinned Luau compiler, and 
 
 A bound callable that delivers its value later suspends that thread instead of finishing inside the call. Luna then advances the suspended work on the owner thread and resumes the same thread with the awaited value, so `Execute` still returns only after the chunk finished, failed, or was cancelled. Nothing else runs on the owner thread while work is outstanding, and no suspended call outlives the execution that started it.
 
+A script may also subscribe a Luau function to a `Luna::Signal<Signature>` the host exposes. The subscribed function is held through Luna's own reference mechanism for as long as it stays subscribed, and `Emit` calls it like any other protected callback: a failing handler is reported and recovered without failing the emission that called it. See [Registering functions](registering-functions.md#delegates-and-signals).
+
 The thread is temporary. Whether execution succeeds, fails to compile, raises a Luau error, or reaches a native callback failure, Luna resets and unreferences it before returning. Registered globals, namespaces, enums, classes, and module surfaces live on the root State and remain available to later executions.
 
 This disposable-thread design keeps failed chunks from leaving execution values behind. A root stack checkpoint also restores the exact depth observed when execution began.
@@ -39,7 +41,7 @@ These are intentional gaps rather than partial features:
 - No file-loading helper, custom chunk name, or sandbox environment.
 - No mechanism for retrieving script return values.
 - Only the chunk `Execute` is running can suspend an asynchronous call. A script coroutine or a metamethod that reaches such a callable is refused deterministically, and the started work is cancelled.
-- No delegates, signals, or events, so a script cannot subscribe to a host callback surface.
+- No annotation helper macros or IDE/profiling integrations.
 
 Execution is otherwise unrestricted: a chunk may freely call any registered function, construct registered classes, read constants and enumerators, and use module surfaces.
 

@@ -220,7 +220,7 @@ CTest registers four checks:
 - `LunaTestApp.Build` — smoke application build fixture
 - `LunaTestApp` — end-to-end State, registration, invocation, and result validation
 
-The unified suite contains 31 RapidCheck properties, each configured for at least 100 successful cases. Both Debug and Release presets are expected to pass all four CTest entries.
+The unified suite contains 33 RapidCheck properties, each configured for at least 100 successful cases. Both Debug and Release presets are expected to pass all four CTest entries.
 
 Benchmarks are separate and opt-in. `-DLUNA_BUILD_BENCHMARKS=ON` adds one target per measured area under `benchmarks/`, and every result records the build type, compiler, architecture, Luau version, corpus, warmup, sample count, and cache/freeze mode it was measured with. They stay outside the correctness CTest run unless `LUNA_ENABLE_BENCHMARK_REGRESSION_TESTS` is enabled.
 

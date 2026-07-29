@@ -102,7 +102,7 @@ Two details matter and are explained later. A user-defined leaf type — an enum
 
 ## The worked example
 
-`demo/imgui_color_text_edit/src/main.cpp` registers a representative surface — overloads, optional and defaulted and variadic parameters, both kinds of multiple return, nested namespaces, a scoped enum with an alias, a bitflag enum, a class hierarchy with operators, and a versioned module graph — and then lets you run scripts against it, browse the reflection, generate artifacts, and freeze the State. Build it with:
+`demo/imgui_color_text_edit/src/main.cpp` registers a representative surface — overloads, optional and defaulted and variadic parameters, both kinds of multiple return, nested namespaces, a scoped enum with an alias, a bitflag enum, a class hierarchy with operators, an asynchronous function, a signal with subscribed handlers, and a versioned module graph — and then lets you run scripts against it, browse the reflection, generate artifacts, and freeze the State. Build it with:
 
 ```bat
 cmake --preset ninja-debug -DLUNA_BUILD_IMGUI_DEMO=ON
