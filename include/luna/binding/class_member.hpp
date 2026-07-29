@@ -224,6 +224,11 @@ using MemberReadOperation =
 using MemberWriteOperation =
     std::function<MemberWriteOutcome(void *Object, const Value &Incoming)>;
 
+// Invoked after a property or field successfully writes a new value; this
+// notifies user code of the change but never itself refuses the write.
+using MemberChangeOperation =
+    std::function<void(void *Object, const Value &Updated)>;
+
 } // namespace Detail
 
 } // namespace Luna

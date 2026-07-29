@@ -263,6 +263,20 @@ MemberWriteResult WriteClassMember(MemberAccessContext &Context,
                        DescribeMemberTargetRefusal(Member.QualifiedName, false,
                                                    Written.Refusal));
 
+  if (Member.HasChangeHandler()) {
+    try {
+      Member.Change(Receiver.Storage, Offered.Converted);
+    } catch (const std::exception &Error) {
+      return RefuseWrite(
+          MemberAccessFailure::ContainedException, UserdataAccessFailure::None,
+          DescribeMemberException(Member.QualifiedName, false, Error.what()));
+    } catch (...) {
+      return RefuseWrite(
+          MemberAccessFailure::ContainedException, UserdataAccessFailure::None,
+          DescribeMemberUnknownException(Member.QualifiedName, false));
+    }
+  }
+
   MemberWriteResult Result;
   Result.Failure = MemberAccessFailure::None;
 

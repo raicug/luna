@@ -82,6 +82,7 @@ public:
   [[nodiscard]] static std::string Category() { return "entity"; }
 
   int Tag = 0;
+  int RenameCount = 0;
 
 private:
   std::string NameValue;
@@ -441,7 +442,10 @@ Flags.Value("Read", Access::Read)
     Studio.RegisterClass<Entity>("Entity", EntityKey());
 Entities.Constructor<std::string>()
     .Field("Tag", &Entity::Tag)
-    .Property("Name", &Entity::Name, &Entity::Rename)
+    .Property("Name", &Entity::Name, &Entity::Rename,
+             [](Entity &Value, const std::string &) {
+               ++Value.RenameCount;  // an optional on-change callback
+             })
     .Method("Label", &Entity::Label)
     .StaticMethod("Category", &Entity::Category)
     .Documentation("One named host object.")
@@ -918,13 +922,20 @@ private:
         Studio.RegisterClass<Entity>("Entity", EntityKey());
     Entities.Constructor<std::string>()
         .Field("Tag", &Entity::Tag)
-        .Property("Name", &Entity::Name, &Entity::Rename)
+        .Property("Name", &Entity::Name, &Entity::Rename,
+                  [](Entity &Value, const std::string &) {
+                    // The on-change callback runs after `Rename` has already
+                    // succeeded, so it only ever observes a value already
+                    // written.
+                    ++Value.RenameCount;
+                  })
         .Method("Label", &Entity::Label)
         .StaticMethod("Category", &Entity::Category)
         .Documentation("One named host object.")
         .Documentation("New", "Constructs one entity from its name.")
         .Documentation("Name", "The entity name. Reading and writing are both "
-                               "declared, so both are permitted.")
+                               "declared, so both are permitted, and a write "
+                               "notifies an on-change callback.")
         .Attribute("stability", "experimental")
         .Example("local E = Studio.Entity.New('crate')");
 

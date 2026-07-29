@@ -40,6 +40,11 @@ struct RegisteredMember final {
 
   MemberReadOperation Read;
   MemberWriteOperation Write;
+  MemberChangeOperation Change;
+
+  [[nodiscard]] bool HasChangeHandler() const noexcept {
+    return Change != nullptr;
+  }
 
   [[nodiscard]] bool PermitsRead() const noexcept {
     return PermitsMemberRead(Access) && Read != nullptr;

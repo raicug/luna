@@ -30,11 +30,15 @@ struct MemberRequest final {
 
   MemberReadOperation Read;
   MemberWriteOperation Write;
+  MemberChangeOperation Change;
 
   std::string Refusal;
 
   [[nodiscard]] bool HasReader() const noexcept { return Read != nullptr; }
   [[nodiscard]] bool HasWriter() const noexcept { return Write != nullptr; }
+  [[nodiscard]] bool HasChangeHandler() const noexcept {
+    return Change != nullptr;
+  }
 };
 
 template <class Class, class Target, class = void> struct MemberReadShape {
@@ -200,6 +204,21 @@ template <class Class, class Target>
   };
 }
 
+template <class Class, class Declared, class Callback>
+[[nodiscard]] MemberChangeOperation MakeMemberChangeHandler(Callback Handler) {
+  static_assert(std::is_invocable_v<Callback &, Class &, const Declared &>,
+                "A Luna property or field on-change handler accepts the "
+                "class by reference and the newly written value.");
+
+  return [Handler](void *Object, const Value &Updated) mutable {
+    auto *Typed = static_cast<Class *>(Object);
+    const Declared *Held = std::get_if<Declared>(&Updated);
+    if (Held == nullptr)
+      return;
+    Handler(*Typed, *Held);
+  };
+}
+
 template <class Class, class Target>
 [[nodiscard]] MemberWriteOperation MakeMemberWriter(Target Mutator) {
   using Shape = MemberWriteShape<Class, Target>;
@@ -311,6 +330,20 @@ MakePropertyRequest(const StableTypeKey &Key, const PropertyPolicy &Policy,
   return Request;
 }
 
+template <class Class, class Getter, class Setter, class OnChange>
+[[nodiscard]] MemberRequest
+MakePropertyRequest(const StableTypeKey &Key, const PropertyPolicy &Policy,
+                    Getter Accessor, Setter Mutator, OnChange Handler) {
+  using WriteShape = MemberWriteShape<Class, Setter>;
+
+  MemberRequest Request = MakePropertyRequest<Class, Getter, Setter>(
+      Key, Policy, std::move(Accessor), std::move(Mutator));
+  Request.Change =
+      MakeMemberChangeHandler<Class, typename WriteShape::Declared>(
+          std::move(Handler));
+  return Request;
+}
+
 template <class Class, class Held>
 [[nodiscard]] MemberRequest MakeFieldRequest(const StableTypeKey &Key,
                                              const FieldPolicy &Policy,
@@ -342,6 +375,17 @@ template <class Class, class Held>
       Policy.PermitsWrite() && !IsWritable)
     Request.Refusal = "this field is declared const, so it can never be "
                       "written through.";
+  return Request;
+}
+
+template <class Class, class Held, class OnChange>
+[[nodiscard]] MemberRequest
+MakeFieldRequest(const StableTypeKey &Key, const FieldPolicy &Policy,
+                 Held Class::*Member, OnChange Handler) {
+  MemberRequest Request = MakeFieldRequest<Class, Held>(Key, Policy, Member);
+  if (Request.HasWriter())
+    Request.Change = MakeMemberChangeHandler<Class, std::remove_cv_t<Held>>(
+        std::move(Handler));
   return Request;
 }
 

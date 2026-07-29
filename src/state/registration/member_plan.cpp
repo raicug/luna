@@ -126,6 +126,7 @@ DescriptorPlanEntry MakeMemberPlanEntry(const StagedMember &Declaration,
   Member.ReadRequiresMutableReceiver = Declaration.ReadRequiresMutableReceiver;
   Member.Read = Declaration.Read;
   Member.Write = Declaration.Write;
+  Member.Change = Declaration.Change;
   Entry.ClassMember = std::move(Member);
   return Entry;
 }

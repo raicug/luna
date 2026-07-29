@@ -38,6 +38,7 @@ struct StagedMember final {
 
   MemberReadOperation Read;
   MemberWriteOperation Write;
+  MemberChangeOperation Change;
 
   std::string Refusal;
 

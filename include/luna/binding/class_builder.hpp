@@ -234,6 +234,33 @@ public:
     return *this;
   }
 
+  // A property may declare an optional on-change callback, invoked with the
+  // owning instance and the newly written value after the setter above
+  // succeeds. This lets user code react to writes without interleaving that
+  // reaction into the setter itself.
+  template <class Getter, class Setter, class OnChange>
+  ClassBuilder &Property(std::string_view Name, Getter Accessor, Setter Mutator,
+                         OnChange Handler) {
+    const PropertyPolicy Policy = PropertyPolicy::ReadWrite();
+    Detail::MemberRequest Request =
+        Detail::MakePropertyRequest<Type, Getter, Setter, OnChange>(
+            ClassKey, Policy, std::move(Accessor), std::move(Mutator),
+            std::move(Handler));
+    Staging.StageAccessor(Name, std::move(Request));
+    return *this;
+  }
+
+  template <class Getter, class Setter, class OnChange>
+  ClassBuilder &Property(std::string_view Name, PropertyPolicy Policy,
+                         Getter Accessor, Setter Mutator, OnChange Handler) {
+    Detail::MemberRequest Request =
+        Detail::MakePropertyRequest<Type, Getter, Setter, OnChange>(
+            ClassKey, Policy, std::move(Accessor), std::move(Mutator),
+            std::move(Handler));
+    Staging.StageAccessor(Name, std::move(Request));
+    return *this;
+  }
+
   template <class Held>
   ClassBuilder &Field(std::string_view Name, Held Type::*Member) {
     const FieldPolicy Policy;
@@ -248,6 +275,30 @@ public:
                       FieldPolicy Policy) {
     Detail::MemberRequest Request =
         Detail::MakeFieldRequest<Type, Held>(ClassKey, Policy, Member);
+    Staging.StageAccessor(Name, std::move(Request));
+    return *this;
+  }
+
+  // A field may likewise declare an optional on-change callback, invoked
+  // after a successful write reaches the underlying data member.
+  template <class Held, class OnChange>
+    requires(!std::is_same_v<std::decay_t<OnChange>, FieldPolicy>)
+  ClassBuilder &Field(std::string_view Name, Held Type::*Member,
+                      OnChange Handler) {
+    const FieldPolicy Policy;
+    Detail::MemberRequest Request =
+        Detail::MakeFieldRequest<Type, Held, OnChange>(ClassKey, Policy, Member,
+                                                       std::move(Handler));
+    Staging.StageAccessor(Name, std::move(Request));
+    return *this;
+  }
+
+  template <class Held, class OnChange>
+  ClassBuilder &Field(std::string_view Name, Held Type::*Member,
+                      FieldPolicy Policy, OnChange Handler) {
+    Detail::MemberRequest Request =
+        Detail::MakeFieldRequest<Type, Held, OnChange>(ClassKey, Policy, Member,
+                                                       std::move(Handler));
     Staging.StageAccessor(Name, std::move(Request));
     return *this;
   }

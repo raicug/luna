@@ -128,6 +128,23 @@ A field is never raw memory access. Luna generates the same getter and setter de
 
 A property or field value is one of the supported value types.
 
+### Reacting to a write
+
+A read-write `Property` or a writable `Field` may declare one more, optional argument: an on-change callback, invoked with the object and the newly written value immediately after the setter or field write it follows has already succeeded.
+
+```cpp
+Sprites.Property("Name", &Sprite::Name, &Sprite::Rename,
+                 [](Sprite &Value, const std::string &Renamed) {
+                   Value.NotifyRenamed(Renamed);
+                 })
+    .Field("Width", &Sprite::Width,
+          [](Sprite &Value, const double &Updated) {
+            Value.InvalidateBounds();
+          });
+```
+
+The callback receives the object by reference and the value already written, by the same declared type the setter accepts. It runs only after a successful write — never for a write refused by the receiver, the declared direction, or an incompatible value — and it never itself un-does that write: an exception it throws is contained exactly like an exception from a setter, but the underlying value has already changed. A field's on-change callback is unreachable when the field permits no writes at all, since there is then never a write for it to follow.
+
 ## Inheritance and casts
 
 `Base<BaseType>(BaseKey)` states one explicit base edge to an already registered class.

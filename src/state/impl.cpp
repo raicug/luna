@@ -1934,6 +1934,7 @@ void State::Impl::RecordPublishedClasses(
           Entry->ClassMember->ReadRequiresMutableReceiver;
       Member.Read = Entry->ClassMember->Read;
       Member.Write = Entry->ClassMember->Write;
+      Member.Change = Entry->ClassMember->Change;
       Owner->Members.push_back(std::move(Member));
       continue;
     }

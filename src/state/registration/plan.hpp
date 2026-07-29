@@ -68,6 +68,7 @@ struct PlannedClassMember final {
   bool ReadRequiresMutableReceiver = false;
   MemberReadOperation Read;
   MemberWriteOperation Write;
+  MemberChangeOperation Change;
 };
 
 struct PlannedClassOperator final {

@@ -40,12 +40,15 @@ std::size_t LevelReads = 0;
 std::size_t LevelWrites = 0;
 std::size_t WeightReads = 0;
 std::size_t ExpensiveReads = 0;
+std::size_t NotifiedChanges = 0;
 
 struct Gadget final {
   int Charge = 3;
   const int Serial = 42;
   std::string Label = "gadget";
   bool GetterFails = false;
+  bool NotifyThrows = false;
+  int LastNotified = 0;
 
   [[nodiscard]] int Level() const {
     ++LevelReads;
@@ -75,6 +78,7 @@ void ResetCounters() {
   LevelWrites = 0;
   WeightReads = 0;
   ExpensiveReads = 0;
+  NotifiedChanges = 0;
 }
 
 [[nodiscard]] Luna::RegistrationResult
@@ -95,7 +99,15 @@ RegisterGadget(Luna::BindingRegistry &Registry) {
       WithCharge.Field("Serial", &Gadget::Serial);
   Luna::ClassBuilder<Gadget> &WithLabel =
       WithSerial.Field("Label", &Gadget::Label);
-  return WithLabel.Commit();
+  Luna::ClassBuilder<Gadget> &WithNotified = WithLabel.Property(
+      "Notified", &Gadget::Level, &Gadget::SetLevel,
+      [](Gadget &Instance, const int &Updated) {
+        if (Instance.NotifyThrows)
+          throw std::runtime_error("the on-change handler refused");
+        ++NotifiedChanges;
+        Instance.LastNotified = Updated;
+      });
+  return WithNotified.Commit();
 }
 
 [[nodiscard]] std::string ExposeGadget(Luna::State &Owner,
@@ -193,6 +205,39 @@ void CheckTypedAccessFollowsItsDeclaration() {
   const auto Unknown = ReadMember(Owner, "Gadget_Value", "Missing");
   Check(!Unknown.Reached && Unknown.Failure == "unknown_member",
         "a member this class never declared is not accessible at all");
+}
+
+void CheckOnChangeHandlerRunsAfterASuccessfulWrite() {
+  ResetCounters();
+  Luna::State Owner;
+  Luna::BindingRegistry Registry = Owner.Bindings();
+  Check(RegisterGadget(Registry).IsSuccess(), "the class registers");
+
+  Gadget Object;
+  std::uint64_t Generation = 5;
+  Check(ExposeGadget(Owner, "Notified_Value", Object, &Generation,
+                     ConstAccess::Mutable) == "created",
+        "one mutable value of the class is exposed");
+
+  const auto Written = WriteMember(Owner, "Notified_Value", "Notified", 30);
+  Check(Written.Reached && NotifiedChanges == 1 && Object.LastNotified == 30 &&
+            Object.Charge == 30,
+        "a successful write invokes the declared on-change handler with the "
+        "new value");
+
+  const int Before = Object.Charge;
+  const auto Mistyped =
+      WriteMember(Owner, "Notified_Value", "Notified", std::string("thirty"));
+  Check(!Mistyped.Reached && NotifiedChanges == 1 && Object.Charge == Before,
+        "an incompatible value never reaches the on-change handler");
+
+  Object.NotifyThrows = true;
+  const auto Thrown = WriteMember(Owner, "Notified_Value", "Notified", 40);
+  Check(!Thrown.Reached && Thrown.Failure == "contained_exception" &&
+            Object.Charge == 40 && NotifiedChanges == 1,
+        "an on-change handler that throws is contained rather than escaping, "
+        "though the underlying write already took effect");
+  Object.NotifyThrows = false;
 }
 
 void CheckReceiverRanksBeforeEverythingElse() {
@@ -374,6 +419,7 @@ int RunClassMemberAccessTests();
 int RunClassMemberAccessTests() {
   FailureCount = 0;
   CheckTypedAccessFollowsItsDeclaration();
+  CheckOnChangeHandlerRunsAfterASuccessfulWrite();
   CheckReceiverRanksBeforeEverythingElse();
   CheckLazyValuesAreCachedAndInvalidated();
   CheckRetiringOneValueDropsItsCachedValues();

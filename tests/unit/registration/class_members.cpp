@@ -39,12 +39,16 @@ std::size_t LevelReads = 0;
 std::size_t LevelWrites = 0;
 std::size_t WeightReads = 0;
 std::size_t ExpensiveReads = 0;
+std::size_t NotifiedChanges = 0;
+std::size_t TrackedChanges = 0;
 
 struct Gadget final {
   int Charge = 3;
   const int Serial = 42;
   std::string Label = "gadget";
   bool GetterFails = false;
+  int Notified = 0;
+  int Tracked = 0;
 
   [[nodiscard]] int Level() const {
     ++LevelReads;
@@ -74,6 +78,8 @@ void ResetCounters() {
   LevelWrites = 0;
   WeightReads = 0;
   ExpensiveReads = 0;
+  NotifiedChanges = 0;
+  TrackedChanges = 0;
 }
 
 [[nodiscard]] Luna::StableTypeKey GadgetKey() {
@@ -103,8 +109,19 @@ RegisterGadget(Luna::BindingRegistry &Registry) {
       WithCharge.Field("Serial", &Gadget::Serial);
   Luna::ClassBuilder<Gadget> &WithLabel =
       WithSerial.Field("Label", &Gadget::Label, Luna::FieldPolicy::ReadOnly());
-  Luna::ClassBuilder<Gadget> &Documented =
-      WithLabel.Documentation("Level", "The doubled charge of this gadget.");
+  Luna::ClassBuilder<Gadget> &WithNotifiedProperty =
+      WithLabel.Property("Notified", &Gadget::Level, &Gadget::SetLevel,
+                         [](Gadget &Instance, const int &) {
+                           ++NotifiedChanges;
+                           ++Instance.Notified;
+                         });
+  Luna::ClassBuilder<Gadget> &WithTrackedField = WithNotifiedProperty.Field(
+      "Tracked", &Gadget::Charge, [](Gadget &Instance, const int &Updated) {
+        ++TrackedChanges;
+        Instance.Tracked = Updated;
+      });
+  Luna::ClassBuilder<Gadget> &Documented = WithTrackedField.Documentation(
+      "Level", "The doubled charge of this gadget.");
   Luna::ClassBuilder<Gadget> &Annotated =
       Documented.Attribute("Expensive", "cost", "high");
   return Annotated.Commit();
@@ -120,7 +137,7 @@ void CheckMembersAreReflected() {
         "one class commits with every property mode and both field forms");
   Check(Hooks::ObserveRootStackDepth(Owner) == EntryDepth,
         "publishing typed members restores the entry stack depth");
-  Check(Hooks::ClassMemberCount(Owner, "Gadget") == 9,
+  Check(Hooks::ClassMemberCount(Owner, "Gadget") == 11,
         "every declared member is published with its class");
   Check(Hooks::ClassMemberIsRegistered(Owner, "Gadget", "Level") &&
             Hooks::ClassMemberIsRegistered(Owner, "Gadget", "Charge"),
