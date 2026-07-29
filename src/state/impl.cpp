@@ -462,10 +462,17 @@ State::Impl::Impl()
   });
 
   Detail::PublishUserdataCollectionRoute(Lifecycle.Identity(), &Userdata);
+
+  AsyncCalls.BindOrigin(Lifecycle.Identity(), Lifecycle.Generation());
+  static_cast<void>(VirtualMachine.PublishAsyncCallRegistry(&AsyncCalls));
+  static_cast<void>(VirtualMachine.PublishDelegateRegistry(&Delegates));
 }
 
 State::Impl::~Impl() {
   Destroying = true;
+
+  AsyncCalls.CancelEverything("the State that suspended it is gone");
+  Delegates.Retire();
 
   FrozenCaches.reset();
 
@@ -2437,7 +2444,8 @@ ExecutionResult State::Impl::Execute(std::string_view Source) {
         ErrorCategory::StateNotReady,
         "State not ready: source execution requires a ready State.");
   }
-  return VirtualMachine.ExecuteSource(Source, Faults);
+  AsyncCalls.BindOrigin(Lifecycle.Identity(), Lifecycle.Generation());
+  return VirtualMachine.ExecuteSource(Source, Faults, &AsyncCalls);
 }
 
 ReflectionSnapshot State::Impl::CaptureReflection() const {
@@ -2573,8 +2581,7 @@ Detail::LifecycleCommitObservation State::Impl::PublishLifecycleAttempt(
       const Detail::ReflectionRecordFields *Record = Captured->RecordAt(Index);
       if (Record == nullptr)
         continue;
-      Identities.push_back(Record->QualifiedName + "=" +
-                           Record->Id.ToString());
+      Identities.push_back(Record->QualifiedName + "=" + Record->Id.ToString());
     }
     std::sort(Identities.begin(), Identities.end());
     return Identities;

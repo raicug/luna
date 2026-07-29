@@ -48,6 +48,13 @@ public:
     return Metadata;
   }
 
+  // Asynchronous delivery keeps the awaited disposition, so reflection,
+  // validation, and return writing stay on the canonical paths.
+  [[nodiscard]] static ReturnMetadata ForAsync(ReturnMetadata Awaited) {
+    Awaited.AsynchronousValue = true;
+    return Awaited;
+  }
+
   [[nodiscard]] ReturnDisposition Disposition() const noexcept {
     return DispositionValue;
   }
@@ -68,6 +75,10 @@ public:
     return DeclaredPackValue;
   }
 
+  [[nodiscard]] bool IsAsynchronous() const noexcept {
+    return AsynchronousValue;
+  }
+
 private:
   ReturnMetadata(ReturnDisposition DispositionValue,
                  std::optional<ValueKind> KindValue) noexcept
@@ -77,6 +88,7 @@ private:
   std::optional<ValueKind> KindValue;
   std::vector<ValueKind> PackKindsValue;
   bool DeclaredPackValue = false;
+  bool AsynchronousValue = false;
   std::optional<StableTypeKey> InstanceKeyValue;
 };
 

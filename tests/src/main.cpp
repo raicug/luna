@@ -7,6 +7,9 @@
 
 int RunAllocatorConstructionCleanupProperties();
 int RunArtifactPublicationTests();
+int RunAsynchronousExecutionIntegrationTests();
+int RunAsynchronousInvocationTests();
+int RunAsynchronousSettlementProperties();
 int RunCallableModelTests();
 int RunCallableRichnessIntegrationTests();
 int RunCanonicalConversionRoundTripProperties();
@@ -34,6 +37,7 @@ int RunConversionReturnValidationFaultEdgeCaseTests();
 int RunDeclarationGenerationTests();
 int RunDeclaredParameterIntegrationTests();
 int RunDeclaredParameterShapeTests();
+int RunDelegateBindingTests();
 int RunDescriptorPlanTests();
 int RunDispatchGenerationIntegrationTests();
 int RunDispatchSlotIndirectionTests();
@@ -88,6 +92,7 @@ int RunRegistrationStackBalanceProperties();
 int RunRegistrationTransactionTests();
 int RunResultTypesTests();
 int RunRichSignatureShapeProperties();
+int RunSignalDeliveryProperties();
 int RunSourceExecutionTests();
 int RunStableCanonicalIdentityProperties();
 int RunStandardExceptionTranslationProperties();
@@ -260,6 +265,11 @@ int main() {
                RunGeneratorArtifactGoldenTests},
       TestCase{"refused roadmap extensions publish nothing",
                RunUnavailableExtensionBoundaryTests},
+      TestCase{"delegate and signal bindings", RunDelegateBindingTests},
+      TestCase{"suspended coroutine and asynchronous invocation",
+               RunAsynchronousInvocationTests},
+      TestCase{"asynchronous invocation through the real virtual machine",
+               RunAsynchronousExecutionIntegrationTests},
       TestCase{"property 1: state ownership transitions",
                RunStateOwnershipTransitionsProperties},
       TestCase{"property 2: invocable valid registrations",
@@ -325,6 +335,12 @@ int main() {
       TestCase{"property 31: module lifecycle publication follows the "
                "retained-generation state machine",
                RunDynamicModuleLifecycleProperties},
+      TestCase{"property 32: suspended calls settle exactly once and resume "
+               "through their retained generation",
+               RunAsynchronousSettlementProperties},
+      TestCase{"property 33: signal subscription and delivery follow the "
+               "retained-generation handler model",
+               RunSignalDeliveryProperties},
   };
 
   for (const auto &Test : Tests) {

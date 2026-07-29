@@ -419,6 +419,11 @@ ValidateStagedMethod(const StagedClass &Class,
   if (!Declaration.HasTarget())
     return NullCallableDiagnostic(Subject);
 
+  if (Declaration.Callable->Metadata().ReturnType().IsAsynchronous())
+    return MalformedMetadataDiagnostic(
+        Subject, "asynchronous delivery is available on namespace and root "
+                 "functions, so a class member returns its value directly.");
+
   const ReceiverMetadata *Receiver =
       Declaration.Callable->Metadata().Receiver();
   if (Declaration.DeclaresReceiver != (Receiver != nullptr))

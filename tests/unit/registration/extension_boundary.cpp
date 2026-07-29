@@ -1,7 +1,10 @@
 // clang-format off
+#include <luna/binding/async_task.hpp>
 #include <luna/binding/binding_registry.hpp>
+#include <luna/binding/delegate.hpp>
 #include <luna/binding/namespace_builder.hpp>
 #include <luna/binding/overload.hpp>
+#include <luna/binding/signal.hpp>
 #include <luna/binding/supported_callable.hpp>
 #include <luna/core/diagnostics/error_category.hpp>
 #include <luna/module/module_manifest.hpp>
@@ -34,21 +37,20 @@ void Check(bool Condition, std::string_view Description) {
   std::cerr << "extension boundary check failed: " << Description << '\n';
 }
 
-// One representative signal, event, and delegate surface. Luna owns no
-// canonical descriptor for any of them in this milestone.
+// One representative signal, event, and delegate surface. Luna owns the
+// canonical delegate descriptor; the event source itself stays native.
 class SignalHub final {
 public:
-  void Connect(std::function<void(int)> Listener) {
-    Listeners.push_back(std::move(Listener));
+  [[nodiscard]] int Connect(Luna::Delegate<void(int)> Listener) {
+    return Damage.Subscribe(std::move(Listener));
   }
 
-  void Emit(int Value) const {
-    for (const auto &Listener : Listeners)
-      Listener(Value);
+  [[nodiscard]] int Publish(int Amount) {
+    return static_cast<int>(Damage.Emit(Amount).Delivered);
   }
 
 private:
-  std::vector<std::function<void(int)>> Listeners;
+  Luna::Signal<void(int)> Damage;
 };
 
 using DelegateSlot = std::function<void(int)>;
@@ -101,32 +103,47 @@ void CheckTypedConstraintsRefuseUnavailableCallables() {
             GenericScale))>::value,
         "an explicit concrete overload selection stays the supported opt-in");
 
-  // Coroutines and asynchronous tasks.
-  Check(!Luna::SupportedReturn<std::coroutine_handle<>>,
-        "a coroutine handle is no supported return type");
-  Check(!Luna::SupportedReturn<std::future<int>>,
-        "an asynchronous task is no supported return type");
-  Check(!Luna::SupportedCallableTrait<std::coroutine_handle<> (*)()>::value,
-        "a coroutine-returning callable is refused at compile time");
-  Check(!Luna::SupportedCallableTrait<std::future<int> (*)()>::value,
-        "an asynchronous callable is refused at compile time");
+  // Coroutine and asynchronous invocation is available through the ordinary
+  // typed constraint, and its awaited value stays inside the canonical domain.
+  Check(Luna::SupportedReturn<std::future<int>>,
+        "an asynchronous result is a supported return type");
+  Check(Luna::SupportedReturn<Luna::AsyncTask<std::string>> &&
+            Luna::SupportedReturn<Luna::AsyncTask<void>> &&
+            Luna::SupportedReturn<Luna::AsyncTask<Luna::ReturnPack>>,
+        "a Luna task publishes nothing, one value, or one pack");
+  Check(Luna::SupportedCallableTrait<std::future<int> (*)()>::value &&
+            Luna::SupportedCallableTrait<Luna::AsyncTask<int> (*)(int)>::value,
+        "an asynchronous callable is accepted at compile time");
   Check(
-      !Luna::SupportedCallableTrait<decltype(Luna::Overload<std::future<int>()>(
+      Luna::SupportedCallableTrait<decltype(Luna::Overload<std::future<int>()>(
           std::declval<std::future<int> (*)()>()))>::value,
-      "explicit selection cannot smuggle an asynchronous form past the "
+      "explicit selection carries an asynchronous form through the same "
       "constraint");
+  Check(!Luna::SupportedReturn<std::coroutine_handle<>>,
+        "a raw coroutine handle names no awaited value, so it stays refused");
+  Check(!Luna::SupportedReturn<Luna::AsyncTask<unsigned int>> &&
+            !Luna::SupportedCallableTrait<std::future<SignalHub> (*)()>::value,
+        "an awaited value outside the canonical domain stays refused");
 
-  // Delegates, signals, and events.
-  Check(!Luna::SupportedParameter<DelegateSlot>,
-        "a delegate is no supported parameter type");
+  // Delegates, signals, and events are available through one canonical
+  // delegate parameter.
+  Check(Luna::SupportedParameter<DelegateSlot> &&
+            Luna::SupportedParameter<Luna::Delegate<void(int)>>,
+        "a delegate is a supported parameter type");
+  Check(Luna::SupportedDelegate<Luna::Delegate<bool(std::string)>> &&
+            !Luna::SupportedDelegate<int>,
+        "the delegate domain names exactly the handler forms");
+  Check(Luna::SupportedCallableTrait<void (*)(DelegateSlot)>::value &&
+            Luna::SupportedCallableTrait<int (*)(
+                Luna::Delegate<void(int)>)>::value,
+        "subscribing a delegate is accepted at compile time");
+  Check(!Luna::SupportedParameter<Luna::Delegate<void(unsigned int)>>,
+        "a delegate outside the canonical value domain stays refused");
   Check(!Luna::SupportedValue<SignalHub>,
-        "a signal or event hub is no supported value type");
-  Check(!Luna::SupportedCallableTrait<void (*)(DelegateSlot)>::value,
-        "subscribing a delegate is refused at compile time");
-  Check(!Luna::SupportedCallableTrait<void (*)(SignalHub &)>::value,
-        "publishing through a signal is refused at compile time");
-  Check(!Luna::SupportedCallableTrait<SignalHub (*)()>::value,
-        "handing out an event source is refused at compile time");
+        "an event source is no supported value type");
+  Check(!Luna::SupportedCallableTrait<void (*)(SignalHub &)>::value &&
+            !Luna::SupportedCallableTrait<SignalHub (*)()>::value,
+        "handing an event source itself across the boundary stays refused");
 
   // The ordinary supported forms stay available, so the constraint refuses
   // the unavailable extensions rather than everything.
@@ -144,21 +161,17 @@ void CheckUnavailableValuesAreRejectedAtRegistration() {
   const int EntryDepth = StackDepth(Owner);
   const std::uint64_t EntryGeneration = Hooks::ReflectionGeneration(Owner);
 
-  DelegateSlot Slot = [](int) {};
-  const auto Delegate = Registry.RegisterConstant("Delegate", Slot);
   const auto Signal = Registry.RegisterConstant("Signal", SignalHub());
   const auto Awaited =
       Registry.RegisterConstant("Awaited", std::coroutine_handle<>());
 
-  Check(RefusedWithoutCanonicalType(Delegate, "Delegate"),
-        "a delegate value is refused deterministically at registration time");
   Check(RefusedWithoutCanonicalType(Signal, "Signal"),
-        "a signal or event value is refused deterministically");
+        "an event source value is refused deterministically at registration "
+        "time");
   Check(RefusedWithoutCanonicalType(Awaited, "Awaited"),
         "a coroutine handle is refused deterministically");
 
-  Check(PathKind(Owner, "Delegate") == "absent" &&
-            PathKind(Owner, "Signal") == "absent" &&
+  Check(PathKind(Owner, "Signal") == "absent" &&
             PathKind(Owner, "Awaited") == "absent",
         "a refused extension installs no virtual-machine artifact");
   Check(Registry.Reflection().IsEmpty(),

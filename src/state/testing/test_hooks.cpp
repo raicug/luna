@@ -381,6 +381,33 @@ StateTestHooks::ObserveLastCallbackStackRestoration(
   return Owner.Implementation->Faults.LastCallbackStackRestoration();
 }
 
+AsyncCallCounters
+StateTestHooks::AsyncCallCountersOf(const State &Owner) noexcept {
+  if (!Owner.Implementation)
+    return AsyncCallCounters();
+  return Owner.Implementation->AsyncCalls.Counters();
+}
+
+std::size_t StateTestHooks::PendingAsyncCallCount(const State &Owner) noexcept {
+  if (!Owner.Implementation)
+    return 0;
+  return Owner.Implementation->AsyncCalls.PendingCount();
+}
+
+DelegateCounters
+StateTestHooks::DelegateCountersOf(const State &Owner) noexcept {
+  if (!Owner.Implementation)
+    return DelegateCounters();
+  return Owner.Implementation->SubscribedHandlers().Counters();
+}
+
+std::size_t
+StateTestHooks::OutstandingDelegateCount(const State &Owner) noexcept {
+  if (!Owner.Implementation)
+    return 0;
+  return Owner.Implementation->SubscribedHandlers().OutstandingCount();
+}
+
 ReflectionDatabase *
 StateTestHooks::ReflectionDatabaseOf(State &Owner) noexcept {
   if (!Owner.Implementation)
@@ -1355,7 +1382,7 @@ LifecycleSubject StateTestHooks::DescribeLifecycleSubject(const State &Owner) {
 
 LifecycleAnalysis
 StateTestHooks::AnalyzeLifecycleRequest(const State &Owner,
-                                       const LifecycleRequest &Request) {
+                                        const LifecycleRequest &Request) {
   if (!Owner.Implementation)
     return LifecycleAnalysis();
   return Owner.Implementation->AnalyzeLifecycleRequest(Request);

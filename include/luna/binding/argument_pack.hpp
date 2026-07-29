@@ -2,10 +2,12 @@
 
 // clang-format off
 #include <luna/binding/conversion.hpp>
+#include <luna/binding/delegate.hpp>
 #include <luna/binding/value.hpp>
 
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <optional>
 #include <span>
 #include <string>
@@ -110,16 +112,34 @@ public:
     return Slot;
   }
 
+  // One subscribed handler the caller supplied for a delegate parameter.
+  [[nodiscard]] static ArgumentSlot
+  SuppliedHandler(std::shared_ptr<Detail::DelegateTarget> Handler) {
+    ArgumentSlot Slot;
+    Slot.HandlerStorage = std::move(Handler);
+    return Slot;
+  }
+
   [[nodiscard]] bool HasValue() const noexcept {
     return ValueStorage.has_value();
+  }
+
+  [[nodiscard]] bool HasHandler() const noexcept {
+    return HandlerStorage != nullptr;
   }
 
   [[nodiscard]] const Value *Get() const noexcept {
     return ValueStorage ? &*ValueStorage : nullptr;
   }
 
+  [[nodiscard]] const std::shared_ptr<Detail::DelegateTarget> &
+  Handler() const noexcept {
+    return HandlerStorage;
+  }
+
 private:
   std::optional<Value> ValueStorage;
+  std::shared_ptr<Detail::DelegateTarget> HandlerStorage;
 };
 
 class InvocationArguments final {

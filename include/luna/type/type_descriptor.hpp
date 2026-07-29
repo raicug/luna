@@ -45,7 +45,8 @@ enum class TypeKind {
   SharedOwnership,
   BorrowedReference,
   ArgumentPack,
-  ReturnPack
+  ReturnPack,
+  Callable
 };
 
 enum class CvQualification { None, Const, Volatile, ConstVolatile };
@@ -111,6 +112,8 @@ FixedTypeKeyText(FixedTypeKey Key) noexcept {
     return "argument_pack";
   case TypeKind::ReturnPack:
     return "return_pack";
+  case TypeKind::Callable:
+    return "callable";
   }
   return "unsupported";
 }
@@ -153,6 +156,9 @@ TypeKindAcceptsChildCount(TypeKind Kind, std::size_t ChildCount) noexcept {
   case TypeKind::ArgumentPack:
   case TypeKind::ReturnPack:
     return true;
+  case TypeKind::Callable:
+    // The first child is the result type; the rest are the parameter types.
+    return ChildCount >= 1;
   }
   return false;
 }

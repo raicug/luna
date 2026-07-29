@@ -8,6 +8,7 @@
 #include <GLFW/glfw3.h>
 
 #include <array>
+#include <chrono>
 #include <cmath>
 #include <coroutine>
 #include <cstddef>
@@ -18,6 +19,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <tuple>
 #include <utility>
 #include <vector>
@@ -29,17 +31,20 @@ enum class Channel : int { Debug = 10, Info = 20, Warning = 30, Error = 40 };
 
 enum class Access : unsigned int { Read = 1, Write = 2, Execute = 4 };
 
-// Luna's roadmap extensions are refused by the public constraints rather than
-// silently accepted, so the boundary is checked when this demo compiles.
-// Coroutines, asynchronous tasks, delegates, signals, and events declare no
-// canonical Luna type, so no descriptor can be derived from them.
-static_assert(!Luna::SupportedReturn<std::future<int>> &&
-                  !Luna::SupportedReturn<std::coroutine_handle<>>,
-              "Suspended work declares no supported return type.");
-static_assert(!Luna::SupportedParameter<std::function<void(int)>>,
-              "A delegate declares no supported parameter type.");
-static_assert(!Luna::SupportedCallable<std::future<int> (*)()>,
-              "An asynchronous callable is refused at compile time.");
+// Luna's extension boundary is checked when this demo compiles. Work that
+// finishes after the call that started it declares a supported return type,
+// a subscribed handler declares a supported parameter type, while a raw
+// coroutine handle still names no awaited value.
+static_assert(Luna::SupportedReturn<std::future<int>> &&
+                  Luna::SupportedReturn<Luna::AsyncTask<std::string>>,
+              "Suspended work declares a supported return type.");
+static_assert(!Luna::SupportedReturn<std::coroutine_handle<>>,
+              "A raw coroutine handle declares no awaited value.");
+static_assert(Luna::SupportedParameter<std::function<void(int)>> &&
+                  Luna::SupportedParameter<Luna::Delegate<void(int)>>,
+              "A delegate declares a supported parameter type.");
+static_assert(Luna::SupportedCallable<std::future<int> (*)()>,
+              "An asynchronous callable is accepted at compile time.");
 
 // The supported surface stays available, so the constraints refuse the
 // unavailable extensions rather than everything.
@@ -197,6 +202,32 @@ public:
   return Pack;
 }
 
+// One asynchronous form: the call starts work, hands Luna the task, and the
+// script resumes with the awaited value once this host settles it. The demo
+// settles it on another thread to show the call really suspends.
+[[nodiscard]] Luna::AsyncTask<std::string> ShoutLater(std::string Text) {
+  Luna::AsyncCompletionSource<std::string> Source;
+  Luna::AsyncTask<std::string> Pending = Source.Task();
+  std::thread Worker([Source, Text]() mutable {
+    std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    if (Source.IsCancellationRequested()) {
+      static_cast<void>(Source.Cancel("the host withdrew the request"));
+      return;
+    }
+    std::string Shouted;
+    Shouted.reserve(Text.size() + 1);
+    for (const char Character : Text) {
+      Shouted.push_back(Character >= 'a' && Character <= 'z'
+                            ? static_cast<char>(Character - ('a' - 'A'))
+                            : Character);
+    }
+    Shouted.push_back('!');
+    static_cast<void>(Source.Complete(std::move(Shouted)));
+  });
+  Worker.detach();
+  return Pending;
+}
+
 [[nodiscard]] std::string DescribeAccess(int Mask) {
   std::string Described;
   const auto Append = [&Described](std::string_view Name) {
@@ -337,7 +368,7 @@ struct BoundFeature final {
   std::string_view Snippet;
 };
 
-constexpr std::array<BoundFeature, 16> BoundFeatures{{
+constexpr std::array<BoundFeature, 18> BoundFeatures{{
     {"Root function (Register)",
      R"(Registry.Register("HostLog", [this](std::string Message) {
   OutputLines.push_back(std::move(Message));
@@ -470,16 +501,47 @@ Registry.RegisterModule(RenderManifest(), &ConfigureRender);
 // reload, so this is refused deterministically and the loaded graph is
 // left exactly as it was. See the registration log for both outcomes.
 Registry.RegisterModule(ReplacementRenderManifest(), &ConfigureRender);)"},
-    {"Extension boundary: unavailable forms are refused",
-     R"(// Coroutines, asynchronous tasks, delegates, signals, and events have
-// no canonical Luna type, so the public constraints refuse them when this
-// demo compiles rather than failing somewhere inside a call.
-static_assert(!Luna::SupportedReturn<std::future<int>>);
-static_assert(!Luna::SupportedParameter<std::function<void(int)>>);
-static_assert(!Luna::SupportedCallable<std::future<int> (*)()>);
+    {"Asynchronous results: a call that finishes later",
+     R"(// The callable starts work and hands Luna the task. The executing
+// chunk suspends, this host settles the work on another thread, and the
+// call resumes with the awaited value. Luau calls it like any function:
+//   HostLog(ShoutLater("luna"))
+Luna::AsyncTask<std::string> ShoutLater(std::string Text) {
+  Luna::AsyncCompletionSource<std::string> Source;
+  Luna::AsyncTask<std::string> Pending = Source.Task();
+  std::thread([Source, Text]() mutable {
+    static_cast<void>(Source.Complete(Shout(Text)));
+  }).detach();
+  return Pending;
+}
 
-// The supported surface is unaffected, so the constraints refuse the
-// unavailable extensions rather than everything.
+Registry.RegisterFunction("ShoutLater", &ShoutLater);)"},
+    {"Delegate and signal subscription",
+     R"(// A subscribed handler is an ordinary reflected parameter of canonical
+// type `Luna::Delegate<Signature>`. A `Luna::Signal<Signature>` owns every
+// subscription as one of these delegates, so subscribing, unsubscribing,
+// and emitting are ordinary registered callables rather than a parallel
+// callback system.
+Luna::Signal<void(int)> Alarm;
+
+Registry.RegisterFunction("Subscribe",
+                          [this](Luna::Delegate<void(int)> Handler) {
+                            return Alarm.Subscribe(std::move(Handler));
+                          });
+Registry.RegisterFunction("Unsubscribe", [this](int Token) {
+  return Alarm.Unsubscribe(Token);
+});
+Registry.RegisterFunction("Raise", [this](int Level) {
+  return static_cast<int>(Alarm.Emit(Level).Delivered);
+});)"},
+    {"Extension boundary: unavailable forms are refused",
+     R"(// A raw coroutine handle names no awaited value, so the public
+// constraints refuse it when this demo compiles rather than failing
+// inside a call. Delegates and suspended work with a canonical awaited
+// value stay supported.
+static_assert(!Luna::SupportedReturn<std::coroutine_handle<>>);
+static_assert(Luna::SupportedParameter<std::function<void(int)>>);
+static_assert(Luna::SupportedCallable<std::future<int> (*)()>);
 static_assert(Luna::SupportedCallable<int (*)(int)>);)"},
 }};
 
@@ -516,6 +578,19 @@ HostLog(("Analyze -> %d chars, %d words, %s"):format(Length, Words, Upper))
 local Count, Numbers, Sum = Tally(1, 2, "three", 4)
 HostLog(("Tally -> %d values, %d numbers, sum %.1f"):format(
     Count, Numbers, Sum))
+
+-- Luna::AsyncTask: this call suspends the chunk, the host finishes the work
+-- on another thread, and the call resumes with the awaited value.
+HostLog("ShoutLater('luna') = " .. ShoutLater("luna"))
+
+-- Luna::Signal: subscribing, unsubscribing, and emitting are ordinary
+-- registered callables. A subscribed handler is an ordinary Lua function.
+local Token = Subscribe(function(Level)
+  HostLog(("Alarm handler received level %d"):format(Level))
+end)
+HostLog(("Raise(3) delivered to %d handler(s)"):format(Raise(3)))
+Unsubscribe(Token)
+HostLog(("Raise(4) delivered to %d handler(s)"):format(Raise(4)))
 )LUA"},
     {"Namespaces and constants",
      R"LUA(-- One namespace plan published as one transaction.
@@ -761,6 +836,22 @@ private:
            Registry.RegisterFunction("Analyze", &Analyze));
     Record("RegisterFunction(\"Tally\")",
            Registry.RegisterFunction("Tally", &Tally));
+    Record("RegisterFunction(\"ShoutLater\")",
+           Registry.RegisterFunction("ShoutLater", &ShoutLater));
+
+    Record("RegisterFunction(\"Subscribe\")",
+           Registry.RegisterFunction(
+               "Subscribe", [this](Luna::Delegate<void(int)> Handler) {
+                 return Alarm.Subscribe(std::move(Handler));
+               }));
+    Record("RegisterFunction(\"Unsubscribe\")",
+           Registry.RegisterFunction("Unsubscribe", [this](int Token) {
+             return Alarm.Unsubscribe(Token);
+           }));
+    Record("RegisterFunction(\"Raise\")",
+           Registry.RegisterFunction("Raise", [this](int Level) {
+             return static_cast<int>(Alarm.Emit(Level).Delivered);
+           }));
   }
 
   void RegisterStudioSurface() {
@@ -1539,6 +1630,7 @@ private:
   ImGuiTextFilter SymbolFilter;
   std::vector<LogEntry> Log;
   std::vector<std::string> OutputLines;
+  Luna::Signal<void(int)> Alarm;
   std::string Status;
   std::string DocumentationText;
   std::string DocumentationStatus;

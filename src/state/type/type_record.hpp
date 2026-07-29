@@ -1,6 +1,7 @@
 #pragma once
 
 // clang-format off
+#include <luna/binding/delegate.hpp>
 #include <luna/binding/value.hpp>
 #include <luna/reflection/ids.hpp>
 #include <luna/type/type_descriptor.hpp>
@@ -104,6 +105,13 @@ struct TypeRecord final {
                                       const TypeRecord &Right);
 
 [[nodiscard]] TypeDescriptor CanonicalValueType(ValueKind Kind) noexcept;
+
+// The canonical type of one delegate parameter: a callable whose first child
+// is its result type and whose remaining children are its parameter types.
+[[nodiscard]] TypeDescriptor
+CanonicalDelegateType(const DelegateShape &Declared);
+
+[[nodiscard]] bool IsCanonicalDelegateType(const TypeDescriptor &Type) noexcept;
 
 [[nodiscard]] std::string CanonicalTypeText(const TypeDescriptor &Type);
 

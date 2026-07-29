@@ -2,9 +2,12 @@
 
 // clang-format off
 #include <luna/binding/argument_pack.hpp>
+#include <luna/binding/async_task.hpp>
+#include <luna/binding/delegate.hpp>
 #include <luna/binding/return_pack.hpp>
 
 #include <concepts>
+#include <functional>
 #include <optional>
 #include <string>
 #include <tuple>
@@ -35,12 +38,33 @@ template <class Type>
 inline constexpr bool IsDynamicReturnPack =
     std::same_as<std::remove_cvref_t<Type>, ReturnPack>;
 
+// An asynchronous callable eventually publishes nothing, one supported value,
+// or one dynamic pack. Fixed pack shapes stay synchronous.
+template <class Type>
+inline constexpr bool IsAsyncResult =
+    std::same_as<Type, void> || SupportedValue<Type> ||
+    IsDynamicReturnPack<Type>;
+
+template <class Type> struct IsSupportedAsyncReturn : std::false_type {};
+
+template <class Result>
+struct IsSupportedAsyncReturn<AsyncTask<Result>>
+    : std::bool_constant<IsAsyncResult<Result>> {};
+
+template <class Result>
+struct IsSupportedAsyncReturn<std::future<Result>>
+    : std::bool_constant<IsAsyncResult<Result>> {};
+
 } // namespace Detail
+
+template <class Type>
+concept SupportedAsyncReturn = Detail::IsSupportedAsyncReturn<Type>::value;
 
 template <class Type>
 concept SupportedReturn =
     std::same_as<Type, void> || SupportedValue<Type> ||
-    Detail::IsDynamicReturnPack<Type> || Detail::IsFixedReturnPack<Type>::value;
+    Detail::IsDynamicReturnPack<Type> ||
+    Detail::IsFixedReturnPack<Type>::value || SupportedAsyncReturn<Type>;
 
 namespace Detail {
 
@@ -55,12 +79,49 @@ inline constexpr bool IsVariadicParameterType =
     std::same_as<std::remove_cvref_t<Type>, ArgumentView> ||
     std::same_as<std::remove_cvref_t<Type>, ArgumentPack>;
 
+// A delegate parameter accepts one subscribed handler. Both the canonical
+// Delegate handle and an ordinary std::function of the same shape declare the
+// identical canonical descriptor.
+template <class Type> struct DelegateParameterSignature {
+  static constexpr bool IsDeclared = false;
+  using DeclaredSignature = void;
+};
+
+template <class Signature>
+struct DelegateParameterSignature<Delegate<Signature>> {
+  static constexpr bool IsDeclared =
+      DelegateSignatureShape<Signature>::IsSupported;
+  using DeclaredSignature = Signature;
+};
+
+template <class Signature>
+struct DelegateParameterSignature<std::function<Signature>> {
+  static constexpr bool IsDeclared =
+      DelegateSignatureShape<Signature>::IsSupported;
+  using DeclaredSignature = Signature;
+};
+
+// A delegate parameter is declared by value or by constant reference; nothing
+// else could own the handler for the duration of the call.
+template <class Type>
+inline constexpr bool IsDelegateParameterType =
+    DelegateParameterSignature<std::remove_cvref_t<Type>>::IsDeclared &&
+    (!std::is_reference_v<Type> ||
+     std::is_same_v<Type, const std::remove_cvref_t<Type> &>);
+
+template <class Type>
+using DelegateParameterSignatureOf = typename DelegateParameterSignature<
+    std::remove_cvref_t<Type>>::DeclaredSignature;
+
 } // namespace Detail
+
+template <class Type>
+concept SupportedDelegate = Detail::IsDelegateParameterType<Type>;
 
 template <class Type>
 concept SupportedParameter =
     SupportedValue<Type> || Detail::IsOptionalValueParameter<Type>::value ||
-    std::same_as<Type, ArgumentView> ||
+    Detail::IsDelegateParameterType<Type> || std::same_as<Type, ArgumentView> ||
     std::same_as<Type, const ArgumentView &> ||
     std::same_as<Type, ArgumentPack> ||
     std::same_as<Type, const ArgumentPack &>;
@@ -91,9 +152,12 @@ template <class Inner> struct OptionalParameterInner<std::optional<Inner>> {
   using Type = Inner;
 };
 
+// A relaxed parameter cannot be described by a bare value-kind list, so its
+// callable always declares full parameter descriptors.
 template <class Type>
 inline constexpr bool IsRelaxedParameter =
-    IsOptionalValueParameter<Type>::value || IsVariadicParameterType<Type>;
+    IsOptionalValueParameter<Type>::value || IsVariadicParameterType<Type> ||
+    IsDelegateParameterType<Type>;
 
 template <class Signature> struct IsSupportedSignature : std::false_type {};
 

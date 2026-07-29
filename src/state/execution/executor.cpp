@@ -1,6 +1,7 @@
 // clang-format off
 #include "state/execution/executor.hpp"
 
+#include "state/invocation/async/suspended_call.hpp"
 #include "state/testing/fault_injector.hpp"
 #include "state/vm/stack_checkpoint.hpp"
 
@@ -89,10 +90,37 @@ private:
                "source execution failed without a diagnostic."));
 }
 
+// Binds one disposable execution thread to Luna's suspended-call registry for
+// exactly as long as that thread can suspend, and cancels anything it leaves
+// pending.
+class PumpedExecutionThread final {
+public:
+  PumpedExecutionThread(AsyncCallRegistry *Async, lua_State *Thread) noexcept
+      : Async(Async), Thread(Thread) {
+    if (Async)
+      Async->BindPumpThread(Thread);
+  }
+
+  ~PumpedExecutionThread() {
+    if (!Async)
+      return;
+    Async->CancelFor(Thread,
+                     "the execution that suspended it already finished");
+    Async->BindPumpThread(nullptr);
+  }
+
+  PumpedExecutionThread(const PumpedExecutionThread &) = delete;
+  PumpedExecutionThread &operator=(const PumpedExecutionThread &) = delete;
+
+private:
+  AsyncCallRegistry *Async = nullptr;
+  lua_State *Thread = nullptr;
+};
+
 } // namespace
 
 ExecutionResult ExecuteSource(lua_State *Root, std::string_view Source,
-                              FaultInjector &Faults) {
+                              FaultInjector &Faults, AsyncCallRegistry *Async) {
   if (!Root)
     return InternalFailure("execution root is unavailable.");
 
@@ -124,7 +152,24 @@ ExecutionResult ExecuteSource(lua_State *Root, std::string_view Source,
                    "compiler rejected the source."));
     }
 
-    if (lua_pcall(Thread, 0, 0, 0) != LUA_OK) {
+    // Suspended native calls hand the chunk back here, so execution resumes
+    // the same thread on the owner thread until nothing is suspended.
+    const PumpedExecutionThread Pumped(Async, Thread);
+    int Status = lua_resume(Thread, nullptr, 0);
+    while (Status == LUA_YIELD) {
+      if (!Async || !Async->HasPendingFor(Thread)) {
+        return ExecutionResult::Failure(
+            ErrorCategory::Runtime,
+            Prefixed(RuntimePrefix,
+                     "the executed chunk yielded without any suspended Luna "
+                     "call to resume.",
+                     "the executed chunk yielded unexpectedly."));
+      }
+      static_cast<void>(Async->Advance(Thread));
+      Status = lua_resume(Thread, nullptr, 0);
+    }
+
+    if (Status != LUA_OK) {
       const bool ForceFallback =
           Faults.Consume(StateFaultPoint::ExecutionErrorDiagnostic);
       return ExecutionResult::Failure(

@@ -17,10 +17,12 @@ struct lua_State;
 
 namespace Luna::Detail {
 
+class AsyncCallRegistry;
 class BindingRecord;
 class FaultInjector;
 class StateTestHooks;
 class TypeGeneration;
+class VmDelegateRegistry;
 enum class ClosureInstallationStatus;
 struct NativeIdentity;
 struct UserdataAccessContext;
@@ -40,7 +42,12 @@ public:
   [[nodiscard]] int StackDepth() const noexcept;
   [[nodiscard]] bool SetStackDepth(int Depth) noexcept;
   [[nodiscard]] ExecutionResult ExecuteSource(std::string_view Source,
-                                              FaultInjector &Faults);
+                                              FaultInjector &Faults,
+                                              AsyncCallRegistry *Async);
+  [[nodiscard]] bool
+  PublishAsyncCallRegistry(AsyncCallRegistry *Async) noexcept;
+  [[nodiscard]] bool
+  PublishDelegateRegistry(VmDelegateRegistry *Handlers) noexcept;
   [[nodiscard]] ClosureInstallationStatus
   InstallBindingClosure(BindingRecord &Record, bool InjectFailure) noexcept;
   [[nodiscard]] const BindingRecord *

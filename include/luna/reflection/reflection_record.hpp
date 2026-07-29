@@ -300,6 +300,7 @@ public:
   [[nodiscard]] TypeId Type() const noexcept;
   [[nodiscard]] TypeDescriptor Descriptor() const;
   [[nodiscard]] ReturnShape Returns() const noexcept;
+  [[nodiscard]] bool IsAsynchronous() const noexcept;
 
   [[nodiscard]] bool HasValue() const noexcept;
   [[nodiscard]] std::string_view ValueText() const noexcept;

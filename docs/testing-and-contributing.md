@@ -59,10 +59,12 @@ Luna currently covers functions with overloads and rich call shapes, namespaces,
 
 Module lifecycle is load-only through the public API: no consumer entry point unloads, replaces, or hot reloads a loaded module. The supporting machinery is implemented and tested privately, but no State enables dynamic lifecycle, so such a request is refused deterministically and mutates nothing.
 
+Asynchronous invocation is available for namespace and root functions: a callable may return `Luna::AsyncTask<T>` or `std::future<T>`, which suspends the executing chunk until the host settles the work. Only the chunk `Execute` is running can suspend, and class members and operators refuse asynchronous delivery at registration time.
+
+Delegates and signals are available: `Delegate<Signature>` is an ordinary reflected parameter carrying one subscribed Luau function, and `Signal<Signature>` owns a list of them through `Subscribe`, `Unsubscribe`, and `Emit`, using the same canonical type registry and transaction as everything else.
+
 Not implemented at all, and absent rather than partial:
 
-- coroutines and asynchronous invocation
-- delegates, signals, and events
 - annotation helper macros
 - IDE and profiling integrations
 

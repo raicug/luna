@@ -13,7 +13,9 @@ A non-ready State rejects execution before compilation or stack work begins, and
 
 ## What happens during Execute
 
-Luna copies the supplied source, compiles it with the pinned Luau compiler, and creates a fresh Luau thread sharing the State's global environment. The bytecode is loaded as chunk `=Luna` and run with a protected call requesting zero chunk results.
+Luna copies the supplied source, compiles it with the pinned Luau compiler, and creates a fresh Luau thread sharing the State's global environment. The bytecode is loaded as chunk `=Luna` and run on that thread under protected execution.
+
+A bound callable that delivers its value later suspends that thread instead of finishing inside the call. Luna then advances the suspended work on the owner thread and resumes the same thread with the awaited value, so `Execute` still returns only after the chunk finished, failed, or was cancelled. Nothing else runs on the owner thread while work is outstanding, and no suspended call outlives the execution that started it.
 
 The thread is temporary. Whether execution succeeds, fails to compile, raises a Luau error, or reaches a native callback failure, Luna resets and unreferences it before returning. Registered globals, namespaces, enums, classes, and module surfaces live on the root State and remain available to later executions.
 
@@ -36,7 +38,7 @@ These are intentional gaps rather than partial features:
 
 - No file-loading helper, custom chunk name, or sandbox environment.
 - No mechanism for retrieving script return values.
-- No coroutine API and no asynchronous invocation. A native call starts and finishes inside the one invocation that entered it.
+- Only the chunk `Execute` is running can suspend an asynchronous call. A script coroutine or a metamethod that reaches such a callable is refused deterministically, and the started work is cancelled.
 - No delegates, signals, or events, so a script cannot subscribe to a host callback surface.
 
 Execution is otherwise unrestricted: a chunk may freely call any registered function, construct registered classes, read constants and enumerators, and use module surfaces.

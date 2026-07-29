@@ -2,6 +2,7 @@
 
 // clang-format off
 #include <luna/binding/argument_pack.hpp>
+#include <luna/binding/async_task.hpp>
 #include <luna/binding/binding_registry.hpp>
 #include <luna/binding/callable_descriptor.hpp>
 #include <luna/binding/callable_metadata.hpp>
@@ -13,6 +14,7 @@
 #include <luna/binding/class_relationship.hpp>
 #include <luna/binding/constant_value.hpp>
 #include <luna/binding/conversion.hpp>
+#include <luna/binding/delegate.hpp>
 #include <luna/binding/enum_builder.hpp>
 #include <luna/binding/instance_receiver.hpp>
 #include <luna/binding/lifetime_handle.hpp>
@@ -21,6 +23,7 @@
 #include <luna/binding/overload.hpp>
 #include <luna/binding/parameter_descriptor.hpp>
 #include <luna/binding/return_pack.hpp>
+#include <luna/binding/signal.hpp>
 #include <luna/binding/supported_callable.hpp>
 #include <luna/binding/value.hpp>
 #include <luna/core/diagnostics/error_category.hpp>

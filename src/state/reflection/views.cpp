@@ -397,6 +397,11 @@ ReturnShape ReflectionRecord::Returns() const noexcept {
   return Fields ? Fields->Returns : ReturnShape::Zero;
 }
 
+bool ReflectionRecord::IsAsynchronous() const noexcept {
+  const auto *Fields = Resolve(StorageValue)->RecordAt(RecordIndexValue);
+  return Fields != nullptr && Fields->ReturnsAsynchronously;
+}
+
 bool ReflectionRecord::HasValue() const noexcept {
   const auto *Fields = Resolve(StorageValue)->RecordAt(RecordIndexValue);
   return Fields != nullptr && Fields->ValueIsAvailable;
@@ -586,7 +591,9 @@ std::size_t ReflectionSnapshot::Size() const noexcept {
   return Resolve(StorageValue)->RecordCount();
 }
 
-bool ReflectionSnapshot::IsEmpty() const noexcept { return Size() == 0; }
+bool ReflectionSnapshot::IsEmpty() const noexcept {
+  return Size() == 0;
+}
 
 ReflectionRecord ReflectionSnapshot::Find(SymbolId Id) const {
   if (!StorageValue)

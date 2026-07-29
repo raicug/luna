@@ -7,6 +7,8 @@
 
 #include "state/binding/state_handle.hpp"
 #include "state/freeze/cache.hpp"
+#include "state/invocation/async/suspended_call.hpp"
+#include "state/invocation/delegate/vm_delegate.hpp"
 #include "state/module/load.hpp"
 #include "state/module/registry.hpp"
 #include "state/module/resolution.hpp"
@@ -198,9 +200,21 @@ public:
 
   void AdvanceOwnerEpoch() noexcept;
 
+  // Replacing a scope or a module retires every handler a script subscribed
+  // through the generation that is going away.
   void AdvanceLifecycleGeneration() noexcept {
     Lifecycle.AdvanceGeneration();
     AccessContext.DispatchGeneration = Lifecycle.Generation();
+    static_cast<void>(Delegates.InvalidateEverything());
+  }
+
+  [[nodiscard]] Detail::VmDelegateRegistry &SubscribedHandlers() noexcept {
+    return Delegates;
+  }
+
+  [[nodiscard]] const Detail::VmDelegateRegistry &
+  SubscribedHandlers() const noexcept {
+    return Delegates;
   }
 
 private:
@@ -383,6 +397,8 @@ private:
   std::shared_ptr<Detail::StateHandleToken> Handle;
 
   Detail::FaultInjector Faults;
+  Detail::AsyncCallRegistry AsyncCalls;
+  Detail::VmDelegateRegistry Delegates;
   Detail::VirtualMachineOwner VirtualMachine;
 };
 

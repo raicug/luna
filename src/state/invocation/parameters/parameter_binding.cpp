@@ -6,6 +6,7 @@
 
 #include "state/invocation/conversion/argument_reader.hpp"
 #include "state/invocation/conversion/return_writer.hpp"
+#include "state/invocation/delegate/vm_delegate.hpp"
 #include "state/invocation/parameters/argument_frame.hpp"
 #include "state/invocation/validation/validator.hpp"
 #include "state/testing/fault_injector.hpp"
@@ -15,6 +16,7 @@
 
 #include <lua.h>
 
+#include <memory>
 #include <optional>
 #include <string>
 #include <utility>
@@ -54,6 +56,19 @@ ShapeIsConsistent(std::span<const ParameterDescriptor> Parameters,
   for (const ParameterDescriptor &Parameter : Parameters) {
     if (Parameter.IsVariadic())
       continue;
+    if (Parameter.IsDelegate()) {
+      const DelegateShape *Declared = Parameter.DelegateSignature();
+      if (!Declared)
+        return false;
+      for (const ValueKind Kind : Declared->Parameters) {
+        if (!Types.IsAvailableForWrite(CanonicalValueType(Kind)))
+          return false;
+      }
+      if (Declared->Result &&
+          !Types.IsAvailableForRead(CanonicalValueType(*Declared->Result)))
+        return false;
+      continue;
+    }
     const ValueKind *Kind = Parameter.Kind();
     if (!Kind || !Types.IsAvailableForRead(CanonicalValueType(*Kind)))
       return false;
@@ -172,6 +187,42 @@ BoundInvocation BindDeclaredParameters(lua_State *State,
           lua_type(State, StackIndex) == LUA_TNIL)
         continue;
 
+      if (Parameter.IsDelegate()) {
+        const DelegateShape *Declared = Parameter.DelegateSignature();
+        VmDelegateRegistry *Handlers = ObserveDelegateRegistry(State);
+        if (!Declared || !Handlers || InjectInspectionFailure) {
+          Result.Validation.RecordInternalFailure(
+              "Internal error: callable metadata is inconsistent for " +
+              ContextText(Named) + ".");
+          Result.Arguments = BoundArguments();
+          return Result;
+        }
+
+        const int Received = lua_type(State, StackIndex);
+        if (Received != LUA_TFUNCTION) {
+          const char *Name = lua_typename(State, Received);
+          Result.Validation.RecordCallerFailure(
+              SubjectText(Named) + " argument " + std::to_string(Index + 1) +
+              " expected function but received " +
+              std::string(Name ? Name : "no value") + ".");
+          Result.Arguments = BoundArguments();
+          return Result;
+        }
+
+        std::shared_ptr<DelegateTarget> Adopted =
+            Handlers->Adopt(State, StackIndex, *Declared);
+        if (!Adopted) {
+          Result.Validation.RecordInternalFailure(
+              "Internal error while retaining the subscribed handler for " +
+              ContextText(Named) + ".");
+          Result.Arguments = BoundArguments();
+          return Result;
+        }
+        Result.Arguments.Fixed[Index] =
+            ArgumentSlot::SuppliedHandler(std::move(Adopted));
+        continue;
+      }
+
       const ValueKind *Kind = Parameter.Kind();
       if (!Kind) {
         Result.Validation.RecordInternalFailure(
@@ -232,6 +283,26 @@ BoundInvocation BindDeclaredParameters(lua_State *State,
   return Result;
 }
 
+namespace {
+
+// Copies the bound arguments into owned values so suspended work never keeps
+// an argument view or the stack it was read from.
+[[nodiscard]] ArgumentPack
+RetainedDeclaredArguments(const BoundArguments &Bound, int ArgumentBase) {
+  ValuePack Owned;
+  for (const ArgumentSlot &Slot : Bound.Fixed) {
+    const Value *Present = Slot.Get();
+    Owned.Append(Present ? OwnedValue::FromValue(*Present) : OwnedValue::Nil());
+  }
+  if (Bound.HasVariadic) {
+    for (std::size_t Index = 0; Index < Bound.Variadic.Size(); ++Index)
+      Owned.Append(Bound.Variadic.At(Index));
+  }
+  return ArgumentPack(std::move(Owned), static_cast<std::size_t>(ArgumentBase));
+}
+
+} // namespace
+
 RichInvocationResult
 InvokeDeclaredParameters(lua_State *State, std::string_view CallableName,
                          ErasedCallableDescriptor &Descriptor,
@@ -251,7 +322,9 @@ InvokeDeclaredParameters(lua_State *State, std::string_view CallableName,
   }
 
   std::optional<InvocationOutcome> Outcome;
+  ArgumentPack Retained;
   if (Bound.Arguments.HasVariadic) {
+    Retained = RetainedDeclaredArguments(Bound.Arguments, ArgumentBase);
     ArgumentFrame Frame(std::move(Bound.Arguments.Variadic));
     const InvocationArguments Arguments(Bound.Arguments.Fixed, Frame.View(),
                                         &Frame.Arguments());
@@ -259,6 +332,7 @@ InvokeDeclaredParameters(lua_State *State, std::string_view CallableName,
                   ? Descriptor.InvokeDeclaredWithReceiver(*Receiver, Arguments)
                   : Descriptor.InvokeDeclared(Arguments);
   } else {
+    Retained = RetainedDeclaredArguments(Bound.Arguments, ArgumentBase);
     const InvocationArguments Arguments(Bound.Arguments.Fixed);
     Outcome = Receiver
                   ? Descriptor.InvokeDeclaredWithReceiver(*Receiver, Arguments)
@@ -269,6 +343,16 @@ InvokeDeclaredParameters(lua_State *State, std::string_view CallableName,
     return {.ReturnCount = -1,
             .Diagnostic = "Internal error for " + ContextText(Named) + ": " +
                           Outcome->FailureMessage()};
+
+  if (Outcome->Kind() == InvocationOutcomeKind::Suspended) {
+    auto Started = std::make_unique<StartedAsyncCall>();
+    Started->Work = Outcome->TakeSuspendedWork();
+    Started->Arguments = std::move(Retained);
+    Started->Awaited = Descriptor.Metadata().ReturnType();
+    return {.ReturnCount = -1,
+            .Diagnostic = std::string(),
+            .Suspension = std::move(Started)};
+  }
 
   const ReturnWriteResult Written = WriteInvocationReturn(
       State, Descriptor.Metadata().ReturnType(), *Outcome, Types, Faults);

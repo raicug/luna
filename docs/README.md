@@ -31,6 +31,7 @@ Supported today:
 - **Hierarchy.** `RegisterNamespace` with nested `NamespaceBuilder`, `RegisterConstant`, and `RegisterEnum` with enumerators, aliases, bitflags, and an explicit unscoped opt-in.
 - **Classes.** `RegisterClass<T>` with constructors, factories, singletons, allocators, methods, static methods, properties, fields, base edges, checked casts, and operators. Objects are typed userdata, owned by Lua, borrowed behind a `LifetimeHandle`, or shared through `std::shared_ptr`.
 - **Modules.** Load-once versioned modules with semantic versions, constraint resolution that picks the highest satisfying version, and canonical cycle and conflict diagnostics.
+- **Delegates and signals.** `Delegate<Signature>` is an ordinary reflected parameter type carrying one subscribed Luau function, held through Luna's own reference mechanism. `Signal<Signature>` owns a list of them and provides `Subscribe`, `Unsubscribe`, and `Emit`; it uses the same canonical type registry as everything else rather than a parallel callback system.
 - **Dispatch indirection.** Native closures resolve a stable dispatch slot rather than holding a binding record, and an invocation retains the generation it began with, so publishing a new generation never retargets work already in flight.
 - **Canonical identity.** `TypeId`, `SymbolId`, `StableTypeKey`, and canonical descriptors. No RTTI name, address, or registration order participates in any persistent identity.
 - **Reflection.** `ReflectionSnapshot` captures one immutable committed generation that stays readable after later registration, freeze, a State move, destruction of the originating State, and from another thread.
@@ -40,10 +41,10 @@ Supported today:
 
 Module lifecycle is load-only through the public API. Registration is additive, and no consumer entry point unloads, replaces, or hot reloads a loaded module. The supporting machinery exists — affected-closure and blocker analysis, staging with reverse-order undo, atomic generation publication, and retained dispatch generations — but no State enables dynamic lifecycle, so such a request is refused deterministically with a load-only diagnostic and changes nothing.
 
+Asynchronous invocation is available for namespace and root functions. A callable that returns `Luna::AsyncTask<T>` or `std::future<T>` suspends the chunk `Execute` is running, and the call resumes with the awaited value once the host settles the work. See [Registering functions](registering-functions.md#asynchronous-results).
+
 Not implemented at all. These are absent, not partial:
 
-- Coroutines and asynchronous invocation.
-- Delegates, signals, and events.
 - Annotation helper macros. Documentation, attributes, and examples are declared through ordinary builder calls.
 - IDE and profiling integrations.
 

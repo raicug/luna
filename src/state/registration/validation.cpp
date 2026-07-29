@@ -19,6 +19,7 @@
 #include <cstddef>
 #include <memory>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -173,10 +174,24 @@ CheckTypeAvailability(const RegistrationValidationRequest &Request,
   if (Entry->TypeConversion)
     Pending.push_back(*Entry->TypeConversion);
 
-  const auto IsUsable = [&Types, &Pending](const TypeDescriptor &Type,
-                                           bool AllowVoid) {
+  // A delegate parameter is carried by Luna's own reference mechanism rather
+  // than by a value converter, so it is usable once every value kind in its
+  // declared call shape is usable.
+  const auto DelegateIsUsable = [&Types](const TypeDescriptor &Type) {
+    if (!IsCanonicalDelegateType(Type))
+      return false;
+    const std::span<const TypeDescriptor> Children = Type.Children();
+    for (std::size_t Index = 0; Index < Children.size(); ++Index) {
+      if (!IsAvailableCanonicalType(Types, Children[Index], Index == 0))
+        return false;
+    }
+    return true;
+  };
+
+  const auto IsUsable = [&Types, &Pending, &DelegateIsUsable](
+                            const TypeDescriptor &Type, bool AllowVoid) {
     return IsAvailableCanonicalType(Types, Type, AllowVoid) ||
-           IsDeclaredPending(Pending, Type);
+           IsDeclaredPending(Pending, Type) || DelegateIsUsable(Type);
   };
 
   if (const auto &Signature = Entry->Symbol.Signature) {

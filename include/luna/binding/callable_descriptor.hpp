@@ -2,6 +2,7 @@
 
 // clang-format off
 #include <luna/binding/argument_pack.hpp>
+#include <luna/binding/async_task.hpp>
 #include <luna/binding/callable_metadata.hpp>
 #include <luna/binding/class_construction.hpp>
 #include <luna/binding/instance_receiver.hpp>
@@ -23,6 +24,7 @@ enum class InvocationOutcomeKind {
   Void,
   Values,
   Instance,
+  Suspended,
   InternalFailure
 };
 
@@ -49,6 +51,16 @@ public:
     InvocationOutcome Outcome(InvocationOutcomeKind::Instance, std::nullopt,
                               {});
     Outcome.InstanceStorage = std::move(Produced);
+    return Outcome;
+  }
+
+  [[nodiscard]] static InvocationOutcome
+  Suspended(std::unique_ptr<Detail::PendingAsyncWork> Started) {
+    if (!Started)
+      return InternalFailure("Callable produced no asynchronous work.");
+    InvocationOutcome Outcome(InvocationOutcomeKind::Suspended, std::nullopt,
+                              {});
+    Outcome.SuspendedStorage = std::move(Started);
     return Outcome;
   }
 
@@ -80,6 +92,14 @@ public:
     return FailureMessageValue;
   }
 
+  [[nodiscard]] bool HasSuspendedWork() const noexcept {
+    return SuspendedStorage != nullptr;
+  }
+
+  [[nodiscard]] std::unique_ptr<Detail::PendingAsyncWork> TakeSuspendedWork() {
+    return std::move(SuspendedStorage);
+  }
+
 private:
   InvocationOutcome(InvocationOutcomeKind KindValue,
                     std::optional<Value> ValueValue,
@@ -91,6 +111,7 @@ private:
   std::optional<Value> ValueValue;
   std::vector<Value> ValuesStorage;
   std::optional<Detail::ConstructedInstance> InstanceStorage;
+  std::unique_ptr<Detail::PendingAsyncWork> SuspendedStorage;
   std::string FailureMessageValue;
 };
 

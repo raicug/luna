@@ -305,6 +305,29 @@ private:
       Out = "{[" + Key + "]: " + Element + "}";
       return true;
     }
+    case TypeKind::Callable: {
+      // A delegate declares an ordinary Luau function type: its first child
+      // is the result and the remaining children are its parameters.
+      if (Type.ChildCount() < 1)
+        return Writer.Refuse(GenerationStatus::InconsistentMetadata, Where);
+      const std::span<const TypeDescriptor> Children = Type.Children();
+      std::string Parameters;
+      for (std::size_t Index = 1; Index < Children.size(); ++Index) {
+        std::string Parameter;
+        if (!MapType(Children[Index], Where, Parameter))
+          return false;
+        if (Index != 1)
+          Parameters.append(", ");
+        Parameters.append(Parameter);
+      }
+
+      std::string Result("()");
+      if (Children[0].FixedKey() != FixedTypeKey::Void &&
+          !MapType(Children[0], Where, Result))
+        return false;
+      Out = "((" + Parameters + ") -> " + Result + ")";
+      return true;
+    }
     case TypeKind::Pair:
     case TypeKind::Tuple:
     case TypeKind::ArgumentPack:

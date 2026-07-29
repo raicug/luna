@@ -42,7 +42,8 @@ struct ObservationRequest final {
     return RaiseLiteral(State, "Internal error: invalid installation request.");
 
   PushDispatchSlot(State, Request->Slot);
-  lua_pushcclosure(State, NativeTrampoline, Request->GlobalName, 1);
+  lua_pushcclosurek(State, NativeTrampoline, Request->GlobalName, 1,
+                    NativeTrampolineContinuation);
   lua_setglobal(State, Request->GlobalName);
 
   if (Request->InjectFailure)
@@ -66,7 +67,8 @@ struct ObservationRequest final {
   }
 
   PushDispatchSlot(State, Request->Slot);
-  lua_pushcclosure(State, NativeTrampoline, Request->GlobalName, 1);
+  lua_pushcclosurek(State, NativeTrampoline, Request->GlobalName, 1,
+                    NativeTrampolineContinuation);
   SetVmPathField(State, *Request->Segments);
   lua_settop(State, Checkpoint);
 

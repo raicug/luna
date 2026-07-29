@@ -65,7 +65,9 @@ template <class Pack>
 
 template <class Return, class Invoker>
 [[nodiscard]] InvocationOutcome CaptureReturn(Invoker &&Invoke) {
-  if constexpr (std::same_as<Return, void>) {
+  if constexpr (AsyncReturnTrait<Return>::value) {
+    return InvocationOutcome::Suspended(MakePendingAsyncWork(Invoke()));
+  } else if constexpr (std::same_as<Return, void>) {
     Invoke();
     return InvocationOutcome::Void();
   } else if constexpr (std::same_as<Return, ConstructedInstance>) {
@@ -113,6 +115,11 @@ MakeParameterDescriptor(const Value *Default) {
     constexpr bool Retains =
         std::same_as<std::remove_cvref_t<Parameter>, ArgumentPack>;
     return ParameterDescriptor::ForVariadic(Retains);
+  } else if constexpr (IsDelegateParameterType<Parameter>) {
+    static_cast<void>(Default);
+    using Signature = DelegateParameterSignatureOf<Parameter>;
+    return ParameterDescriptor::ForDelegate(
+        DelegateSignatureShape<Signature>::Shape());
   } else if constexpr (IsOptionalValueParameter<Parameter>::value) {
     using Inner = typename OptionalParameterInner<Parameter>::Type;
     constexpr ValueKind Kind = ValueKindFor<Inner>();
@@ -147,6 +154,9 @@ template <class Parameter>
     static_cast<void>(Arguments);
     static_cast<void>(Position);
     return true;
+  } else if constexpr (IsDelegateParameterType<Parameter>) {
+    const ArgumentSlot *Slot = Arguments.At(Position);
+    return Slot != nullptr && Slot->HasHandler();
   } else {
     const ArgumentSlot *Slot = Arguments.At(Position);
     if (!Slot)
@@ -172,6 +182,12 @@ ParameterArgumentFor(const InvocationArguments &Arguments,
                                     ArgumentPack>) {
     static_cast<void>(Position);
     return Arguments.Retained();
+  } else if constexpr (IsDelegateParameterType<Parameter>) {
+    using Declared = std::remove_cvref_t<Parameter>;
+    using Signature = DelegateParameterSignatureOf<Parameter>;
+    const ArgumentSlot *Slot = Arguments.At(Position);
+    Delegate<Signature> Subscribed(Slot ? Slot->Handler() : nullptr);
+    return Declared(std::move(Subscribed));
   } else if constexpr (IsOptionalValueParameter<Parameter>::value) {
     using Inner = typename OptionalParameterInner<Parameter>::Type;
     const ArgumentSlot *Slot = Arguments.At(Position);
@@ -269,8 +285,20 @@ template <class Signature> struct DescriptorMetadata;
 
 template <class Return, class... Parameters>
 struct DescriptorMetadata<Return(Parameters...)> {
+  [[nodiscard]] static ReturnMetadata AwaitedShape() {
+    using Awaited = typename AsyncReturnTrait<Return>::ResultType;
+    if constexpr (std::same_as<Awaited, void>)
+      return ReturnMetadata::ForVoid();
+    else if constexpr (IsDynamicReturnPack<Awaited>)
+      return ReturnMetadata::ForDynamicPack();
+    else
+      return ReturnMetadata::ForValue(ValueKindFor<Awaited>());
+  }
+
   [[nodiscard]] static ReturnMetadata ReturnShape() {
-    if constexpr (std::same_as<Return, void>)
+    if constexpr (AsyncReturnTrait<Return>::value)
+      return ReturnMetadata::ForAsync(AwaitedShape());
+    else if constexpr (std::same_as<Return, void>)
       return ReturnMetadata::ForVoid();
     else if constexpr (IsDynamicReturnPack<Return>)
       return ReturnMetadata::ForDynamicPack();

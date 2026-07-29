@@ -27,6 +27,8 @@ namespace {
 DeclaredParameterType(const ParameterDescriptor &Parameter) {
   if (const ValueKind *Kind = Parameter.Kind())
     return CanonicalValueType(*Kind);
+  if (const DelegateShape *Declared = Parameter.DelegateSignature())
+    return CanonicalDelegateType(*Declared);
   return TypeDescriptor::ForFixed(FixedTypeKey::Value);
 }
 
@@ -41,6 +43,10 @@ DispositionOf(const ParameterDescriptor &Parameter) {
     return ParameterDisposition::Defaulted;
   case ParameterForm::Variadic:
     return ParameterDisposition::Variadic;
+  case ParameterForm::Delegate:
+    // A subscribed handler is always supplied, so it is reflected as
+    // required and its call shape lives in its canonical callable type.
+    return ParameterDisposition::Required;
   }
   return ParameterDisposition::Required;
 }
@@ -75,6 +81,10 @@ DispositionOf(const ParameterDescriptor &Parameter) {
   case ParameterShapeStatus::DefaultTypeMismatch:
     return "the default of parameter " + Position +
            " is not a value of that parameter's declared type.";
+  case ParameterShapeStatus::MalformedDelegate:
+    return "parameter " + Position +
+           " declares a subscribed handler without a canonical delegate call "
+           "shape.";
   case ParameterShapeStatus::Valid:
     break;
   }

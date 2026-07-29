@@ -105,6 +105,70 @@ Luna::ReturnPack Tally(Luna::ArgumentView Arguments) {
 
 A pack is staging, not output. Luna converts and validates every element before any return is exposed, so a refused element publishes zero values rather than a partial list. The typed appends exist because a bare literal would otherwise let the value variant pick a surprising alternative.
 
+## Asynchronous results
+
+A namespace or root function may deliver its value after the call that started it returns. Return `Luna::AsyncTask<T>` or `std::future<T>`, where `T` is `void`, one supported value, or `Luna::ReturnPack`:
+
+```cpp
+Luna::AsyncTask<std::string> ReadLater(std::string Path) {
+  Luna::AsyncCompletionSource<std::string> Source;
+  Luna::AsyncTask<std::string> Pending = Source.Task();
+  Workers.Enqueue([Source, Path]() mutable {
+    if (Source.IsCancellationRequested())
+      return;
+    static_cast<void>(Source.Complete(Load(Path)));
+  });
+  return Pending;
+}
+```
+
+Luau calls it like any other function: `local text = ReadLater('logo.png')`. The declared return type is the awaited value, so reflection, conversion, validation, overload resolution, and generated declarations all describe `string`; `ReflectionRecord::IsAsynchronous()` is what names the delivery.
+
+What Luna guarantees while the work is outstanding:
+
+- The chunk `Execute` is running suspends. Its native frame is gone, so nothing keeps the stack, an `ArgumentView`, a `ValueView`, or a conversion context alive. The suspended call owns copies of its arguments and its awaited return metadata, and it retains the immutable dispatch generation it was dispatched through, so it resumes correctly even if that binding is retired meanwhile.
+- Luna advances the work on the owner thread and never touches the VM from anywhere else. Your worker settles its own completion state and nothing more.
+- The first settlement wins. `Complete`, `Fail`, and `Cancel` each return `false` when the work already settled, so a late worker can never publish a second value.
+- A failed or cancelled call raises a deterministic diagnostic through the normal protected path: the stack is restored exactly, no value is published, `pcall` can catch it, and the State stays reusable.
+- Cancellation is settled state, not a race. If the execution ends or the State is destroyed while a call is still suspended, Luna requests cancellation, settles the call as cancelled, and the host observes `AsyncStage::Cancelled` on its own completion state.
+
+Two boundaries are deliberate. Only the chunk `Execute` is running can suspend, so a script coroutine or a metamethod that reaches such a callable is refused with a deterministic diagnostic and the started work is cancelled. Class members and operators publish their value inside the expression that invoked them, so asynchronous delivery there is refused at registration time.
+
+## Delegates and signals
+
+A parameter declared as `Luna::Delegate<Signature>` accepts one subscribed Luau function. It is an ordinary reflected parameter of a canonical callable type; no macro, annotation, or parallel callback path is involved:
+
+```cpp
+int Subscribe(Luna::Delegate<void(int)> Handler) {
+  return Alarm.Subscribe(std::move(Handler));
+}
+```
+
+`Delegate<Signature>` holds the subscribed function through Luna's own reference mechanism rather than a raw stack index, so it can be stored, copied, and called long after the registering call returns. Calling it never throws by default: `Invoke(Arguments...)` returns a `DelegateCallResult` naming the outcome (`Ready`, `Released`, `ForeignThread`, `HandlerFailed`, `ResultMismatch`). `operator()` is the throwing form, for code that prefers an exception to a checked result.
+
+`Luna::Signal<Signature>` owns a list of subscribed delegates and provides the three operations an event source needs:
+
+```cpp
+Luna::Signal<void(int)> Alarm;
+
+Registry.RegisterFunction("Subscribe", [&Alarm](Luna::Delegate<void(int)> Handler) {
+  return Alarm.Subscribe(std::move(Handler));                // returns a token
+});
+Registry.RegisterFunction("Unsubscribe", [&Alarm](int Token) {
+  return Alarm.Unsubscribe(Token);                           // releases the handler
+});
+Registry.RegisterFunction("Raise", [&Alarm](int Level) {
+  return static_cast<int>(Alarm.Emit(Level).Delivered);
+});
+```
+
+What Luna guarantees:
+
+- Unsubscribing releases the handler's native reference immediately, for every copy of that delegate — a later call through any of them reports `DelegateStatus::Released`.
+- Emitting takes one snapshot of the current subscribers, so a handler may subscribe or unsubscribe while the emission is running: a handler removed during the emission is never called by it, one added during the emission is delivered starting with the next emission, and no handler is ever called twice by the same emission.
+- A handler that raises a Luau error does not fail the emission; `SignalEmission` reports how many delivered, how many were skipped, how many failed, and the first failure's message.
+- Replacing the State's lifecycle generation invalidates every handler subscribed through it; a handler that outlives its State, or a call made from a thread other than the State's owner thread, refuses deterministically rather than touching a closed or foreign virtual machine.
+
 ## Names
 
 A registered name segment must be 1–255 ASCII bytes and match `[A-Za-z_][A-Za-z0-9_]*`. `Player_Score2` is valid; an empty name, `2Players`, `Player.Score`, and non-ASCII names are not. Qualified names are built by Luna from nested scopes, so you never spell a dot yourself.

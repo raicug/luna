@@ -2,6 +2,8 @@
 #include "state/vm/owner.hpp"
 
 #include "state/execution/executor.hpp"
+#include "state/invocation/async/suspended_call.hpp"
+#include "state/invocation/delegate/vm_delegate.hpp"
 #include "state/testing/test_control.hpp"
 #include "state/userdata/collection.hpp"
 #include "state/userdata/exposure.hpp"
@@ -34,7 +36,9 @@ VirtualMachineOwner::VirtualMachineOwner() noexcept {
   }
 }
 
-VirtualMachineOwner::~VirtualMachineOwner() { Reset(); }
+VirtualMachineOwner::~VirtualMachineOwner() {
+  Reset();
+}
 
 VirtualMachineOwner::VirtualMachineOwner(VirtualMachineOwner &&Other) noexcept
     : Handle(std::exchange(Other.Handle, nullptr)) {}
@@ -48,7 +52,9 @@ VirtualMachineOwner::operator=(VirtualMachineOwner &&Other) noexcept {
   return *this;
 }
 
-bool VirtualMachineOwner::IsReady() const noexcept { return Handle != nullptr; }
+bool VirtualMachineOwner::IsReady() const noexcept {
+  return Handle != nullptr;
+}
 int VirtualMachineOwner::StackDepth() const noexcept {
   return Handle ? lua_gettop(Handle) : 0;
 }
@@ -66,8 +72,21 @@ bool VirtualMachineOwner::SetStackDepth(int Depth) noexcept {
 }
 
 ExecutionResult VirtualMachineOwner::ExecuteSource(std::string_view Source,
-                                                   FaultInjector &Faults) {
-  return Luna::Detail::ExecuteSource(Handle, Source, Faults);
+                                                   FaultInjector &Faults,
+                                                   AsyncCallRegistry *Async) {
+  return Luna::Detail::ExecuteSource(Handle, Source, Faults, Async);
+}
+
+bool VirtualMachineOwner::PublishAsyncCallRegistry(
+    AsyncCallRegistry *Async) noexcept {
+  return Luna::Detail::PublishAsyncRegistry(Handle, Async);
+}
+
+bool VirtualMachineOwner::PublishDelegateRegistry(
+    VmDelegateRegistry *Handlers) noexcept {
+  if (Handlers)
+    Handlers->Bind(Handle);
+  return Luna::Detail::PublishDelegateRegistry(Handle, Handlers);
 }
 
 ClosureInstallationStatus
@@ -203,7 +222,9 @@ bool VirtualMachineOwner::HasUserdataCollector() const noexcept {
   return UserdataCollectorIsInstalled(Handle);
 }
 
-void VirtualMachineOwner::Finalize() noexcept { Reset(); }
+void VirtualMachineOwner::Finalize() noexcept {
+  Reset();
+}
 
 void VirtualMachineOwner::Reset() noexcept {
   if (!Handle)

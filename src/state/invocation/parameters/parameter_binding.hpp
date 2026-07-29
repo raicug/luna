@@ -6,10 +6,12 @@
 #include <luna/binding/callable_metadata.hpp>
 #include <luna/binding/instance_receiver.hpp>
 
+#include "state/invocation/async/suspended_call.hpp"
 #include "state/invocation/validation/validation_result.hpp"
 #include "state/type/type_generation.hpp"
 
 #include <cstddef>
+#include <memory>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -41,6 +43,10 @@ BindDeclaredParameters(lua_State *State, std::string_view CallableName,
 struct RichInvocationResult final {
   int ReturnCount = -1;
   std::string Diagnostic;
+
+  // Set when the callable started work it did not finish. The caller owns the
+  // started work and decides whether this call site can suspend.
+  std::unique_ptr<StartedAsyncCall> Suspension;
 
   [[nodiscard]] bool IsSuccess() const noexcept { return ReturnCount >= 0; }
 };

@@ -171,6 +171,8 @@ DescriptorPlanEntry MakeFunctionPlanEntry(std::string QualifiedName,
   Record.Parameters = MakeReflectedParameters(Callable.Metadata());
   Record.ReturnValues = MakeReflectedReturns(Callable.Metadata());
   Record.Returns = ReflectedReturnShape(Callable.Metadata());
+  Record.ReturnsAsynchronously =
+      Callable.Metadata().ReturnType().IsAsynchronous();
   Entry.Record = std::move(Record);
 
   Entry.Callable = std::move(Callable);

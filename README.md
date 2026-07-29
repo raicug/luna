@@ -157,6 +157,8 @@ The documentation under `docs/` was written with AI assistance and checked again
 - Classes as typed userdata: constructors, factories, singletons, allocators, methods, properties, fields, base edges, checked casts, and operators
 - Lua-owned, borrowed, and `std::shared_ptr` shared ownership with `LifetimeHandle` invalidation
 - Load-once versioned modules with semantic-version constraint resolution
+- Asynchronous namespace and root functions returning `AsyncTask<T>` or `std::future<T>`, resumed on the owner thread with the awaited value
+- Delegates and signals: `Delegate<Signature>` as an ordinary reflected parameter, `Signal<Signature>` owning subscriptions through it
 - Stable dispatch indirection: a call retains the generation it began with, so publication never retargets work in flight
 - Content-derived `TypeId` and `SymbolId`: no RTTI name, address, or registration order in any persistent identity
 - Owning immutable `ReflectionSnapshot` that outlives its State and reads from any thread
@@ -244,10 +246,12 @@ All project source paths are lowercase. C/C++ include blocks are protected with 
 
 Module lifecycle is **load-only through the public API**. Registration is additive, and there is no consumer entry point for unloading, replacing, or hot reloading a loaded module. The machinery those operations need is in place — stable dispatch slots, retained dispatch generations, affected-closure and blocker analysis, staging with reverse-order undo, and atomic generation publication — but no State enables dynamic lifecycle, so any such request is refused deterministically with a load-only diagnostic and mutates nothing.
 
+Asynchronous invocation is **available for namespace and root functions**. A bound callable may return `Luna::AsyncTask<T>` or `std::future<T>` for `T` in `void`, `bool`, `int`, `double`, `std::string`, or `Luna::ReturnPack`; the call that started the work suspends the chunk `Execute` is running, Luna waits on the owner thread until the host settles the work, and the call then resumes with the awaited value. Only the executing chunk can suspend, so a script coroutine or a metamethod calling such a function is refused deterministically. Class members and operators return their value directly and refuse asynchronous delivery at registration time.
+
+Delegates and signals are **available**. `Luna::Delegate<Signature>` is an ordinary reflected parameter type carrying one subscribed Luau function, held through Luna's own reference mechanism; `Luna::Signal<Signature>` owns a list of them and provides `Subscribe`, `Unsubscribe`, and `Emit`. Unsubscribing releases the handler's reference for every copy, replacing the State's lifecycle generation invalidates every handler subscribed through it, and emitting takes one snapshot of subscribers so a handler may subscribe or unsubscribe during an emission without being called twice or invalidating iteration. Events built from these primitives use the same canonical type registry and transaction as everything else; there is no separate callback system.
+
 Not implemented at all. These are absent rather than partial:
 
-- Coroutines and asynchronous invocation
-- Delegates, signals, and events
 - Annotation helper macros — documentation, attributes, and examples are ordinary builder calls
 - IDE and profiling integrations
 

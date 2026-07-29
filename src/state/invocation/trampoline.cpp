@@ -2,6 +2,7 @@
 #include "state/invocation/trampoline.hpp"
 
 #include "state/dispatch/closure_slot.hpp"
+#include "state/invocation/async/suspended_call.hpp"
 #include "state/invocation/conversion/return_writer.hpp"
 #include "state/invocation/members/receiver.hpp"
 #include "state/invocation/overload/dispatch.hpp"
@@ -31,8 +32,12 @@ namespace {
 struct InvocationResult final {
   int ReturnCount = -1;
   std::string Diagnostic;
+  std::unique_ptr<StartedAsyncCall> Suspension;
 
   [[nodiscard]] bool IsSuccess() const noexcept { return ReturnCount >= 0; }
+  [[nodiscard]] bool IsSuspended() const noexcept {
+    return Suspension != nullptr;
+  }
 };
 
 [[nodiscard]] std::string CallableContext(std::string_view GlobalName) {
@@ -50,6 +55,25 @@ struct InvocationResult final {
   if (Message.empty())
     Message = "Internal Luna invocation error.";
   return {.ReturnCount = -1, .Diagnostic = std::move(Message)};
+}
+
+[[nodiscard]] ArgumentPack RetainedArguments(std::span<const Value> Supplied,
+                                             std::size_t FirstPosition) {
+  ValuePack Owned;
+  for (const Value &Element : Supplied)
+    Owned.Append(OwnedValue::FromValue(Element));
+  return ArgumentPack(std::move(Owned), FirstPosition);
+}
+
+[[nodiscard]] std::unique_ptr<StartedAsyncCall>
+StartedCallFrom(InvocationOutcome &Outcome, const ReturnMetadata &Awaited,
+                ArgumentPack Arguments, const SymbolId &Symbol) {
+  auto Started = std::make_unique<StartedAsyncCall>();
+  Started->Work = Outcome.TakeSuspendedWork();
+  Started->Arguments = std::move(Arguments);
+  Started->Awaited = Awaited;
+  Started->Symbol = Symbol;
+  return Started;
 }
 
 struct SelectedOverload final {
@@ -133,8 +157,14 @@ struct MemberDispatch final {
 
     if (Descriptor.Metadata().HasRichParameters()) {
       try {
-        const RichInvocationResult Rich = InvokeDeclaredParameters(
+        RichInvocationResult Rich = InvokeDeclaredParameters(
             State, GlobalName, Descriptor, Types, Faults, Bound);
+        if (Rich.Suspension) {
+          Rich.Suspension->Symbol = Selected.Candidate->Identity;
+          return {.ReturnCount = -1,
+                  .Diagnostic = std::string(),
+                  .Suspension = std::move(Rich.Suspension)};
+        }
         if (!Rich.IsSuccess())
           return Failure(Rich.Diagnostic);
         return {.ReturnCount = Rich.ReturnCount};
@@ -165,6 +195,15 @@ struct MemberDispatch final {
         return Failure("Internal error for " + Named + ": " +
                        Outcome.FailureMessage());
 
+      if (Outcome.Kind() == InvocationOutcomeKind::Suspended)
+        return {.ReturnCount = -1,
+                .Diagnostic = std::string(),
+                .Suspension = StartedCallFrom(
+                    Outcome, Descriptor.Metadata().ReturnType(),
+                    RetainedArguments(Validated.Arguments,
+                                      static_cast<std::size_t>(ArgumentBase)),
+                    Selected.Candidate->Identity)};
+
       auto Written = WriteInvocationReturn(
           State, Descriptor.Metadata().ReturnType(), Outcome, Types, Faults);
       if (!Written.IsSuccess()) {
@@ -189,7 +228,152 @@ struct MemberDispatch final {
   }
 }
 
+// Registers the started work and hands the executing chunk back to Luna's
+// owner-thread pump. Returns false when this call site cannot suspend, in
+// which case the started work is cancelled and no stack slot changes.
+[[nodiscard]] bool RegisterSuspension(
+    lua_State *State, InvocationResult &Result, const DispatchEntry &Entry,
+    std::shared_ptr<const TypeGeneration> Types, DispatchRetention &Retained,
+    int EntryDepth, std::string &Refusal) {
+  AsyncCallRegistry *Registry = ObserveAsyncRegistry(State);
+  if (!Registry || !Registry->PermitsSuspension(State) ||
+      lua_isyieldable(State) == 0) {
+    if (Registry)
+      Registry->RecordRefusal();
+    if (Result.Suspension && Result.Suspension->Work) {
+      Result.Suspension->Work->RequestCancellation();
+      static_cast<void>(Result.Suspension->Work->Cancel(
+          "the call site cannot suspend, so the work was cancelled"));
+    }
+    Refusal =
+        "Unsupported suspension: " + CallableContext(Entry.QualifiedName) +
+        " delivers its value later, so it can only be called directly "
+        "from the chunk Luna is executing.";
+    return false;
+  }
+
+  SuspendedCall Started;
+  Started.Thread = State;
+  Started.EntryStackDepth = EntryDepth;
+  Started.Slot = Entry.Slot;
+  Started.QualifiedName = Entry.QualifiedName;
+  Started.Symbol = Result.Suspension->Symbol;
+  Started.Arguments = std::move(Result.Suspension->Arguments);
+  Started.Awaited = Result.Suspension->Awaited;
+  Started.Types = std::move(Types);
+  Started.Retained = std::move(Retained);
+  Started.Faults = Entry.Faults;
+  Started.Work = std::move(Result.Suspension->Work);
+
+  static_cast<void>(Registry->Suspend(std::move(Started)));
+  return true;
+}
+
 } // namespace
+
+int NativeTrampolineContinuation(lua_State *State, int Status) {
+  if (!State)
+    return 0;
+
+  constexpr std::size_t ContinuationDiagnosticCapacity = 512;
+  char LocalDiagnostic[ContinuationDiagnosticCapacity]{};
+  std::size_t DiagnosticLength = 0;
+  int EntryDepth = lua_gettop(State);
+  FaultInjector *Faults = nullptr;
+
+  const auto Reject = [&](std::string_view Message) {
+    DiagnosticLength = Message.size();
+    if (DiagnosticLength > ContinuationDiagnosticCapacity)
+      DiagnosticLength = ContinuationDiagnosticCapacity;
+    std::memcpy(LocalDiagnostic, Message.data(), DiagnosticLength);
+  };
+
+  try {
+    AsyncCallRegistry *Registry = ObserveAsyncRegistry(State);
+    std::optional<SuspendedCall> Resumed =
+        Registry ? Registry->Take(State) : std::nullopt;
+    if (!Resumed) {
+      Reject("Internal error: Luna resumed a call it never suspended.");
+    } else {
+      EntryDepth = Resumed->EntryStackDepth;
+      Faults = Resumed->Faults;
+      const std::string Named = CallableContext(Resumed->QualifiedName);
+
+      if (Status != 0) {
+        Reject("Runtime error: " + Named +
+               " was resumed with a failure status.");
+      } else if (Resumed->Stage == AsyncStage::Ready) {
+        if (!Resumed->Awaited || !Resumed->Types || !Faults) {
+          Reject("Internal error: " + Named +
+                 " lost the metadata its resumption needs.");
+        } else {
+          InvocationOutcome Completed = InvocationOutcome::Void();
+          const ReturnMetadata &Awaited = *Resumed->Awaited;
+          bool Consistent = true;
+          switch (Awaited.Disposition()) {
+          case ReturnDisposition::Void:
+            Consistent = Resumed->Produced.empty();
+            break;
+          case ReturnDisposition::Value:
+            Consistent = Resumed->Produced.size() == 1;
+            if (Consistent)
+              Completed =
+                  InvocationOutcome::WithValue(std::move(Resumed->Produced[0]));
+            break;
+          case ReturnDisposition::Pack:
+            Completed =
+                InvocationOutcome::WithValues(std::move(Resumed->Produced));
+            break;
+          case ReturnDisposition::Suppress:
+          case ReturnDisposition::Instance:
+            Consistent = false;
+            break;
+          }
+
+          if (!Consistent) {
+            Reject("Internal error for " + Named +
+                   ": the completed values do not match its declared return "
+                   "shape.");
+          } else {
+            lua_settop(State, EntryDepth);
+            const ReturnWriteResult Written = WriteInvocationReturn(
+                State, Awaited, Completed, *Resumed->Types, *Faults);
+            if (Written.IsSuccess())
+              return Written.ReturnCount;
+            Reject("Internal error for " + Named + ": " +
+                   (Written.Diagnostic ? Written.Diagnostic->Message()
+                                       : std::string("Return handling "
+                                                     "failed.")));
+          }
+        }
+      } else if (Resumed->Stage == AsyncStage::Cancelled) {
+        Reject("Cancelled call: " + Named + " was cancelled because " +
+               Resumed->Diagnostic + ".");
+      } else {
+        Reject("Runtime error: " + Named + " failed asynchronously because " +
+               Resumed->Diagnostic + ".");
+      }
+    }
+  } catch (...) {
+    Reject("Internal error: Luna could not resume a suspended call.");
+  }
+
+  if (DiagnosticLength == 0) {
+    static constexpr char Fallback[] =
+        "Internal error: Luna could not resume a suspended call.";
+    DiagnosticLength = sizeof(Fallback) - 1;
+    std::memcpy(LocalDiagnostic, Fallback, DiagnosticLength);
+  }
+
+  lua_settop(State, EntryDepth);
+  const int RestoredDepth = lua_gettop(State);
+  lua_pushlstring(State, LocalDiagnostic, DiagnosticLength);
+  if (Faults)
+    Faults->RecordCallbackStackRestoration(EntryDepth, RestoredDepth,
+                                           lua_gettop(State));
+  lua_error(State);
+  return 0;
+}
 
 int NativeTrampoline(lua_State *State) {
   if (!State)
@@ -209,11 +393,12 @@ int NativeTrampoline(lua_State *State) {
 
       const DispatchSlotId Slot = ClosureDispatchSlot(State);
       const DispatchTable *Dispatch = ObserveDispatchTable(State);
-      const DispatchRetention Retained =
+      DispatchRetention Retained =
           Dispatch ? Dispatch->Retain(DispatchRetainer::Invocation)
                    : DispatchRetention{};
       const DispatchEntry *Entry = Retained.Find(Slot);
       BindingRecord *Record = Entry ? Entry->Target : nullptr;
+      bool Suspend = false;
       if (!Entry) {
         Result = Failure("Unavailable binding: this State no longer resolves "
                          "the callable this closure was installed for.");
@@ -229,15 +414,27 @@ int NativeTrampoline(lua_State *State) {
         Faults = Entry->Faults;
         Faults->ClearCallbackStackRestoration();
 
-        const std::shared_ptr<const TypeGeneration> Types =
+        std::shared_ptr<const TypeGeneration> Types =
             Entry->Types ? Entry->Types->Capture() : nullptr;
-        if (!Types)
+        if (!Types) {
           Result = Failure("Internal error: the canonical type registry is "
                            "unavailable for " +
                            CallableContext(Entry->QualifiedName) + ".");
-        else
+        } else {
           Result = InvokeValidated(State, *Record, *Types, *Faults);
+          if (Result.IsSuspended()) {
+            std::string Refusal;
+            Suspend =
+                RegisterSuspension(State, Result, *Entry, std::move(Types),
+                                   Retained, EntryDepth, Refusal);
+            if (!Suspend)
+              Result = Failure(std::move(Refusal));
+          }
+        }
       }
+
+      if (Suspend)
+        return lua_yield(State, 0);
 
       if (Result.IsSuccess())
         return Result.ReturnCount;

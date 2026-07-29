@@ -65,6 +65,10 @@ ValidateStagedOperator(const StagedOperator &Declaration) {
         Subject, "this operator is not one Luna supports on a class.");
 
   const CallableMetadata &Metadata = Declaration.Callable->Metadata();
+  if (Metadata.ReturnType().IsAsynchronous())
+    return MalformedMetadataDiagnostic(
+        Subject, "an operator publishes its value inside the expression that "
+                 "invoked it, so it cannot deliver that value later.");
   if (!Declaration.DeclaresReceiver || Metadata.Receiver() == nullptr)
     return MalformedMetadataDiagnostic(
         Subject, "an operator operates on one value of its class, so it "

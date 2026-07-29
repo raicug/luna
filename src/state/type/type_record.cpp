@@ -1,10 +1,13 @@
 // clang-format off
 #include "state/type/type_record.hpp"
 
+#include <luna/binding/delegate.hpp>
 #include <luna/binding/value.hpp>
 #include <luna/type/type_descriptor.hpp>
 
 #include <algorithm>
+#include <span>
+#include <vector>
 #include <compare>
 #include <cstdint>
 #include <string>
@@ -139,9 +142,43 @@ TypeDescriptor CanonicalValueType(ValueKind Kind) noexcept {
   return TypeDescriptor::Unsupported();
 }
 
+TypeDescriptor CanonicalDelegateType(const DelegateShape &Declared) {
+  std::vector<TypeDescriptor> Children;
+  Children.reserve(Declared.Parameters.size() + 1);
+  Children.push_back(Declared.Result
+                         ? CanonicalValueType(*Declared.Result)
+                         : TypeDescriptor::ForFixed(FixedTypeKey::Void));
+  for (const ValueKind Kind : Declared.Parameters)
+    Children.push_back(CanonicalValueType(Kind));
+
+  for (const TypeDescriptor &Child : Children) {
+    if (!Child.IsValid())
+      return TypeDescriptor::Unsupported();
+  }
+  return TypeDescriptor::ForStructure(TypeKind::Callable, std::move(Children));
+}
+
+bool IsCanonicalDelegateType(const TypeDescriptor &Type) noexcept {
+  return Type.Kind() == TypeKind::Callable && Type.ChildCount() >= 1 &&
+         Type.IsValid();
+}
+
 std::string CanonicalTypeText(const TypeDescriptor &Type) {
   if (const auto Fixed = Type.FixedKey())
     return std::string(FixedTypeKeyText(*Fixed));
+  if (IsCanonicalDelegateType(Type)) {
+    const std::span<const TypeDescriptor> Children = Type.Children();
+    std::string Text = "callable ";
+    Text += CanonicalTypeText(Children[0]);
+    Text += "(";
+    for (std::size_t Index = 1; Index < Children.size(); ++Index) {
+      if (Index != 1)
+        Text += ",";
+      Text += CanonicalTypeText(Children[Index]);
+    }
+    Text += ")";
+    return Text;
+  }
   if (!Type.Key().IsEmpty())
     return Type.Key().Text();
   return std::string(TypeKindText(Type.Kind()));

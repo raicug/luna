@@ -110,6 +110,7 @@ struct ReflectionRecordFields final {
   TypeId Type;
   TypeDescriptor Descriptor;
   ReturnShape Returns = ReturnShape::Zero;
+  bool ReturnsAsynchronously = false;
 
   bool ValueIsAvailable = false;
   std::string ValueText;

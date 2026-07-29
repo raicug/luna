@@ -18,7 +18,7 @@
 
 namespace Luna {
 
-enum class ParameterForm { Required, Optional, Defaulted, Variadic };
+enum class ParameterForm { Required, Optional, Defaulted, Variadic, Delegate };
 
 [[nodiscard]] constexpr std::string_view
 ParameterFormText(ParameterForm Form) noexcept {
@@ -31,6 +31,8 @@ ParameterFormText(ParameterForm Form) noexcept {
     return "defaulted";
   case ParameterForm::Variadic:
     return "variadic";
+  case ParameterForm::Delegate:
+    return "delegate";
   }
   return "required";
 }
@@ -81,6 +83,13 @@ public:
     return Descriptor;
   }
 
+  [[nodiscard]] static ParameterDescriptor ForDelegate(DelegateShape Declared) {
+    ParameterDescriptor Descriptor;
+    Descriptor.FormValue = ParameterForm::Delegate;
+    Descriptor.DelegateValue = std::move(Declared);
+    return Descriptor;
+  }
+
   [[nodiscard]] ParameterForm Form() const noexcept { return FormValue; }
 
   [[nodiscard]] const ValueKind *Kind() const noexcept {
@@ -91,10 +100,20 @@ public:
     return FormValue == ParameterForm::Variadic;
   }
 
+  [[nodiscard]] bool IsDelegate() const noexcept {
+    return FormValue == ParameterForm::Delegate;
+  }
+
+  [[nodiscard]] const DelegateShape *DelegateSignature() const noexcept {
+    return DelegateValue ? &*DelegateValue : nullptr;
+  }
+
   [[nodiscard]] bool Retains() const noexcept { return RetainsValue; }
 
+  // A delegate parameter is always supplied, so it never relaxes the shape.
   [[nodiscard]] bool IsOmittable() const noexcept {
-    return FormValue != ParameterForm::Required;
+    return FormValue != ParameterForm::Required &&
+           FormValue != ParameterForm::Delegate;
   }
 
   [[nodiscard]] bool AcceptsNil() const noexcept { return AcceptsNilValue; }
@@ -113,7 +132,8 @@ public:
            Left.KindValue == Right.KindValue &&
            Left.DefaultValue == Right.DefaultValue &&
            Left.AcceptsNilValue == Right.AcceptsNilValue &&
-           Left.RetainsValue == Right.RetainsValue;
+           Left.RetainsValue == Right.RetainsValue &&
+           Left.DelegateValue == Right.DelegateValue;
   }
 
   [[nodiscard]] friend bool operator!=(const ParameterDescriptor &Left,
@@ -125,6 +145,7 @@ private:
   ParameterForm FormValue = ParameterForm::Required;
   std::optional<ValueKind> KindValue;
   std::optional<Value> DefaultValue;
+  std::optional<DelegateShape> DelegateValue;
   bool AcceptsNilValue = false;
   bool RetainsValue = false;
 };
@@ -135,7 +156,8 @@ enum class ParameterShapeStatus {
   VariadicNotFinal,
   MissingValueKind,
   MisplacedDefault,
-  DefaultTypeMismatch
+  DefaultTypeMismatch,
+  MalformedDelegate
 };
 
 [[nodiscard]] constexpr std::string_view
@@ -153,6 +175,8 @@ ParameterShapeStatusText(ParameterShapeStatus Status) noexcept {
     return "misplaced_default";
   case ParameterShapeStatus::DefaultTypeMismatch:
     return "default_type_mismatch";
+  case ParameterShapeStatus::MalformedDelegate:
+    return "malformed_delegate";
   }
   return "valid";
 }
@@ -185,6 +209,22 @@ ValidateParameterShape(std::span<const ParameterDescriptor> Parameters) {
                                    Position};
       continue;
     }
+
+    if (Parameter.IsDelegate()) {
+      if (Parameter.DelegateSignature() == nullptr ||
+          Parameter.Kind() != nullptr || Parameter.HasDefault() ||
+          Parameter.AcceptsNil() || Parameter.Retains())
+        return ParameterShapeIssue{ParameterShapeStatus::MalformedDelegate,
+                                   Position};
+      if (SawRelaxed)
+        return ParameterShapeIssue{ParameterShapeStatus::RequiredAfterRelaxed,
+                                   Position};
+      continue;
+    }
+
+    if (Parameter.DelegateSignature() != nullptr)
+      return ParameterShapeIssue{ParameterShapeStatus::MalformedDelegate,
+                                 Position};
 
     const ValueKind *Kind = Parameter.Kind();
     if (Kind == nullptr)

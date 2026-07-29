@@ -5,6 +5,8 @@
 
 #include "state/dispatch/generation.hpp"
 #include "state/freeze/cache.hpp"
+#include "state/invocation/async/suspended_call.hpp"
+#include "state/invocation/delegate/vm_delegate.hpp"
 #include "state/module/lifecycle.hpp"
 #include "state/module/registry.hpp"
 #include "state/reflection/database.hpp"
@@ -231,6 +233,16 @@ public:
                 const std::vector<Value> &Arguments);
   [[nodiscard]] static std::optional<CallbackStackRestorationObservation>
   ObserveLastCallbackStackRestoration(const State &Owner) noexcept;
+
+  [[nodiscard]] static AsyncCallCounters
+  AsyncCallCountersOf(const State &Owner) noexcept;
+  [[nodiscard]] static std::size_t
+  PendingAsyncCallCount(const State &Owner) noexcept;
+
+  [[nodiscard]] static DelegateCounters
+  DelegateCountersOf(const State &Owner) noexcept;
+  [[nodiscard]] static std::size_t
+  OutstandingDelegateCount(const State &Owner) noexcept;
 
   [[nodiscard]] static ReflectionDatabase *
   ReflectionDatabaseOf(State &Owner) noexcept;
