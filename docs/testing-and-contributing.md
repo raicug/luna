@@ -66,7 +66,8 @@ Delegates and signals are available: `Delegate<Signature>` is an ordinary reflec
 Not implemented at all, and absent rather than partial:
 
 - annotation helper macros
-- IDE and profiling integrations
+
+IDE, autocomplete, debug-UI, and profiling integrations are available: `InstallProfilingHook` reports every invocation stage using the same canonical `SymbolId`/`TypeId` reflection publishes, runs on the owner thread only after Luna has already decided the outcome, and contains and uninstalls a hook that throws.
 
 Two limitations of the shipped surface are worth fixing before new features and are documented where they bite: a registered class cannot be a *parameter* type of a `Method` or `Operator`, and inherited *fields* are not reachable through a derived class.
 

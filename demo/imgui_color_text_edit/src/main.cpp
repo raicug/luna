@@ -368,7 +368,7 @@ struct BoundFeature final {
   std::string_view Snippet;
 };
 
-constexpr std::array<BoundFeature, 18> BoundFeatures{{
+constexpr std::array<BoundFeature, 19> BoundFeatures{{
     {"Root function (Register)",
      R"(Registry.Register("HostLog", [this](std::string Message) {
   OutputLines.push_back(std::move(Message));
@@ -533,6 +533,15 @@ Registry.RegisterFunction("Unsubscribe", [this](int Token) {
 });
 Registry.RegisterFunction("Raise", [this](int Level) {
   return static_cast<int>(Alarm.Emit(Level).Delivered);
+});)"},
+    {"Profiling and debug-UI hook",
+     R"(// A profiling or debug-UI hook consumes only the canonical SymbolId
+// and TypeId reflection already publishes. It runs on the owner thread
+// after Luna has already produced the reported outcome, so it can never
+// change how a call resolves or what it returns.
+Registry.InstallProfilingHook([this](const Luna::ProfilingEvent &Event) {
+  ProfilingLog.push_back(std::string(Luna::ProfilingEventKindText(Event.Kind)) +
+                         " " + Event.QualifiedName);
 });)"},
     {"Extension boundary: unavailable forms are refused",
      R"(// A raw coroutine handle names no awaited value, so the public
@@ -852,6 +861,16 @@ private:
            Registry.RegisterFunction("Raise", [this](int Level) {
              return static_cast<int>(Alarm.Emit(Level).Delivered);
            }));
+
+    Record("InstallProfilingHook",
+           Registry.InstallProfilingHook(
+               [this](const Luna::ProfilingEvent &Event) {
+                 ProfilingLog.push_back(
+                     std::string(Luna::ProfilingEventKindText(Event.Kind)) +
+                     " " + Event.QualifiedName);
+                 if (ProfilingLog.size() > 200)
+                   ProfilingLog.erase(ProfilingLog.begin());
+               }));
   }
 
   void RegisterStudioSurface() {
@@ -1631,6 +1650,7 @@ private:
   std::vector<LogEntry> Log;
   std::vector<std::string> OutputLines;
   Luna::Signal<void(int)> Alarm;
+  std::vector<std::string> ProfilingLog;
   std::string Status;
   std::string DocumentationText;
   std::string DocumentationStatus;

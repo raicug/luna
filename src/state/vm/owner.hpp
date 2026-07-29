@@ -20,6 +20,7 @@ namespace Luna::Detail {
 class AsyncCallRegistry;
 class BindingRecord;
 class FaultInjector;
+class ProfilingRegistry;
 class StateTestHooks;
 class TypeGeneration;
 class VmDelegateRegistry;
@@ -48,6 +49,8 @@ public:
   PublishAsyncCallRegistry(AsyncCallRegistry *Async) noexcept;
   [[nodiscard]] bool
   PublishDelegateRegistry(VmDelegateRegistry *Handlers) noexcept;
+  [[nodiscard]] bool
+  PublishProfilingRegistry(ProfilingRegistry *Profiling) noexcept;
   [[nodiscard]] ClosureInstallationStatus
   InstallBindingClosure(BindingRecord &Record, bool InjectFailure) noexcept;
   [[nodiscard]] const BindingRecord *

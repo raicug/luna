@@ -60,6 +60,27 @@ Enumeration is canonical and permutation-invariant: module provenance, then scop
 
 Identity is content-derived. `TypeId` and `SymbolId` are 256-bit digests of canonical descriptors, formatted as canonical lowercase hexadecimal by `ToString()` and parseable back by `Parse()`. A default-constructed identity is the reserved unresolved value, which `IsValid()` reports as false.
 
+## Profiling and debug-UI hooks
+
+`BindingRegistry::InstallProfilingHook(Luna::ProfilingHook)` installs one hook that observes invocation stages live, using exactly the identity a snapshot would already give you:
+
+```cpp
+Registry.InstallProfilingHook([](const Luna::ProfilingEvent &Event) {
+  std::cout << Luna::ProfilingEventKindText(Event.Kind) << ' '
+            << Event.QualifiedName << '\n';
+});
+```
+
+`ProfilingEvent` reports `Kind` (`Completed`, `Failed`, `Suspended`, `Resumed`, or `Cancelled`), the same canonical `Symbol` a `ReflectionRecord` publishes, `ReceiverType` for a member call (invalid otherwise), and the owning `QualifiedName` text. Nothing here is a private duplicate schema: it is the identity you would find by looking the symbol up in a snapshot.
+
+Three guarantees make a hook safe to install without reasoning about invocation internals:
+
+- It runs on the State's owner thread only, strictly *after* Luna has already produced the outcome it reports. It cannot change how a call resolves, converts, or publishes its result.
+- A hook that throws is contained at the report site and then uninstalled, rather than reaching Luau or the code that called `Execute`.
+- `ClearProfilingHook()` removes it; installing a new one replaces any previous one. Both operations use the ordinary owner-thread and readiness checks every other registration operation follows, and report their outcome through `RegistrationResult`.
+
+This is also the whole surface an IDE, autocomplete, or debug-UI integration needs. Build symbol lists and completions from a `ReflectionSnapshot`, generate reference material with `GenerateDocumentation`/`GenerateDeclarations`, and use the profiling hook only for the parts those artifacts cannot see: which call actually ran, and how it ended.
+
 ## Generating documentation and declarations
 
 Both generators consume a snapshot and one immutable options value, and nothing else. No State, VM, table, dispatch target, or native object is consulted.

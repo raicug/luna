@@ -466,6 +466,7 @@ State::Impl::Impl()
   AsyncCalls.BindOrigin(Lifecycle.Identity(), Lifecycle.Generation());
   static_cast<void>(VirtualMachine.PublishAsyncCallRegistry(&AsyncCalls));
   static_cast<void>(VirtualMachine.PublishDelegateRegistry(&Delegates));
+  static_cast<void>(VirtualMachine.PublishProfilingRegistry(&ProfilingHooks));
 }
 
 State::Impl::~Impl() {
@@ -2429,6 +2430,38 @@ RegistrationResult State::Impl::Freeze() {
                                  "generation changed during preparation.");
   FrozenCaches = std::move(Prepared);
   Lifecycle.Freeze();
+  return RegistrationResult::Success();
+}
+
+RegistrationResult State::Impl::InstallProfilingHook(ProfilingHook Hook) {
+  if (!Lifecycle.IsOwnerThread())
+    return RegistrationResult::Failure(
+        ErrorCategory::StateNotReady,
+        "Cannot install profiling hook: this operation is only allowed on "
+        "the State's owner thread.");
+  if (!IsReady())
+    return RegistrationResult::Failure(
+        ErrorCategory::StateNotReady,
+        "Cannot install profiling hook: State is not ready.");
+  if (!Hook)
+    return RegistrationResult::Failure(
+        ErrorCategory::Internal,
+        "Cannot install profiling hook: the supplied hook is empty.");
+  ProfilingHooks.Install(std::move(Hook));
+  return RegistrationResult::Success();
+}
+
+RegistrationResult State::Impl::ClearProfilingHook() {
+  if (!Lifecycle.IsOwnerThread())
+    return RegistrationResult::Failure(
+        ErrorCategory::StateNotReady,
+        "Cannot clear profiling hook: this operation is only allowed on the "
+        "State's owner thread.");
+  if (!IsReady())
+    return RegistrationResult::Failure(
+        ErrorCategory::StateNotReady,
+        "Cannot clear profiling hook: State is not ready.");
+  ProfilingHooks.Clear();
   return RegistrationResult::Success();
 }
 

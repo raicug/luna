@@ -159,6 +159,7 @@ The documentation under `docs/` was written with AI assistance and checked again
 - Load-once versioned modules with semantic-version constraint resolution
 - Asynchronous namespace and root functions returning `AsyncTask<T>` or `std::future<T>`, resumed on the owner thread with the awaited value
 - Delegates and signals: `Delegate<Signature>` as an ordinary reflected parameter, `Signal<Signature>` owning subscriptions through it
+- Profiling and debug-UI hooks reporting canonical `SymbolId`/`TypeId` identity without changing invocation semantics
 - Stable dispatch indirection: a call retains the generation it began with, so publication never retargets work in flight
 - Content-derived `TypeId` and `SymbolId`: no RTTI name, address, or registration order in any persistent identity
 - Owning immutable `ReflectionSnapshot` that outlives its State and reads from any thread
@@ -253,9 +254,10 @@ Delegates and signals are **available**. `Luna::Delegate<Signature>` is an ordin
 Not implemented at all. These are absent rather than partial:
 
 - Annotation helper macros — documentation, attributes, and examples are ordinary builder calls
-- IDE and profiling integrations
 
 Each is refused explicitly rather than silently ignored: unsupported callables, parameters, and returns fail the public `SupportedCallable` constraints at compile time, and an unsupported value is refused at registration time without publishing a descriptor or touching the VM.
+
+IDE, autocomplete, debug-UI, and profiling integrations are **available**, built entirely from the public model: reflection snapshots, generated artifacts, and `Luna::ProfilingHook`. `BindingRegistry::InstallProfilingHook` installs one hook that reports every invocation's completion, failure, suspension, resumption, or cancellation, naming it with the same canonical `SymbolId` and `TypeId` reflection publishes — never a private duplicate schema. It runs on the State's owner thread, strictly after Luna has already produced the outcome it reports, so it never changes how a call resolves or what it returns. A hook that throws is contained and then uninstalled rather than reaching Luau or the calling code.
 
 Two current limitations are worth knowing before designing a surface:
 

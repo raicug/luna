@@ -3,6 +3,7 @@
 // clang-format off
 #include <luna/core/results/execution_result.hpp>
 #include <luna/core/results/registration_result.hpp>
+#include <luna/tooling/profiling_hook.hpp>
 
 #include <memory>
 #include <string_view>
@@ -46,6 +47,9 @@ private:
   [[nodiscard]] RegistrationResult Freeze();
 
   [[nodiscard]] ReflectionSnapshot CaptureReflection() const;
+
+  [[nodiscard]] RegistrationResult InstallProfilingHook(ProfilingHook Hook);
+  [[nodiscard]] RegistrationResult ClearProfilingHook();
 
   class Impl;
   std::unique_ptr<Impl> Implementation;

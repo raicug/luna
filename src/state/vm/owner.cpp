@@ -5,6 +5,7 @@
 #include "state/invocation/async/suspended_call.hpp"
 #include "state/invocation/delegate/vm_delegate.hpp"
 #include "state/testing/test_control.hpp"
+#include "state/tooling/profiling_registry.hpp"
 #include "state/userdata/collection.hpp"
 #include "state/userdata/exposure.hpp"
 #include "state/userdata/value_exposure.hpp"
@@ -87,6 +88,11 @@ bool VirtualMachineOwner::PublishDelegateRegistry(
   if (Handlers)
     Handlers->Bind(Handle);
   return Luna::Detail::PublishDelegateRegistry(Handle, Handlers);
+}
+
+bool VirtualMachineOwner::PublishProfilingRegistry(
+    ProfilingRegistry *Profiling) noexcept {
+  return Luna::Detail::PublishProfilingRegistry(Handle, Profiling);
 }
 
 ClosureInstallationStatus

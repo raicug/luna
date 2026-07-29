@@ -17,7 +17,7 @@ set(LUNA_NON_DECLARATION_TOKENS
     goto if inline mutable namespace new noexcept not operator or
     reinterpret_cast requires return sizeof static_assert static_cast struct
     switch template this throw try typedef typeid typename union using virtual
-    while
+    while void bool char short int long float double signed unsigned
 )
 
 function(luna_policy_failure MESSAGE_TEXT)

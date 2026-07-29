@@ -37,6 +37,7 @@ struct SuspendedCall final {
   DispatchSlotId Slot;
   std::string QualifiedName;
   SymbolId Symbol;
+  TypeId ReceiverType;
 
   ArgumentPack Arguments;
   std::optional<ReturnMetadata> Awaited;

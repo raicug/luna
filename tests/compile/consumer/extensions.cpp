@@ -7,6 +7,7 @@
 #include <string>
 #include <type_traits>
 #include <utility>
+#include <vector>
 // clang-format on
 
 #if defined(LUNA_REGISTER) || defined(LUNA_BIND) || defined(LUNA_FUNCTION) ||  \
@@ -167,12 +168,6 @@ struct ExposesEmit<T, std::void_t<decltype(std::declval<T &>().Emit())>>
     : std::true_type {};
 
 template <typename T, typename = void>
-struct ExposesProfiling : std::false_type {};
-template <typename T>
-struct ExposesProfiling<T, std::void_t<decltype(std::declval<T &>().Profile())>>
-    : std::true_type {};
-
-template <typename T, typename = void>
 struct ExposesAnnotations : std::false_type {};
 template <typename T>
 struct ExposesAnnotations<T,
@@ -199,10 +194,24 @@ static_assert(!AdvertisedAnywhere<ExposesSubscribe>() &&
                   !AdvertisedAnywhere<ExposesEmit>(),
               "Delegates, signals, and events must stay ordinary reflected "
               "callables rather than a parallel public API.");
-static_assert(!AdvertisedAnywhere<ExposesProfiling>() &&
-                  !AdvertisedAnywhere<ExposesAnnotations>(),
-              "No public declaration may advertise profiling, IDE services, "
-              "or annotation helpers.");
+static_assert(!AdvertisedAnywhere<ExposesAnnotations>(),
+              "No public declaration may advertise annotation helpers.");
+
+// IDE, autocomplete, debug-UI, and profiling consumers are available. They
+// consume only public snapshots, generated artifacts, canonical SymbolId
+// and TypeId values, and the profiling hook, without changing invocation
+// semantics or introducing a second metadata schema.
+static_assert(std::is_default_constructible_v<Luna::ProfilingEvent> &&
+                  std::is_copy_constructible_v<Luna::ProfilingEvent>,
+              "A profiling event is an ordinary owning consumer value.");
+static_assert(
+    std::is_same_v<decltype(Luna::ProfilingEvent::Symbol), Luna::SymbolId> &&
+        std::is_same_v<decltype(Luna::ProfilingEvent::ReceiverType),
+                       Luna::TypeId>,
+    "Profiling identity is the same canonical SymbolId and TypeId reflection "
+    "uses.");
+static_assert(std::is_default_constructible_v<Luna::ProfilingHook>,
+              "A profiling hook is an ordinary consumer callable.");
 
 } // namespace
 
@@ -245,4 +254,18 @@ void VerifyUnavailableExtensionBoundaryCompiles() {
       Registry.Reflection();
   [[maybe_unused]] const bool NotAdvertised =
       !Published.Find("ExtensionHub").IsValid();
+
+  // A profiling or debug-UI hook installs and clears through the ordinary
+  // typed outcome, and reports only the canonical identity a snapshot would
+  // already publish.
+  std::vector<Luna::ProfilingEvent> ExtensionEvents;
+  [[maybe_unused]] const Luna::RegistrationResult HookInstalled =
+      Registry.InstallProfilingHook(
+          [&ExtensionEvents](const Luna::ProfilingEvent &Event) {
+            ExtensionEvents.push_back(Event);
+          });
+  [[maybe_unused]] const Luna::ExecutionResult Executed =
+      Owner.Execute("ExtensionScale(1)");
+  [[maybe_unused]] const Luna::RegistrationResult HookCleared =
+      Registry.ClearProfilingHook();
 }

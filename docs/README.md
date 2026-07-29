@@ -32,6 +32,7 @@ Supported today:
 - **Classes.** `RegisterClass<T>` with constructors, factories, singletons, allocators, methods, static methods, properties, fields, base edges, checked casts, and operators. Objects are typed userdata, owned by Lua, borrowed behind a `LifetimeHandle`, or shared through `std::shared_ptr`.
 - **Modules.** Load-once versioned modules with semantic versions, constraint resolution that picks the highest satisfying version, and canonical cycle and conflict diagnostics.
 - **Delegates and signals.** `Delegate<Signature>` is an ordinary reflected parameter type carrying one subscribed Luau function, held through Luna's own reference mechanism. `Signal<Signature>` owns a list of them and provides `Subscribe`, `Unsubscribe`, and `Emit`; it uses the same canonical type registry as everything else rather than a parallel callback system.
+- **Profiling and debug-UI hooks.** `InstallProfilingHook` reports every invocation stage with the canonical identity reflection already publishes, without a second metadata schema or a change to invocation semantics.
 - **Dispatch indirection.** Native closures resolve a stable dispatch slot rather than holding a binding record, and an invocation retains the generation it began with, so publishing a new generation never retargets work already in flight.
 - **Canonical identity.** `TypeId`, `SymbolId`, `StableTypeKey`, and canonical descriptors. No RTTI name, address, or registration order participates in any persistent identity.
 - **Reflection.** `ReflectionSnapshot` captures one immutable committed generation that stays readable after later registration, freeze, a State move, destruction of the originating State, and from another thread.
@@ -46,9 +47,10 @@ Asynchronous invocation is available for namespace and root functions. A callabl
 Not implemented at all. These are absent, not partial:
 
 - Annotation helper macros. Documentation, attributes, and examples are declared through ordinary builder calls.
-- IDE and profiling integrations.
 
 None of these degrade quietly. An unsupported callable, parameter, or return fails the public `SupportedCallable`, `SupportedParameter`, and `SupportedReturn` constraints at compile time, and an unsupported value is refused at registration time with a deterministic diagnostic, no published descriptor, and no VM artifact.
+
+IDE, autocomplete, debug-UI, and profiling integrations are available, and deliberately build from nothing but the public model: reflection snapshots, generated artifacts, and canonical identity. `BindingRegistry::InstallProfilingHook(Luna::ProfilingHook)` installs one hook reporting every call's completion, failure, suspension, resumption, or cancellation with the same `SymbolId`/`TypeId` reflection publishes. It runs on the owner thread strictly after Luna has decided the outcome, so it changes nothing about invocation, and a throwing hook is contained and uninstalled rather than reaching Luau.
 
 Two current limitations are worth knowing before you design a surface:
 

@@ -43,7 +43,9 @@ bool State::IsReady() const noexcept {
   return Implementation && Implementation->IsReady();
 }
 
-BindingRegistry State::Bindings() noexcept { return BindingRegistry(*this); }
+BindingRegistry State::Bindings() noexcept {
+  return BindingRegistry(*this);
+}
 
 RegistrationResult
 State::RegisterErased(std::string_view GlobalName,
@@ -70,6 +72,22 @@ ReflectionSnapshot State::CaptureReflection() const {
   if (!Implementation)
     return ReflectionSnapshot();
   return Implementation->CaptureReflection();
+}
+
+RegistrationResult State::InstallProfilingHook(ProfilingHook Hook) {
+  if (!Implementation)
+    return RegistrationResult::Failure(
+        ErrorCategory::StateNotReady,
+        "Cannot install profiling hook: State is not ready.");
+  return Implementation->InstallProfilingHook(std::move(Hook));
+}
+
+RegistrationResult State::ClearProfilingHook() {
+  if (!Implementation)
+    return RegistrationResult::Failure(
+        ErrorCategory::StateNotReady,
+        "Cannot clear profiling hook: State is not ready.");
+  return Implementation->ClearProfilingHook();
 }
 
 ExecutionResult State::Execute(std::string_view Source) {

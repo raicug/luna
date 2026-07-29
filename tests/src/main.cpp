@@ -82,6 +82,7 @@ int RunNativeTrampolineTests();
 int RunOverloadResolutionTests();
 int RunOwningReflectionSnapshotProperties();
 int RunParetoOverloadResolutionProperties();
+int RunProfilingHookTests();
 int RunReflectionDatabaseTests();
 int RunReflectionMetadataTests();
 int RunReflectionEnumerationOrderProperties();
@@ -266,6 +267,7 @@ int main() {
       TestCase{"refused roadmap extensions publish nothing",
                RunUnavailableExtensionBoundaryTests},
       TestCase{"delegate and signal bindings", RunDelegateBindingTests},
+      TestCase{"profiling and debug-UI hook", RunProfilingHookTests},
       TestCase{"suspended coroutine and asynchronous invocation",
                RunAsynchronousInvocationTests},
       TestCase{"asynchronous invocation through the real virtual machine",

@@ -21,6 +21,7 @@
 #include "state/registration/submission.hpp"
 #include "state/registration/value_plan.hpp"
 #include "state/testing/fault_injector.hpp"
+#include "state/tooling/profiling_registry.hpp"
 #include "state/transaction/capture.hpp"
 #include "state/transaction/generation_set.hpp"
 #include "state/transaction/installation.hpp"
@@ -217,6 +218,16 @@ public:
     return Delegates;
   }
 
+  // Installing or clearing the profiling hook is owner-thread-only, exactly
+  // like every other VM-touching operation; the hook itself is consulted
+  // from the same thread when Luna reports an event.
+  [[nodiscard]] RegistrationResult InstallProfilingHook(ProfilingHook Hook);
+  [[nodiscard]] RegistrationResult ClearProfilingHook();
+
+  [[nodiscard]] Detail::ProfilingRegistry &Profiling() noexcept {
+    return ProfilingHooks;
+  }
+
 private:
   friend class Detail::StateTestHooks;
 
@@ -399,6 +410,7 @@ private:
   Detail::FaultInjector Faults;
   Detail::AsyncCallRegistry AsyncCalls;
   Detail::VmDelegateRegistry Delegates;
+  Detail::ProfilingRegistry ProfilingHooks;
   Detail::VirtualMachineOwner VirtualMachine;
 };
 

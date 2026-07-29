@@ -12,6 +12,7 @@
 #include <luna/module/module_manifest.hpp>
 #include <luna/reflection/reflection_snapshot.hpp>
 #include <luna/state/state.hpp>
+#include <luna/tooling/profiling_hook.hpp>
 #include <luna/type/stable_type_key.hpp>
 
 #include <string_view>
@@ -93,6 +94,18 @@ public:
 
   [[nodiscard]] ReflectionSnapshot Reflection() const {
     return Owner->CaptureReflection();
+  }
+
+  // Installs a profiling or debug-UI hook. It runs on the owner thread only,
+  // strictly after Luna has already produced the reported outcome, and
+  // never changes invocation semantics. Installing a new hook replaces any
+  // previous one.
+  [[nodiscard]] RegistrationResult InstallProfilingHook(ProfilingHook Hook) {
+    return Owner->InstallProfilingHook(std::move(Hook));
+  }
+
+  [[nodiscard]] RegistrationResult ClearProfilingHook() {
+    return Owner->ClearProfilingHook();
   }
 
 private:

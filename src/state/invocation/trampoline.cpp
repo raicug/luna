@@ -2,6 +2,7 @@
 #include "state/invocation/trampoline.hpp"
 
 #include "state/dispatch/closure_slot.hpp"
+#include "state/identity/identity_registry.hpp"
 #include "state/invocation/async/suspended_call.hpp"
 #include "state/invocation/conversion/return_writer.hpp"
 #include "state/invocation/members/receiver.hpp"
@@ -10,6 +11,7 @@
 #include "state/invocation/validation/validator.hpp"
 #include "state/registration/record.hpp"
 #include "state/testing/fault_injector.hpp"
+#include "state/tooling/profiling_registry.hpp"
 #include "state/type/structured_conversion.hpp"
 #include "state/type/type_generation.hpp"
 
@@ -33,6 +35,12 @@ struct InvocationResult final {
   int ReturnCount = -1;
   std::string Diagnostic;
   std::unique_ptr<StartedAsyncCall> Suspension;
+
+  // Populated once a candidate is selected, so a profiling hook can report
+  // the same canonical identity reflection uses. Both stay invalid when
+  // validation failed before a candidate could be chosen.
+  SymbolId Symbol;
+  TypeId ReceiverType;
 
   [[nodiscard]] bool IsSuccess() const noexcept { return ReturnCount >= 0; }
   [[nodiscard]] bool IsSuspended() const noexcept {
@@ -152,6 +160,15 @@ struct MemberDispatch final {
                          : Selected.Diagnostic);
     ErasedCallableDescriptor &Descriptor = Selected.Candidate->Descriptor;
 
+    // Captured once a candidate is selected, so every later return from this
+    // call can report the same canonical identity reflection uses.
+    const SymbolId SelectedSymbol = Selected.Candidate->Identity;
+    const TypeId SelectedReceiverType =
+        Member.ExpectsReceiver()
+            ? TypeIdentityRegistry::ComputeIdentity(*Member.Class)
+                  .value_or(TypeId())
+            : TypeId();
+
     const bool IsMember = Descriptor.Metadata().HasReceiver();
     const std::string Named = MemberContext(GlobalName, IsMember);
 
@@ -163,16 +180,33 @@ struct MemberDispatch final {
           Rich.Suspension->Symbol = Selected.Candidate->Identity;
           return {.ReturnCount = -1,
                   .Diagnostic = std::string(),
-                  .Suspension = std::move(Rich.Suspension)};
+                  .Suspension = std::move(Rich.Suspension),
+                  .Symbol = SelectedSymbol,
+                  .ReceiverType = SelectedReceiverType};
         }
-        if (!Rich.IsSuccess())
-          return Failure(Rich.Diagnostic);
-        return {.ReturnCount = Rich.ReturnCount};
+        if (!Rich.IsSuccess()) {
+          InvocationResult Failed = Failure(Rich.Diagnostic);
+          Failed.Symbol = SelectedSymbol;
+          Failed.ReceiverType = SelectedReceiverType;
+          return Failed;
+        }
+        return {.ReturnCount = Rich.ReturnCount,
+                .Diagnostic = std::string(),
+                .Suspension = nullptr,
+                .Symbol = SelectedSymbol,
+                .ReceiverType = SelectedReceiverType};
       } catch (const std::exception &Error) {
-        return Failure("Runtime error: " + Named + " threw: " + Error.what());
+        InvocationResult Failed =
+            Failure("Runtime error: " + Named + " threw: " + Error.what());
+        Failed.Symbol = SelectedSymbol;
+        Failed.ReceiverType = SelectedReceiverType;
+        return Failed;
       } catch (...) {
-        return Failure("Internal error: " + Named +
-                       " threw an unknown C++ exception.");
+        InvocationResult Failed = Failure("Internal error: " + Named +
+                                          " threw an unknown C++ exception.");
+        Failed.Symbol = SelectedSymbol;
+        Failed.ReceiverType = SelectedReceiverType;
+        return Failed;
       }
     }
 
@@ -181,9 +215,13 @@ struct MemberDispatch final {
         State, GlobalName, &Descriptor.Metadata(), Types, Faults, ArgumentBase);
     if (!Validated.Validation.IsSuccess()) {
       const auto *Diagnostic = Validated.Validation.Diagnostic();
-      return Failure(Diagnostic ? Diagnostic->Message()
-                                : "Internal invocation validation error for " +
-                                      CallableContext(GlobalName) + ".");
+      InvocationResult Failed =
+          Failure(Diagnostic ? Diagnostic->Message()
+                             : "Internal invocation validation error for " +
+                                   CallableContext(GlobalName) + ".");
+      Failed.Symbol = SelectedSymbol;
+      Failed.ReceiverType = SelectedReceiverType;
+      return Failed;
     }
 
     try {
@@ -191,9 +229,13 @@ struct MemberDispatch final {
           Bound != nullptr
               ? Descriptor.InvokeWithReceiver(*Bound, Validated.Arguments)
               : Descriptor.Invoke(Validated.Arguments);
-      if (Outcome.Kind() == InvocationOutcomeKind::InternalFailure)
-        return Failure("Internal error for " + Named + ": " +
-                       Outcome.FailureMessage());
+      if (Outcome.Kind() == InvocationOutcomeKind::InternalFailure) {
+        InvocationResult Failed = Failure("Internal error for " + Named + ": " +
+                                          Outcome.FailureMessage());
+        Failed.Symbol = SelectedSymbol;
+        Failed.ReceiverType = SelectedReceiverType;
+        return Failed;
+      }
 
       if (Outcome.Kind() == InvocationOutcomeKind::Suspended)
         return {.ReturnCount = -1,
@@ -202,7 +244,9 @@ struct MemberDispatch final {
                     Outcome, Descriptor.Metadata().ReturnType(),
                     RetainedArguments(Validated.Arguments,
                                       static_cast<std::size_t>(ArgumentBase)),
-                    Selected.Candidate->Identity)};
+                    Selected.Candidate->Identity),
+                .Symbol = SelectedSymbol,
+                .ReceiverType = SelectedReceiverType};
 
       auto Written = WriteInvocationReturn(
           State, Descriptor.Metadata().ReturnType(), Outcome, Types, Faults);
@@ -210,14 +254,29 @@ struct MemberDispatch final {
         const std::string Message = Written.Diagnostic
                                         ? Written.Diagnostic->Message()
                                         : "Return handling failed.";
-        return Failure("Internal error for " + Named + ": " + Message);
+        InvocationResult Failed =
+            Failure("Internal error for " + Named + ": " + Message);
+        Failed.Symbol = SelectedSymbol;
+        Failed.ReceiverType = SelectedReceiverType;
+        return Failed;
       }
-      return {.ReturnCount = Written.ReturnCount};
+      return {.ReturnCount = Written.ReturnCount,
+              .Diagnostic = std::string(),
+              .Suspension = nullptr,
+              .Symbol = SelectedSymbol,
+              .ReceiverType = SelectedReceiverType};
     } catch (const std::exception &Error) {
-      return Failure("Runtime error: " + Named + " threw: " + Error.what());
+      InvocationResult Failed =
+          Failure("Runtime error: " + Named + " threw: " + Error.what());
+      Failed.Symbol = SelectedSymbol;
+      Failed.ReceiverType = SelectedReceiverType;
+      return Failed;
     } catch (...) {
-      return Failure("Internal error: " + Named +
-                     " threw an unknown C++ exception.");
+      InvocationResult Failed = Failure("Internal error: " + Named +
+                                        " threw an unknown C++ exception.");
+      Failed.Symbol = SelectedSymbol;
+      Failed.ReceiverType = SelectedReceiverType;
+      return Failed;
     }
   } catch (const std::exception &Error) {
     return Failure("Internal error while dispatching " +
@@ -258,12 +317,20 @@ struct MemberDispatch final {
   Started.Slot = Entry.Slot;
   Started.QualifiedName = Entry.QualifiedName;
   Started.Symbol = Result.Suspension->Symbol;
+  Started.ReceiverType = Result.ReceiverType;
   Started.Arguments = std::move(Result.Suspension->Arguments);
   Started.Awaited = Result.Suspension->Awaited;
   Started.Types = std::move(Types);
   Started.Retained = std::move(Retained);
   Started.Faults = Entry.Faults;
   Started.Work = std::move(Result.Suspension->Work);
+
+  if (ProfilingRegistry *Profiling = ObserveProfilingRegistry(State)) {
+    Profiling->Report({.Kind = ProfilingEventKind::Suspended,
+                       .Symbol = Started.Symbol,
+                       .ReceiverType = Started.ReceiverType,
+                       .QualifiedName = Started.QualifiedName});
+  }
 
   static_cast<void>(Registry->Suspend(std::move(Started)));
   return true;
@@ -288,6 +355,11 @@ int NativeTrampolineContinuation(lua_State *State, int Status) {
     std::memcpy(LocalDiagnostic, Message.data(), DiagnosticLength);
   };
 
+  SymbolId ResumedSymbol;
+  TypeId ResumedReceiverType;
+  std::string ResumedQualifiedName;
+  ProfilingEventKind ResumedKind = ProfilingEventKind::Failed;
+
   try {
     AsyncCallRegistry *Registry = ObserveAsyncRegistry(State);
     std::optional<SuspendedCall> Resumed =
@@ -297,13 +369,26 @@ int NativeTrampolineContinuation(lua_State *State, int Status) {
     } else {
       EntryDepth = Resumed->EntryStackDepth;
       Faults = Resumed->Faults;
+      ResumedSymbol = Resumed->Symbol;
+      ResumedReceiverType = Resumed->ReceiverType;
+      ResumedQualifiedName = Resumed->QualifiedName;
+      ResumedKind = ProfilingEventKind::Resumed;
       const std::string Named = CallableContext(Resumed->QualifiedName);
 
+      if (ProfilingRegistry *Profiling = ObserveProfilingRegistry(State)) {
+        Profiling->Report({.Kind = ProfilingEventKind::Resumed,
+                           .Symbol = ResumedSymbol,
+                           .ReceiverType = ResumedReceiverType,
+                           .QualifiedName = ResumedQualifiedName});
+      }
+
       if (Status != 0) {
+        ResumedKind = ProfilingEventKind::Failed;
         Reject("Runtime error: " + Named +
                " was resumed with a failure status.");
       } else if (Resumed->Stage == AsyncStage::Ready) {
         if (!Resumed->Awaited || !Resumed->Types || !Faults) {
+          ResumedKind = ProfilingEventKind::Failed;
           Reject("Internal error: " + Named +
                  " lost the metadata its resumption needs.");
         } else {
@@ -331,6 +416,7 @@ int NativeTrampolineContinuation(lua_State *State, int Status) {
           }
 
           if (!Consistent) {
+            ResumedKind = ProfilingEventKind::Failed;
             Reject("Internal error for " + Named +
                    ": the completed values do not match its declared return "
                    "shape.");
@@ -338,8 +424,17 @@ int NativeTrampolineContinuation(lua_State *State, int Status) {
             lua_settop(State, EntryDepth);
             const ReturnWriteResult Written = WriteInvocationReturn(
                 State, Awaited, Completed, *Resumed->Types, *Faults);
-            if (Written.IsSuccess())
+            if (Written.IsSuccess()) {
+              if (ProfilingRegistry *Profiling =
+                      ObserveProfilingRegistry(State)) {
+                Profiling->Report({.Kind = ProfilingEventKind::Completed,
+                                   .Symbol = ResumedSymbol,
+                                   .ReceiverType = ResumedReceiverType,
+                                   .QualifiedName = ResumedQualifiedName});
+              }
               return Written.ReturnCount;
+            }
+            ResumedKind = ProfilingEventKind::Failed;
             Reject("Internal error for " + Named + ": " +
                    (Written.Diagnostic ? Written.Diagnostic->Message()
                                        : std::string("Return handling "
@@ -347,14 +442,17 @@ int NativeTrampolineContinuation(lua_State *State, int Status) {
           }
         }
       } else if (Resumed->Stage == AsyncStage::Cancelled) {
+        ResumedKind = ProfilingEventKind::Cancelled;
         Reject("Cancelled call: " + Named + " was cancelled because " +
                Resumed->Diagnostic + ".");
       } else {
+        ResumedKind = ProfilingEventKind::Failed;
         Reject("Runtime error: " + Named + " failed asynchronously because " +
                Resumed->Diagnostic + ".");
       }
     }
   } catch (...) {
+    ResumedKind = ProfilingEventKind::Failed;
     Reject("Internal error: Luna could not resume a suspended call.");
   }
 
@@ -363,6 +461,13 @@ int NativeTrampolineContinuation(lua_State *State, int Status) {
         "Internal error: Luna could not resume a suspended call.";
     DiagnosticLength = sizeof(Fallback) - 1;
     std::memcpy(LocalDiagnostic, Fallback, DiagnosticLength);
+  }
+
+  if (ProfilingRegistry *Profiling = ObserveProfilingRegistry(State)) {
+    Profiling->Report({.Kind = ResumedKind,
+                       .Symbol = ResumedSymbol,
+                       .ReceiverType = ResumedReceiverType,
+                       .QualifiedName = ResumedQualifiedName});
   }
 
   lua_settop(State, EntryDepth);
@@ -386,6 +491,9 @@ int NativeTrampoline(lua_State *State) {
   std::size_t DiagnosticLength = 0;
   bool HeapDiagnostic = false;
   FaultInjector *Faults = nullptr;
+  SymbolId FailedSymbol;
+  TypeId FailedReceiverType;
+  std::string FailedQualifiedName;
 
   {
     try {
@@ -424,11 +532,16 @@ int NativeTrampoline(lua_State *State) {
           Result = InvokeValidated(State, *Record, *Types, *Faults);
           if (Result.IsSuspended()) {
             std::string Refusal;
+            const SymbolId SuspendedSymbol = Result.Symbol;
+            const TypeId SuspendedReceiverType = Result.ReceiverType;
             Suspend =
                 RegisterSuspension(State, Result, *Entry, std::move(Types),
                                    Retained, EntryDepth, Refusal);
-            if (!Suspend)
+            if (!Suspend) {
               Result = Failure(std::move(Refusal));
+              Result.Symbol = SuspendedSymbol;
+              Result.ReceiverType = SuspendedReceiverType;
+            }
           }
         }
       }
@@ -436,8 +549,20 @@ int NativeTrampoline(lua_State *State) {
       if (Suspend)
         return lua_yield(State, 0);
 
-      if (Result.IsSuccess())
+      if (Result.IsSuccess()) {
+        if (ProfilingRegistry *Profiling = ObserveProfilingRegistry(State)) {
+          Profiling->Report(
+              {.Kind = ProfilingEventKind::Completed,
+               .Symbol = Result.Symbol,
+               .ReceiverType = Result.ReceiverType,
+               .QualifiedName = Entry ? Entry->QualifiedName : std::string()});
+        }
         return Result.ReturnCount;
+      }
+
+      FailedSymbol = Result.Symbol;
+      FailedReceiverType = Result.ReceiverType;
+      FailedQualifiedName = Entry ? Entry->QualifiedName : std::string();
 
       DiagnosticLength = Result.Diagnostic.size();
       if (DiagnosticLength > LocalDiagnosticCapacity) {
@@ -467,6 +592,13 @@ int NativeTrampoline(lua_State *State) {
     PreparedDiagnostic = LocalDiagnostic;
     DiagnosticLength = sizeof(Fallback) - 1;
     std::memcpy(PreparedDiagnostic, Fallback, DiagnosticLength);
+  }
+
+  if (ProfilingRegistry *Profiling = ObserveProfilingRegistry(State)) {
+    Profiling->Report({.Kind = ProfilingEventKind::Failed,
+                       .Symbol = FailedSymbol,
+                       .ReceiverType = FailedReceiverType,
+                       .QualifiedName = FailedQualifiedName});
   }
 
   lua_settop(State, EntryDepth);
