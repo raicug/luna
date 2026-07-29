@@ -294,6 +294,7 @@ std::string StructuralPublicName(const TypeDescriptor &Type) {
   switch (Type.Kind()) {
   case TypeKind::Enumeration:
   case TypeKind::Class:
+  case TypeKind::Converted:
     return Type.Key().Text();
   case TypeKind::Optional:
     return "optional " + ChildName(0);
@@ -1204,6 +1205,7 @@ FindStaged(const std::vector<TypeRecord> &Staged, const TypeDescriptor &Type) {
     return true;
   case TypeKind::Enumeration:
   case TypeKind::Class:
+  case TypeKind::Converted:
     return false;
   case TypeKind::Pointer:
   case TypeKind::SharedOwnership:
@@ -1309,6 +1311,41 @@ TypeRecord DeclareClassTypeRecord(const StableTypeKey &Key,
   Traits.Representation = LuauRepresentation::Userdata;
   Traits.Rank = ConversionRankCategory::Exact;
   return Declare(TypeDescriptor::ForClass(Key), std::move(PublicName), Traits);
+}
+
+namespace {
+
+// A converted leaf's actual stack conversion happens entirely inside the
+// member's own `MemberConvertedReadOperation`/`MemberConvertedWriteOperation`
+// closures, which already know the concrete C++ type and its
+// `Luna::TypeConverter<T>` specialization. This generic pair exists only so
+// the leaf has a complete, idempotently redeclarable `TypeRecord` of its
+// own; nothing currently reaches it, since a member bypasses `TypeRecord`
+// entirely once it knows it is converted.
+[[nodiscard]] StructuredReadResult
+RejectConvertedRead(ConversionScope &Scope, const TypeRecord &Record, int) {
+  return StructuredReadResult::Reject(
+      Scope.Reject(StructuredFailure::UnavailableConversion, Record));
+}
+
+[[nodiscard]] StructuredWriteResult
+RejectConvertedWrite(ConversionScope &Scope, const TypeRecord &Record,
+                     const StructuredValue &) {
+  return StructuredWriteResult::Reject(
+      Scope.Reject(StructuredFailure::UnavailableConversion, Record));
+}
+
+} // namespace
+
+TypeRecord DeclareConvertedTypeRecord(const StableTypeKey &Key,
+                                      std::string PublicName) {
+  DeclarationTraits Traits;
+  Traits.Read = &RejectConvertedRead;
+  Traits.Write = &RejectConvertedWrite;
+  Traits.Representation = LuauRepresentation::Table;
+  Traits.Rank = ConversionRankCategory::User;
+  return Declare(TypeDescriptor::ForConverted(Key), std::move(PublicName),
+                 Traits);
 }
 
 StructuralDeclarationStatus

@@ -32,10 +32,20 @@ struct MemberRequest final {
   MemberWriteOperation Write;
   MemberChangeOperation Change;
 
+  // Set instead of Read/Write when the declared value type is not one of
+  // the four foundation scalars: a getter or setter of a consumer type with
+  // its own `Luna::TypeConverter<T>` specialization.
+  MemberConvertedReadOperation ConvertedRead;
+  MemberConvertedWriteOperation ConvertedWrite;
+
   std::string Refusal;
 
-  [[nodiscard]] bool HasReader() const noexcept { return Read != nullptr; }
-  [[nodiscard]] bool HasWriter() const noexcept { return Write != nullptr; }
+  [[nodiscard]] bool HasReader() const noexcept {
+    return Read != nullptr || ConvertedRead != nullptr;
+  }
+  [[nodiscard]] bool HasWriter() const noexcept {
+    return Write != nullptr || ConvertedWrite != nullptr;
+  }
   [[nodiscard]] bool HasChangeHandler() const noexcept {
     return Change != nullptr;
   }
@@ -178,9 +188,17 @@ struct MemberWriteShape<Class, Target,
                                typename CallableSignature<Target>::Type> {};
 
 template <class Declared>
-[[nodiscard]] inline TypeDescriptor MemberValueDescriptor() {
+inline constexpr bool IsConvertedMemberValue =
+    !SupportedValue<Declared> && std::is_class_v<Declared> &&
+    ConversionCapable<Declared>;
+
+template <class Declared>
+[[nodiscard]] inline TypeDescriptor
+MemberValueDescriptor(const StableTypeKey &ConvertedKey = StableTypeKey()) {
   if constexpr (SupportedValue<Declared>)
     return CanonicalDescriptorFor<Declared>();
+  else if constexpr (IsConvertedMemberValue<Declared>)
+    return TypeDescriptor::ForConverted(ConvertedKey);
   else
     return TypeDescriptor::Unsupported();
 }
@@ -202,6 +220,64 @@ template <class Class, class Target>
           "the generated getter received no native object.");
     return MemberReadOutcome::Accept(Value(Shape::Read(Object, Accessor)));
   };
+}
+
+template <class Class, class Target>
+[[nodiscard]] MemberConvertedReadOperation
+MakeMemberConvertedReader(Target Accessor) {
+  using Shape = MemberReadShape<Class, Target>;
+  static_assert(Shape::IsSupported,
+                "A Luna property or field getter is a const or non-const "
+                "accessor of the class, a data member of it, or a callable "
+                "taking the class and returning one value type.");
+  using Declared = typename Shape::Declared;
+  static_assert(ConversionCapable<Declared>,
+                "A converted property or field getter returns one type with "
+                "its own Luna::TypeConverter<T> specialization.");
+
+  return
+      [Accessor](
+          const void *Object,
+          Luna::ConversionContext &Context) mutable -> MemberConvertedOutcome {
+        if (Object == nullptr)
+          return MemberConvertedOutcome::Refuse(
+              "the generated getter received no native object.");
+        const Declared Native = Shape::Read(Object, Accessor);
+        const Luna::WriteResult Written =
+            Luna::WriteValue<Declared>(Native, Context);
+        if (!Written.IsSuccess())
+          return MemberConvertedOutcome::Refuse(Written.Diagnostic);
+        return MemberConvertedOutcome::Accept();
+      };
+}
+
+template <class Class, class Target>
+[[nodiscard]] MemberConvertedWriteOperation
+MakeMemberConvertedWriter(Target Mutator) {
+  using Shape = MemberWriteShape<Class, Target>;
+  static_assert(Shape::IsSupported,
+                "A Luna property or field setter is a mutator of the class, a "
+                "mutable data member of it, or a callable taking the class and "
+                "one value type.");
+  using Declared = typename Shape::Declared;
+  static_assert(ConversionCapable<Declared>,
+                "A converted property or field setter accepts one type with "
+                "its own Luna::TypeConverter<T> specialization.");
+
+  return
+      [Mutator](
+          void *Object, Luna::ValueView Source,
+          Luna::ConversionContext &Context) mutable -> MemberConvertedOutcome {
+        if (Object == nullptr)
+          return MemberConvertedOutcome::Refuse(
+              "the generated setter received no native object.");
+        const Luna::ConversionResult<Declared> Read =
+            Luna::ReadValue<Declared>(Source, Context);
+        if (!Read.IsSuccess())
+          return MemberConvertedOutcome::Refuse(Read.Diagnostic);
+        Shape::Write(Object, Mutator, *Read.ConvertedValue);
+        return MemberConvertedOutcome::Accept();
+      };
 }
 
 template <class Class, class Declared, class Callback>
@@ -289,6 +365,30 @@ MakeReadablePropertyRequest(const StableTypeKey &Key,
   return Request;
 }
 
+// A property or field whose declared value type is not one of the four
+// foundation scalars converts through the consumer's own
+// `Luna::TypeConverter<T>` specialization instead. These converted-value
+// builders take an explicit `StableTypeKey` for that value type, the same
+// way `Base<T>`/`Cast<T>` take one for a related class.
+template <class Class, class Getter>
+[[nodiscard]] MemberRequest MakeReadableConvertedPropertyRequest(
+    const StableTypeKey &Key, const StableTypeKey &ValueKey,
+    const PropertyPolicy &Policy, Getter Accessor) {
+  using Shape = MemberReadShape<Class, Getter>;
+
+  MemberRequest Request;
+  Request.Kind = SymbolKind::Property;
+  Request.Access = Policy.Access();
+  Request.Evaluation = Policy.Evaluation();
+  Request.ReceiverType = TypeDescriptor::ForClass(Key);
+  Request.ValueType = MemberValueDescriptor<typename Shape::Declared>(ValueKey);
+  Request.ReadRequiresMutableReceiver = Shape::RequiresMutableReceiver;
+  Request.ConvertedRead =
+      MakeMemberConvertedReader<Class, Getter>(std::move(Accessor));
+  Request.Refusal = ClassifyPropertyPolicy(Policy, true, false);
+  return Request;
+}
+
 template <class Class, class Setter>
 [[nodiscard]] MemberRequest
 MakeWritablePropertyRequest(const StableTypeKey &Key,
@@ -302,6 +402,24 @@ MakeWritablePropertyRequest(const StableTypeKey &Key,
   Request.ReceiverType = TypeDescriptor::ForClass(Key);
   Request.ValueType = MemberValueDescriptor<typename Shape::Declared>();
   Request.Write = MakeMemberWriter<Class, Setter>(std::move(Mutator));
+  Request.Refusal = ClassifyPropertyPolicy(Policy, false, true);
+  return Request;
+}
+
+template <class Class, class Setter>
+[[nodiscard]] MemberRequest MakeWritableConvertedPropertyRequest(
+    const StableTypeKey &Key, const StableTypeKey &ValueKey,
+    const PropertyPolicy &Policy, Setter Mutator) {
+  using Shape = MemberWriteShape<Class, Setter>;
+
+  MemberRequest Request;
+  Request.Kind = SymbolKind::Property;
+  Request.Access = Policy.Access();
+  Request.Evaluation = Policy.Evaluation();
+  Request.ReceiverType = TypeDescriptor::ForClass(Key);
+  Request.ValueType = MemberValueDescriptor<typename Shape::Declared>(ValueKey);
+  Request.ConvertedWrite =
+      MakeMemberConvertedWriter<Class, Setter>(std::move(Mutator));
   Request.Refusal = ClassifyPropertyPolicy(Policy, false, true);
   return Request;
 }
@@ -326,6 +444,33 @@ MakePropertyRequest(const StableTypeKey &Key, const PropertyPolicy &Policy,
   Request.ReadRequiresMutableReceiver = ReadShape::RequiresMutableReceiver;
   Request.Read = MakeMemberReader<Class, Getter>(std::move(Accessor));
   Request.Write = MakeMemberWriter<Class, Setter>(std::move(Mutator));
+  Request.Refusal = ClassifyPropertyPolicy(Policy, true, true);
+  return Request;
+}
+
+template <class Class, class Getter, class Setter>
+[[nodiscard]] MemberRequest MakeConvertedPropertyRequest(
+    const StableTypeKey &Key, const StableTypeKey &ValueKey,
+    const PropertyPolicy &Policy, Getter Accessor, Setter Mutator) {
+  using ReadShape = MemberReadShape<Class, Getter>;
+  using WriteShape = MemberWriteShape<Class, Setter>;
+  static_assert(std::is_same_v<typename ReadShape::Declared,
+                               typename WriteShape::Declared>,
+                "A Luna read-write property declares one value type for both "
+                "its getter and its setter.");
+
+  MemberRequest Request;
+  Request.Kind = SymbolKind::Property;
+  Request.Access = Policy.Access();
+  Request.Evaluation = Policy.Evaluation();
+  Request.ReceiverType = TypeDescriptor::ForClass(Key);
+  Request.ValueType =
+      MemberValueDescriptor<typename ReadShape::Declared>(ValueKey);
+  Request.ReadRequiresMutableReceiver = ReadShape::RequiresMutableReceiver;
+  Request.ConvertedRead =
+      MakeMemberConvertedReader<Class, Getter>(std::move(Accessor));
+  Request.ConvertedWrite =
+      MakeMemberConvertedWriter<Class, Setter>(std::move(Mutator));
   Request.Refusal = ClassifyPropertyPolicy(Policy, true, true);
   return Request;
 }
@@ -386,6 +531,40 @@ MakeFieldRequest(const StableTypeKey &Key, const FieldPolicy &Policy,
   if (Request.HasWriter())
     Request.Change = MakeMemberChangeHandler<Class, std::remove_cv_t<Held>>(
         std::move(Handler));
+  return Request;
+}
+
+template <class Class, class Held>
+[[nodiscard]] MemberRequest
+MakeConvertedFieldRequest(const StableTypeKey &Key,
+                          const StableTypeKey &ValueKey,
+                          const FieldPolicy &Policy, Held Class::*Member) {
+  using Pointer = Held Class::*;
+  constexpr bool IsWritable = !std::is_const_v<Held>;
+
+  MemberRequest Request;
+  Request.Kind = SymbolKind::Field;
+  Request.Evaluation = PropertyEvaluation::Immediate;
+  Request.Ownership = Policy.Ownership();
+  Request.ReceiverType = TypeDescriptor::ForClass(Key);
+  Request.ValueType = MemberValueDescriptor<std::remove_cv_t<Held>>(ValueKey);
+  Request.ConvertedRead = MakeMemberConvertedReader<Class, Pointer>(Member);
+
+  const bool PermitsWrite = Policy.PermitsWrite() && IsWritable;
+  Request.Access =
+      PermitsWrite ? MemberAccess::ReadWrite : MemberAccess::ReadOnly;
+  if constexpr (IsWritable) {
+    if (PermitsWrite)
+      Request.ConvertedWrite =
+          MakeMemberConvertedWriter<Class, Pointer>(Member);
+  }
+
+  Request.Refusal = ClassifyFieldPolicy(Policy);
+
+  if (Request.Refusal.empty() && Policy.DeclaresDirection() &&
+      Policy.PermitsWrite() && !IsWritable)
+    Request.Refusal = "this field is declared const, so it can never be "
+                      "written through.";
   return Request;
 }
 

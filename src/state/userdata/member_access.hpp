@@ -2,6 +2,7 @@
 
 // clang-format off
 #include <luna/binding/class_member.hpp>
+#include <luna/binding/conversion.hpp>
 #include <luna/binding/value.hpp>
 #include <luna/reflection/ids.hpp>
 #include <luna/type/type_descriptor.hpp>
@@ -12,6 +13,7 @@
 
 #include <cstdint>
 #include <functional>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -42,16 +44,28 @@ struct RegisteredMember final {
   MemberWriteOperation Write;
   MemberChangeOperation Change;
 
+  // Set instead of Read/Write when the declared value type converts through
+  // a consumer's own `Luna::TypeConverter<T>` specialization rather than
+  // through one of the four foundation scalars.
+  MemberConvertedReadOperation ConvertedRead;
+  MemberConvertedWriteOperation ConvertedWrite;
+
+  [[nodiscard]] bool IsConverted() const noexcept {
+    return ConvertedRead != nullptr || ConvertedWrite != nullptr;
+  }
+
   [[nodiscard]] bool HasChangeHandler() const noexcept {
     return Change != nullptr;
   }
 
   [[nodiscard]] bool PermitsRead() const noexcept {
-    return PermitsMemberRead(Access) && Read != nullptr;
+    return PermitsMemberRead(Access) &&
+           (Read != nullptr || ConvertedRead != nullptr);
   }
 
   [[nodiscard]] bool PermitsWrite() const noexcept {
-    return PermitsMemberWrite(Access) && Write != nullptr;
+    return PermitsMemberWrite(Access) &&
+           (Write != nullptr || ConvertedWrite != nullptr);
   }
 
   [[nodiscard]] bool IsLazy() const noexcept {
@@ -60,7 +74,8 @@ struct RegisteredMember final {
 
   [[nodiscard]] bool IsComplete() const noexcept {
     return Member.IsValid() && !QualifiedName.empty() && ValueType.IsValid() &&
-           (Read != nullptr || Write != nullptr);
+           (Read != nullptr || Write != nullptr || ConvertedRead != nullptr ||
+            ConvertedWrite != nullptr);
   }
 };
 
@@ -108,6 +123,11 @@ struct MemberReadResult final {
 
   Value Produced;
 
+  // Set instead of `Produced` when the member's value converts through a
+  // consumer `Luna::TypeConverter<T>` rather than through one foundation
+  // scalar.
+  std::optional<OwnedValue> ConvertedValue;
+
   bool ServedFromCache = false;
 
   bool Recorded = false;
@@ -137,12 +157,20 @@ struct MemberWriteResult final {
 struct MemberValueOutcome final {
   bool Succeeded = false;
   Value Converted;
+  std::optional<OwnedValue> ConvertedValue;
   std::string Refusal;
 
   [[nodiscard]] static MemberValueOutcome Accept(Value Held) {
     MemberValueOutcome Outcome;
     Outcome.Succeeded = true;
     Outcome.Converted = std::move(Held);
+    return Outcome;
+  }
+
+  [[nodiscard]] static MemberValueOutcome AcceptConverted(OwnedValue Held) {
+    MemberValueOutcome Outcome;
+    Outcome.Succeeded = true;
+    Outcome.ConvertedValue = std::move(Held);
     return Outcome;
   }
 

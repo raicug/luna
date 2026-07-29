@@ -107,7 +107,9 @@ private:
 
 } // namespace
 
-ScriptValue ScriptValue::Nil() { return ScriptValue(); }
+ScriptValue ScriptValue::Nil() {
+  return ScriptValue();
+}
 
 ScriptValue ScriptValue::Boolean(bool Flag) {
   ScriptValue Described;

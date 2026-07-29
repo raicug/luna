@@ -704,6 +704,8 @@ void NamespaceBuilderState::StageClassAccessor(std::size_t ClassNode,
   Staging.Read = std::move(Request.Read);
   Staging.Write = std::move(Request.Write);
   Staging.Change = std::move(Request.Change);
+  Staging.ConvertedRead = std::move(Request.ConvertedRead);
+  Staging.ConvertedWrite = std::move(Request.ConvertedWrite);
   Staging.Refusal = std::move(Request.Refusal);
 
   if (auto Diagnostic = ValidateCanonicalQualifiedName(Staging.QualifiedName)) {

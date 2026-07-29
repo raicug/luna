@@ -1935,6 +1935,8 @@ void State::Impl::RecordPublishedClasses(
       Member.Read = Entry->ClassMember->Read;
       Member.Write = Entry->ClassMember->Write;
       Member.Change = Entry->ClassMember->Change;
+      Member.ConvertedRead = Entry->ClassMember->ConvertedRead;
+      Member.ConvertedWrite = Entry->ClassMember->ConvertedWrite;
       Owner->Members.push_back(std::move(Member));
       continue;
     }

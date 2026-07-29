@@ -48,6 +48,16 @@ DeclareEnumerationTypeRecord(const StableTypeKey &Key, std::string PublicName,
 [[nodiscard]] TypeRecord DeclareClassTypeRecord(const StableTypeKey &Key,
                                                 std::string PublicName);
 
+// A user-defined leaf converted through `Luna::TypeConverter<T>`. The actual
+// stack conversion happens inside the declaring member's own
+// `MemberConvertedReadOperation`/`MemberConvertedWriteOperation` closures,
+// which already know the concrete C++ type; this record exists so the leaf
+// has a complete, idempotently redeclarable `TypeRecord` for identity and
+// availability checks, but its own Read/Write are never actually reached by
+// a member access.
+[[nodiscard]] TypeRecord DeclareConvertedTypeRecord(const StableTypeKey &Key,
+                                                    std::string PublicName);
+
 enum class StructuralDeclarationStatus {
   Declared,
   UnsupportedDescriptor,

@@ -156,6 +156,7 @@ The documentation under `docs/` was written with AI assistance and checked again
 - Nested namespaces, constants, and enums with aliases, bitflags, and an explicit unscoped opt-in
 - Classes as typed userdata: constructors, factories, singletons, allocators, methods, properties, fields, base edges, checked casts, and operators
 - An optional on-change callback on a read-write property or a writable field, run after a successful write
+- Property and field values of any consumer type with its own `Luna::TypeConverter<T>`, not just the foundation scalars
 - Lua-owned, borrowed, and `std::shared_ptr` shared ownership with `LifetimeHandle` invalidation
 - Load-once versioned modules with semantic-version constraint resolution
 - Asynchronous namespace and root functions returning `AsyncTask<T>` or `std::future<T>`, resumed on the owner thread with the awaited value

@@ -13,6 +13,7 @@
 #include "state/registration/checks.hpp"
 #include "state/registration/plan.hpp"
 #include "state/registration/scope_plan.hpp"
+#include "state/type/structural_types.hpp"
 #include "state/type/type_record.hpp"
 #include "state/userdata/class_operators.hpp"
 
@@ -116,6 +117,16 @@ DescriptorPlanEntry MakeMemberPlanEntry(const StagedMember &Declaration,
   Record.Examples = Declaration.Examples;
   Entry.Record = std::move(Record);
 
+  // A converted value type (one with its own Luna::TypeConverter<T>) needs
+  // its own TypeRecord staged alongside the member, the same way a class or
+  // enum value type does — the converted member closures do the actual
+  // conversion, but a TypeRecord is still what makes the value type
+  // identifiable and available in this generation.
+  if (Declaration.ValueType.Kind() == TypeKind::Converted) {
+    Entry.TypeConversion = DeclareConvertedTypeRecord(
+        Declaration.ValueType.Key(), CanonicalTypeText(Declaration.ValueType));
+  }
+
   PlannedClassMember Member;
   Member.Kind = Declaration.Kind;
   Member.Access = Declaration.Access;
@@ -127,6 +138,8 @@ DescriptorPlanEntry MakeMemberPlanEntry(const StagedMember &Declaration,
   Member.Read = Declaration.Read;
   Member.Write = Declaration.Write;
   Member.Change = Declaration.Change;
+  Member.ConvertedRead = Declaration.ConvertedRead;
+  Member.ConvertedWrite = Declaration.ConvertedWrite;
   Entry.ClassMember = std::move(Member);
   return Entry;
 }

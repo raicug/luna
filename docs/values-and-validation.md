@@ -4,7 +4,7 @@ Luna has two layers here, and it helps to keep them apart. The **supported value
 
 ## Supported value types
 
-These are the types a registered signature uses for parameters, returns, property values, and field values.
+These are the types a registered signature uses for parameters and returns. A property or field value may additionally be any type with its own `Luna::TypeConverter<T>` specialization — see [custom conversions](#custom-conversions) below and [classes and userdata](classes-and-userdata.md#custom-value-types).
 
 | C++ type | Luau value | Notes |
 |---|---|---|

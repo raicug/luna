@@ -23,6 +23,7 @@ int RunClassConstructionTests();
 int RunClassMemberAccessTests();
 int RunClassMemberBoundaryTests();
 int RunClassMemberIntegrationTests();
+int RunConvertedMemberTests();
 int RunClassMemberTests();
 int RunClassMethodTests();
 int RunClassOperatorTests();
@@ -200,6 +201,8 @@ int main() {
                RunClassUserdataIntegrationTests},
       TestCase{"the class member surface through the real virtual machine",
                RunClassMemberIntegrationTests},
+      TestCase{"converted property and field values through TypeConverter<T>",
+               RunConvertedMemberTests},
       TestCase{
           "inheritance, casts, and operators through the real virtual machine",
           RunInheritanceOperatorIntegrationTests},

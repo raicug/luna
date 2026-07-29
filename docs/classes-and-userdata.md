@@ -145,6 +145,19 @@ Sprites.Property("Name", &Sprite::Name, &Sprite::Rename,
 
 The callback receives the object by reference and the value already written, by the same declared type the setter accepts. It runs only after a successful write — never for a write refused by the receiver, the declared direction, or an incompatible value — and it never itself un-does that write: an exception it throws is contained exactly like an exception from a setter, but the underlying value has already changed. A field's on-change callback is unreachable when the field permits no writes at all, since there is then never a write for it to follow.
 
+### Custom value types
+
+A property or field value is not limited to the four supported value types. Any type with its own `Luna::TypeConverter<T>` specialization — a `Vector3`, a `Color`, anything a consumer has already taught Luna to convert (see [values and validation](values-and-validation.md#custom-conversions)) — may be a property's or a field's value too. Name the value type's own key, the same way `Base<T>` and `Cast<T>` name a related class's key:
+
+```cpp
+Studio.RegisterClass<Body>("Body", BodyKey())
+    .Constructor<>()
+    .Property("Position", Vector3Key(), &Body::GetPosition, &Body::SetPosition)
+    .Field("Velocity", Vector3Key(), &Body::Velocity);
+```
+
+The getter and setter, or the field itself, still declare their native C++ type exactly as they would for a scalar member — `Vector3 GetPosition() const`, `void SetPosition(Vector3)`, `Vector3 Velocity`. Reading the member runs the value type's `Write`; writing it runs the value type's `Read`; both go through the identical probe/read/write boundary a converted parameter or return value uses, so a converted member gets the same diagnostics, the same reservation discipline, and the same atomicity guarantees. A getter or setter whose value type declares no `Luna::TypeConverter<T>` specialization is refused at compile time, the same way an unsupported scalar type is.
+
 ## Inheritance and casts
 
 `Base<BaseType>(BaseKey)` states one explicit base edge to an already registered class.

@@ -2,6 +2,7 @@
 
 // clang-format off
 #include <luna/binding/class_member.hpp>
+#include <luna/binding/conversion.hpp>
 #include <luna/core/diagnostics/error_diagnostic.hpp>
 #include <luna/reflection/ids.hpp>
 #include <luna/type/type_descriptor.hpp>
@@ -40,14 +41,21 @@ struct StagedMember final {
   MemberWriteOperation Write;
   MemberChangeOperation Change;
 
+  MemberConvertedReadOperation ConvertedRead;
+  MemberConvertedWriteOperation ConvertedWrite;
+
   std::string Refusal;
 
   std::string Documentation;
   std::vector<ReflectionAttributeFields> Attributes;
   std::vector<std::string> Examples;
 
-  [[nodiscard]] bool HasReader() const noexcept { return Read != nullptr; }
-  [[nodiscard]] bool HasWriter() const noexcept { return Write != nullptr; }
+  [[nodiscard]] bool HasReader() const noexcept {
+    return Read != nullptr || ConvertedRead != nullptr;
+  }
+  [[nodiscard]] bool HasWriter() const noexcept {
+    return Write != nullptr || ConvertedWrite != nullptr;
+  }
 };
 
 [[nodiscard]] StagedMember *

@@ -1,6 +1,7 @@
 #pragma once
 
 // clang-format off
+#include <luna/binding/conversion.hpp>
 #include <luna/binding/value.hpp>
 #include <luna/type/stable_type_key.hpp>
 #include <luna/type/type_descriptor.hpp>
@@ -93,14 +94,30 @@ template <class Type> struct CanonicalType {
   static constexpr std::optional<FixedTypeKey> FixedLeafKey =
       FixedKeyFor<Type>();
   static constexpr bool IsFixed = FixedLeafKey.has_value();
-  static constexpr bool IsUserLeaf =
-      !IsFixed && (std::is_enum_v<std::remove_cv_t<Type>> ||
-                   std::is_class_v<std::remove_cv_t<Type>>);
-  static constexpr std::size_t UserLeafCount = IsUserLeaf ? 1 : 0;
+
+  // A class with its own `Luna::TypeConverter<T>` specialization is a
+  // *converted* leaf: its shape lives entirely in consumer code, so it
+  // never needs registration as a Luna class or enum to appear as a
+  // property or field value.
+  static constexpr bool IsConverted = !IsFixed &&
+                                      !std::is_enum_v<std::remove_cv_t<Type>> &&
+                                      std::is_class_v<std::remove_cv_t<Type>> &&
+                                      ConversionCapable<std::remove_cv_t<Type>>;
+
+  static constexpr bool IsUserLeaf = !IsFixed && !IsConverted &&
+                                     (std::is_enum_v<std::remove_cv_t<Type>> ||
+                                      std::is_class_v<std::remove_cv_t<Type>>);
+  static constexpr std::size_t UserLeafCount =
+      (IsUserLeaf || IsConverted) ? 1 : 0;
 
   [[nodiscard]] static TypeDescriptor Build(UserKeyCursor &Keys) {
     if constexpr (IsFixed) {
       return TypeDescriptor::ForFixed(*FixedLeafKey);
+    } else if constexpr (IsConverted) {
+      const StableTypeKey *Key = Keys.Next();
+      if (Key == nullptr || !Key->IsValid())
+        return TypeDescriptor::Unsupported();
+      return TypeDescriptor::ForConverted(*Key);
     } else if constexpr (IsUserLeaf) {
       const StableTypeKey *Key = Keys.Next();
       if (Key == nullptr || !Key->IsValid())

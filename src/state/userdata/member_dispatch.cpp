@@ -4,6 +4,7 @@
 #include "state/testing/fault_injector.hpp"
 #include "state/testing/fault_point.hpp"
 #include "state/type/conversion_outcome.hpp"
+#include "state/type/owned_value_bridge.hpp"
 #include "state/type/structured_conversion.hpp"
 #include "state/type/type_generation.hpp"
 #include "state/type/type_record.hpp"
@@ -235,13 +236,25 @@ AccessContextFor(const ResolvedMember &Resolved) {
 
   const std::string Declared = std::string(
       Resolved.Types->PublicNameOf(Resolved.Member->ValueDescriptor));
-  const TypeRecord *Record = Resolved.Types->Find(Resolved.Member->ValueType);
   const bool Injected = Resolved.Context->Faults != nullptr &&
                         Resolved.Context->Faults->Consume(
                             StateFaultPoint::MemberValuePublication);
-  if (Injected || Record == nullptr || !Record->IsWritable ||
-      Record->Write == nullptr || !lua_checkstack(State, 2) ||
-      !Record->Write(State, Read.Produced)) {
+
+  bool Published = false;
+  if (!Injected) {
+    if (Resolved.Member->IsConverted()) {
+      Published = Read.ConvertedValue.has_value() && lua_checkstack(State, 2) &&
+                  PushOwnedValueToStack(State, *Read.ConvertedValue);
+    } else {
+      const TypeRecord *Record =
+          Resolved.Types->Find(Resolved.Member->ValueType);
+      Published = Record != nullptr && Record->IsWritable &&
+                  Record->Write != nullptr && lua_checkstack(State, 2) &&
+                  Record->Write(State, Read.Produced);
+    }
+  }
+
+  if (!Published) {
     Observed.Stage = MemberDispatchStage::Publication;
     Observed.Boundary = Read.ServedFromCache
                             ? MemberSideEffectBoundary::BeforeUserCode
@@ -272,8 +285,17 @@ AccessContextFor(const ResolvedMember &Resolved) {
   const TypeGeneration &Types = *Resolved.Types;
   const TypeId Declared = Resolved.Member->ValueType;
 
-  const MemberValueSource Source = [State, &Types, &Declared,
-                                    &Qualified]() -> MemberValueOutcome {
+  const bool IsConverted = Resolved.Member->IsConverted();
+  const MemberValueSource Source = [State, &Types, &Declared, &Qualified,
+                                    IsConverted]() -> MemberValueOutcome {
+    if (IsConverted) {
+      if (lua_type(State, IncomingPosition) == LUA_TNONE)
+        return MemberValueOutcome::Refuse(DescribeMemberInternalRefusal(
+            Qualified, "received no value to write."));
+      return MemberValueOutcome::AcceptConverted(
+          BuildOwnedValueFromStack(State, IncomingPosition));
+    }
+
     const TypeRecord *Record = Types.Find(Declared);
     if (Record == nullptr || !Record->IsReadable || Record->Read == nullptr)
       return MemberValueOutcome::Refuse(DescribeMemberInternalRefusal(
@@ -519,7 +541,9 @@ std::string_view MemberDispatchStageText(MemberDispatchStage Stage) noexcept {
   return "request";
 }
 
-void MemberDispatchRecorder::Clear() noexcept { LastObservation.reset(); }
+void MemberDispatchRecorder::Clear() noexcept {
+  LastObservation.reset();
+}
 
 void MemberDispatchRecorder::Record(MemberDispatchObservation Observed) {
   LastObservation = std::move(Observed);

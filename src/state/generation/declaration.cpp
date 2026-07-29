@@ -263,6 +263,11 @@ private:
       return true;
     case TypeKind::Class:
       return MapClass(Type, Where, Out);
+    case TypeKind::Converted:
+      // A converted value's Luau shape is whatever its TypeConverter<T>
+      // publishes, which Luna's generator cannot see statically.
+      Out = "any";
+      return true;
     case TypeKind::Pointer:
     case TypeKind::SharedOwnership:
     case TypeKind::BorrowedReference: {

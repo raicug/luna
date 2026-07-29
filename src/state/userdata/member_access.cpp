@@ -2,10 +2,12 @@
 #include "state/userdata/member_access.hpp"
 
 #include <luna/binding/class_member.hpp>
+#include <luna/binding/conversion.hpp>
 #include <luna/binding/value.hpp>
 #include <luna/type/type_descriptor.hpp>
 
 #include "state/identity/identity_registry.hpp"
+#include "state/type/conversion_frame.hpp"
 #include "state/type/type_generation.hpp"
 #include "state/type/type_record.hpp"
 #include "state/userdata/access.hpp"
@@ -174,6 +176,45 @@ MemberReadResult ReadClassMember(MemberAccessContext &Context,
     }
   }
 
+  if (Member.IsConverted()) {
+    if (!Member.ConvertedRead)
+      return RefuseRead(
+          MemberAccessFailure::UnavailableRequest,
+          UserdataAccessFailure::UnavailableRequest,
+          DescribeMemberInternalRefusal(Member.QualifiedName,
+                                        "declares no converted getter."));
+
+    ConversionFrame Frame(Luna::ConversionDirection::Write,
+                          Member.QualifiedName, 0);
+    static_cast<void>(Frame.Open(OwnedValue::Nil()));
+    ConversionContext Committing = Frame.CommitContext();
+
+    MemberConvertedOutcome Produced;
+    try {
+      Produced = Member.ConvertedRead(Receiver.Storage, Committing);
+    } catch (const std::exception &Error) {
+      return RefuseRead(
+          MemberAccessFailure::ContainedException, UserdataAccessFailure::None,
+          DescribeMemberException(Member.QualifiedName, true, Error.what()));
+    } catch (...) {
+      return RefuseRead(
+          MemberAccessFailure::ContainedException, UserdataAccessFailure::None,
+          DescribeMemberUnknownException(Member.QualifiedName, true));
+    }
+
+    if (!Produced.Succeeded || !Frame.IsPublished() ||
+        !Frame.PublishedResult().has_value())
+      return RefuseRead(MemberAccessFailure::RefusedTarget,
+                        UserdataAccessFailure::None,
+                        DescribeMemberTargetRefusal(Member.QualifiedName, true,
+                                                    Produced.Refusal));
+
+    MemberReadResult Result;
+    Result.Failure = MemberAccessFailure::None;
+    Result.ConvertedValue = *Frame.PublishedResult();
+    return Result;
+  }
+
   MemberReadOutcome Produced;
   try {
     Produced = Member.Read(Receiver.Storage);
@@ -243,6 +284,45 @@ MemberWriteResult WriteClassMember(MemberAccessContext &Context,
             ? DescribeMemberValueMismatch(Member.QualifiedName,
                                           DeclaredValueText(Context, Member))
             : Offered.Refusal);
+
+  if (Member.IsConverted()) {
+    if (!Member.ConvertedWrite || !Offered.ConvertedValue.has_value())
+      return RefuseWrite(
+          MemberAccessFailure::UnavailableRequest,
+          UserdataAccessFailure::UnavailableRequest,
+          DescribeMemberInternalRefusal(Member.QualifiedName,
+                                        "declares no converted setter."));
+
+    ConversionFrame Frame(Luna::ConversionDirection::Read, Member.QualifiedName,
+                          0);
+    const ValueView Source = Frame.Open(*Offered.ConvertedValue);
+    ConversionContext Committing = Frame.CommitContext();
+
+    MemberConvertedOutcome Written;
+    try {
+      Written = Member.ConvertedWrite(Receiver.Storage, Source, Committing);
+    } catch (const std::exception &Error) {
+      return RefuseWrite(
+          MemberAccessFailure::ContainedException, UserdataAccessFailure::None,
+          DescribeMemberException(Member.QualifiedName, false, Error.what()));
+    } catch (...) {
+      return RefuseWrite(
+          MemberAccessFailure::ContainedException, UserdataAccessFailure::None,
+          DescribeMemberUnknownException(Member.QualifiedName, false));
+    }
+
+    if (!Written.Succeeded)
+      return RefuseWrite(MemberAccessFailure::RefusedTarget,
+                         UserdataAccessFailure::None,
+                         DescribeMemberTargetRefusal(Member.QualifiedName,
+                                                     false, Written.Refusal));
+
+    MemberWriteResult Result;
+    Result.Failure = MemberAccessFailure::None;
+    if (Context.Lazy != nullptr)
+      Result.Invalidated = Context.Lazy->InvalidateOwner(Header);
+    return Result;
+  }
 
   MemberWriteOutcome Written;
   try {

@@ -69,6 +69,9 @@ struct PlannedClassMember final {
   MemberReadOperation Read;
   MemberWriteOperation Write;
   MemberChangeOperation Change;
+
+  MemberConvertedReadOperation ConvertedRead;
+  MemberConvertedWriteOperation ConvertedWrite;
 };
 
 struct PlannedClassOperator final {

@@ -35,6 +35,7 @@ enum class TypeKind {
   Fixed,
   Enumeration,
   Class,
+  Converted,
   Pointer,
   Array,
   Optional,
@@ -90,6 +91,8 @@ FixedTypeKeyText(FixedTypeKey Key) noexcept {
     return "enum";
   case TypeKind::Class:
     return "class";
+  case TypeKind::Converted:
+    return "converted";
   case TypeKind::Pointer:
     return "pointer";
   case TypeKind::Array:
@@ -141,6 +144,7 @@ TypeKindAcceptsChildCount(TypeKind Kind, std::size_t ChildCount) noexcept {
   case TypeKind::Fixed:
   case TypeKind::Enumeration:
   case TypeKind::Class:
+  case TypeKind::Converted:
     return ChildCount == 0;
   case TypeKind::Pointer:
   case TypeKind::Array:
@@ -182,6 +186,14 @@ public:
 
   [[nodiscard]] static TypeDescriptor ForClass(StableTypeKey Key) {
     return ForLeaf(TypeKind::Class, std::move(Key));
+  }
+
+  // A user-supplied `Luna::TypeConverter<T>` leaf: identified by the same
+  // kind of stable key an enum or a class carries, but converted through the
+  // consumer-owned probe/read/write boundary rather than through Luna's own
+  // machinery.
+  [[nodiscard]] static TypeDescriptor ForConverted(StableTypeKey Key) {
+    return ForLeaf(TypeKind::Converted, std::move(Key));
   }
 
   [[nodiscard]] static TypeDescriptor ForPointer(TypeDescriptor Pointee) {
@@ -261,11 +273,12 @@ public:
       return false;
     if (!TypeKindAcceptsChildCount(KindValue, ChildCount()))
       return false;
-    if ((KindValue == TypeKind::Enumeration || KindValue == TypeKind::Class) &&
-        !KeyValue.IsValid())
+    const bool IsKeyedLeaf = KindValue == TypeKind::Enumeration ||
+                             KindValue == TypeKind::Class ||
+                             KindValue == TypeKind::Converted;
+    if (IsKeyedLeaf && !KeyValue.IsValid())
       return false;
-    if (KindValue != TypeKind::Enumeration && KindValue != TypeKind::Class &&
-        !KeyValue.IsEmpty())
+    if (!IsKeyedLeaf && !KeyValue.IsEmpty())
       return false;
     if (KindValue != TypeKind::Array && ExtentValue != 0)
       return false;

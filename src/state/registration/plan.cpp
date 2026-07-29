@@ -99,7 +99,9 @@ bool DescriptorPlanEntry::IsValid() const {
     return Record.has_value();
   case PlanEntryKind::ClassMember:
     return Record.has_value() && ClassMember.has_value() &&
-           (ClassMember->Read != nullptr || ClassMember->Write != nullptr);
+           (ClassMember->Read != nullptr || ClassMember->Write != nullptr ||
+            ClassMember->ConvertedRead != nullptr ||
+            ClassMember->ConvertedWrite != nullptr);
   default:
     return true;
   }

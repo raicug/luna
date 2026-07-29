@@ -1,6 +1,7 @@
 #pragma once
 
 // clang-format off
+#include <luna/binding/conversion.hpp>
 #include <luna/binding/value.hpp>
 
 #include <functional>
@@ -228,6 +229,34 @@ using MemberWriteOperation =
 // notifies user code of the change but never itself refuses the write.
 using MemberChangeOperation =
     std::function<void(void *Object, const Value &Updated)>;
+
+// A member whose declared value type is not one of the four foundation
+// scalars converts through a consumer-supplied `Luna::TypeConverter<T>`
+// instead: the same probe/read/write boundary documented for parameters and
+// returns. These two operations are what a converted property or field
+// getter and setter compile down to.
+struct MemberConvertedOutcome final {
+  bool Succeeded = false;
+  std::string Refusal;
+
+  [[nodiscard]] static MemberConvertedOutcome Accept() {
+    MemberConvertedOutcome Outcome;
+    Outcome.Succeeded = true;
+    return Outcome;
+  }
+
+  [[nodiscard]] static MemberConvertedOutcome Refuse(std::string Reason) {
+    MemberConvertedOutcome Outcome;
+    Outcome.Refusal = std::move(Reason);
+    return Outcome;
+  }
+};
+
+using MemberConvertedReadOperation = std::function<MemberConvertedOutcome(
+    const void *Object, Luna::ConversionContext &Context)>;
+
+using MemberConvertedWriteOperation = std::function<MemberConvertedOutcome(
+    void *Object, Luna::ValueView Source, Luna::ConversionContext &Context)>;
 
 } // namespace Detail
 
