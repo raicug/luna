@@ -57,7 +57,7 @@ Invocation orders its refusals by the validation sequence in [values and validat
 
 ## Native exceptions
 
-A `std::exception` thrown by a registered callable is caught at the private callback boundary. Its message and the symbol name are included in the resulting runtime diagnostic. Unknown C++ exceptions become a non-empty internal callback message. No C++ exception is allowed to cross the C ABI.
+A `std::exception` thrown by a registered callable is caught at the private callback boundary. Its message and the symbol name are included in the resulting runtime diagnostic. Unknown C++ exceptions become a non-empty internal callback message. No C++ exception is allowed to cross the C ABI. A property or field's optional on-change callback is contained the same way: it runs after its write already succeeded, so a thrown exception is reported but never undoes the value already written.
 
 The same containment applies to a module registration callback and to an allocator step: the loader or the release path contains the exception, restores the pre-attempt state, and reports it, rather than letting it escape through a garbage collector or a State destructor.
 
