@@ -246,7 +246,26 @@ local Moved = Hero + {4, 0, 0}
 
 Diagnostics for a converted operand read the same way a converted member value's do: a value the operand's own `Probe` rejects is a caller error naming the operand position, reported before the native target runs. Publishing a converted *return* value is not yet supported — an operator or method still returns one of the four supported value types, a fixed or dynamic pack, an instance, or void.
 
-A registered *class* used as an operand (rather than a type with its own `TypeConverter<T>`) is not yet supported: `SpriteA + SpriteB`, where both sides are registered classes, still requires explicit conversion on the Luau side.
+A registered *class* has no dedicated operand form of its own, but it no longer requires conversion on the Luau side either. A class instance arriving at a converted operand is visible to that operand's `TypeConverter<T>` as a userdata value, and `ValueView` exposes everything needed to recover the native object from it:
+
+```cpp
+[[nodiscard]] ConversionResult<Vector3> Read(Luna::ValueView Source,
+                                             Luna::ConversionContext &Context) const {
+  ConversionResult<Vector3> Result;
+  if (Source.IsUserdata() && Source.UserdataClassName() == "Studio.Vector3") {
+    if (void *Object = Source.UserdataStorage()) {
+      Result.Status = ConversionStatus::Success;
+      Result.ConvertedValue = *static_cast<const Vector3 *>(Object);
+      return Result;
+    }
+  }
+  Result.Status = ConversionStatus::TypeMismatch;
+  Result.Diagnostic = Context.Describe("expected a Vector3");
+  return Result;
+}
+```
+
+`UserdataClassName()` is the registered qualified name and `UserdataType()` is the canonical `TypeId`, so the converter confirms the identity before it casts — a value of a different class simply fails the check. `UserdataStorage()` yields null whenever handing the object out would be unsound: the capture has expired, the owning State has gone away, or the object is no longer published, which is the same stale-borrow refusal a receiver performs. `UserdataPermitsMutation()` reports whether the instance was exposed mutably, and `UserdataText()` carries whatever the class's `ToText` operator rendered.
 
 ## Access from Luau
 

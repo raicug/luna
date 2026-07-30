@@ -4,7 +4,7 @@ Luna has two layers here, and it helps to keep them apart. The **supported value
 
 ## Supported value types
 
-These are the types a registered signature uses for parameters and returns. A property or field value, and a `Method`/`StaticMethod`/`Operator` parameter, may additionally be any type with its own `Luna::TypeConverter<T>` specialization — see [custom conversions](#custom-conversions) below and [classes and userdata](classes-and-userdata.md#custom-value-types). Publishing a converted *return* value is not yet supported.
+These are the types a registered signature uses for parameters and returns. A property or field value, and a `Method`/`StaticMethod`/`Operator`/`Constructor`/`Factory`/`Singleton` parameter, may additionally be any type with its own `Luna::TypeConverter<T>` specialization — see [custom conversions](#custom-conversions) below and [classes and userdata](classes-and-userdata.md#custom-value-types). Publishing a converted *return* value is not yet supported.
 
 | C++ type | Luau value | Notes |
 |---|---|---|
@@ -141,10 +141,24 @@ public:
 
 Three types carry the boundary. `ValueView` is a transient token naming one value inside the current conversion frame: it exposes shape only, carries no pointer or stack index, and becomes inert when its frame ends, so retaining one can never reach released VM storage. `OwnedValue` and `ValuePack` are owning values that outlive any frame — `ToOwned()` is how you keep something. `ConversionContext` is the frame itself: it reports the shape under conversion, the callable name, the one-based position, and the complete nested path such as `argument 2[4].Key`, and `Describe` turns a reason into one deterministic diagnostic carrying all of it.
 
-The same specialization is what makes `AppColor` usable as a property or field value (`Property<AppColor>(...)`, `Field<AppColor>(...)`) and as a `Method`, `StaticMethod`, or `Operator` operand — declared with no explicit template argument there, since the parameter's own C++ type already names it:
+The same specialization is what makes `AppColor` usable as a property or field value (`Property<AppColor>(...)`, `Field<AppColor>(...)`) and as a `Method`, `StaticMethod`, `Operator`, `Constructor`, `Factory`, or `Singleton` operand — declared with no explicit template argument there, since the parameter's own C++ type already names it:
 
 ```cpp
 Sprites.Method("Tint", &Sprite::Tint);   // void Tint(AppColor)
+Sprites.Factory("Span", &Span);          // Sprite Span(AppColor, AppColor)
+```
+
+`ValueView` also reaches a registered class instance, which is how a class reaches an operand position. When the value under conversion is one, `IsUserdata()` is true and the view reports the registered `UserdataClassName()`, the canonical `UserdataType()`, the `UserdataText()` its `ToText` operator rendered, `UserdataPermitsMutation()`, and `UserdataStorage()` — the native object itself. Storage is decided at the moment it is requested, through the same access gate a receiver passes, so it yields null for a value from another State, an unpublished or destroyed object, or a borrowed object whose lifetime handle has been invalidated. A converter that confirms the class before it casts therefore refuses a wrong-class or stale operand with the same quality a receiver refusal has, and does it inside `Probe`, before the native target runs:
+
+```cpp
+[[nodiscard]] ConversionProbe Probe(Luna::ValueView Source,
+                                    const Luna::ConversionContext &Context) const {
+  if (!Source.IsUserdata() || Source.UserdataClassName() != "Studio.Vec")
+    return Luna::RejectedProbe(Context.Describe("expected a Studio.Vec"));
+  if (Source.UserdataStorage() == nullptr)
+    return Luna::RejectedProbe(Context.Describe("the instance is no longer usable"));
+  return Luna::ViableProbe(Luna::ConversionRank::Exact);
+}
 ```
 
 Writers state everything they need through `ValueReservation` before publishing, and publication is refused unless the complete value fits the reservation. `OwnedValue::RequiredReservation()` computes exactly what one publication needs.

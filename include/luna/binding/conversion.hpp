@@ -2,6 +2,7 @@
 
 // clang-format off
 #include <luna/binding/value.hpp>
+#include <luna/reflection/ids.hpp>
 
 #include <concepts>
 #include <cstddef>
@@ -36,6 +37,23 @@ public:
 
   [[nodiscard]] virtual bool IsLive() const noexcept = 0;
   [[nodiscard]] virtual std::string_view ClassName() const noexcept = 0;
+
+  // The canonical type of the registered class the captured value reported.
+  // A call site that knows the concrete C++ type compares this against the
+  // type it expects before touching `Storage`, so a value of the wrong class
+  // is refused rather than reinterpreted.
+  [[nodiscard]] virtual TypeId CapturedType() const noexcept = 0;
+
+  // The native object behind the captured value, or null whenever handing it
+  // out would be unsound: the capture has expired, the owning scope has gone
+  // away, or the object itself is no longer published — which is exactly the
+  // stale-borrow case a receiver already refuses.
+  [[nodiscard]] virtual void *Storage() const noexcept = 0;
+
+  // Whether the captured value was exposed mutably. A const instance yields
+  // its storage for reading and refuses a mutating call site.
+  [[nodiscard]] virtual bool PermitsMutation() const noexcept = 0;
+
   virtual void Release() noexcept = 0;
 };
 
@@ -279,6 +297,19 @@ public:
     return Result;
   }
 
+  // The same capture carrying the value's own display text — whatever the
+  // class's `ToText` operator renders, resolved once at capture time. It is
+  // stored apart from `ClassName` because both are wanted at once: a generic
+  // native `print` shows the text, a diagnostic names the class. Empty when
+  // the class declares no `ToText`, or when its `ToText` failed.
+  [[nodiscard]] static OwnedValue
+  Userdata(std::shared_ptr<Detail::CapturedUserdataTarget> Target,
+           std::string ClassName, std::string DisplayText) {
+    OwnedValue Result = Userdata(std::move(Target), std::move(ClassName));
+    Result.UserdataTextValue = std::move(DisplayText);
+    return Result;
+  }
+
   [[nodiscard]] static OwnedValue FromValue(const Value &Source) {
     if (const bool *SourceBoolean = std::get_if<bool>(&Source))
       return OwnedValue::Boolean(*SourceBoolean);
@@ -345,6 +376,13 @@ public:
   // or not the concrete C++ type is known to the caller.
   [[nodiscard]] std::string_view UserdataClassName() const noexcept {
     return CategoryValue == ValueCategory::Userdata ? TextValue
+                                                    : std::string_view();
+  }
+
+  // The display text of a captured userdata value, produced by its class's
+  // `ToText` operator at capture time. Empty when the class declares none.
+  [[nodiscard]] std::string_view UserdataText() const noexcept {
+    return CategoryValue == ValueCategory::Userdata ? UserdataTextValue
                                                     : std::string_view();
   }
 
@@ -450,8 +488,12 @@ public:
   }
 
   [[nodiscard]] std::size_t TotalByteCount() const {
-    std::size_t Total =
-        CategoryValue == ValueCategory::Userdata ? 0 : TextValue.size();
+    // For a userdata node the class name is metadata rather than published
+    // bytes, but the display text is a string a consumer can hand back, so
+    // it participates in the reservation the way any other string does.
+    std::size_t Total = CategoryValue == ValueCategory::Userdata
+                            ? UserdataTextValue.size()
+                            : TextValue.size();
     for (const std::string &Name : FieldNamesValue)
       Total += Name.size();
     for (const OwnedValue &Element : ElementsValue)
@@ -462,8 +504,9 @@ public:
   }
 
   [[nodiscard]] std::size_t LargestStringByteCount() const {
-    std::size_t Largest =
-        CategoryValue == ValueCategory::Userdata ? 0 : TextValue.size();
+    std::size_t Largest = CategoryValue == ValueCategory::Userdata
+                              ? UserdataTextValue.size()
+                              : TextValue.size();
     for (const std::string &Name : FieldNamesValue) {
       if (Name.size() > Largest)
         Largest = Name.size();
@@ -513,7 +556,8 @@ public:
     case ValueCategory::String:
       return Left.TextValue == Right.TextValue;
     case ValueCategory::Userdata:
-      return Left.UserdataTargetValue == Right.UserdataTargetValue;
+      return Left.UserdataTargetValue == Right.UserdataTargetValue &&
+             Left.UserdataTextValue == Right.UserdataTextValue;
     default:
       break;
     }
@@ -541,6 +585,7 @@ private:
   bool BooleanValue = false;
   double NumberValue = 0.0;
   std::string TextValue;
+  std::string UserdataTextValue;
   std::vector<OwnedValue> ElementsValue;
   std::vector<std::string> FieldNamesValue;
   std::vector<OwnedValue> FieldValuesValue;
@@ -611,10 +656,22 @@ public:
   [[nodiscard]] ValueCategory Kind() const noexcept;
   [[nodiscard]] bool IsNil() const noexcept;
   [[nodiscard]] bool IsTable() const noexcept;
+  [[nodiscard]] bool IsUserdata() const noexcept;
 
   [[nodiscard]] std::optional<bool> ToBoolean() const noexcept;
   [[nodiscard]] std::optional<double> ToNumber() const noexcept;
   [[nodiscard]] std::optional<std::string> ToText() const;
+
+  // A registered class instance seen through the conversion boundary. A
+  // `TypeConverter<T>::Read` recovers its `T *` by confirming the captured
+  // type is the one it expects and then casting the storage it is handed;
+  // every accessor here is read-only and refuses a capture that has expired.
+  [[nodiscard]] std::string_view UserdataClassName() const noexcept;
+  [[nodiscard]] std::string_view UserdataText() const noexcept;
+  [[nodiscard]] bool UserdataIsLive() const noexcept;
+  [[nodiscard]] TypeId UserdataType() const noexcept;
+  [[nodiscard]] void *UserdataStorage() const noexcept;
+  [[nodiscard]] bool UserdataPermitsMutation() const noexcept;
 
   [[nodiscard]] std::size_t ByteCount() const noexcept;
 

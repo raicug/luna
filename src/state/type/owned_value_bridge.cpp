@@ -6,6 +6,7 @@
 #include "state/userdata/class_registry.hpp"
 #include "state/userdata/exposure.hpp"
 #include "state/userdata/header.hpp"
+#include "state/vm/stack_checkpoint.hpp"
 
 #include <lua.h>
 
@@ -18,41 +19,94 @@
 namespace Luna::Detail {
 namespace {
 
-[[nodiscard]] std::string CapturedUserdataClassName(lua_State *State,
-                                                    int StackIndex) {
-  const void *Block = lua_touserdata(State, StackIndex);
-  const auto ByteCount =
-      static_cast<std::size_t>(lua_objlen(State, StackIndex));
-  const UserdataHeader *Header = InspectUserdataHeader(Block, ByteCount);
-  if (Header == nullptr)
-    return std::string();
-
-  const UserdataAccessContext *Context = ObserveUserdataAccessContext(State);
-  const RegisteredClass *Registered =
-      Context && Context->Classes ? Context->Classes->Find(Header->DynamicType)
-                                  : nullptr;
-  return Registered ? Registered->QualifiedName : std::string();
-}
-
-[[nodiscard]] OwnedValue CaptureUserdata(lua_State *State, int StackIndex) {
-  std::string ClassName = CapturedUserdataClassName(State, StackIndex);
-  VmUserdataCaptureRegistry *Captures = ObserveUserdataCaptureRegistry(State);
-  if (!Captures)
-    return OwnedValue();
-
-  std::shared_ptr<CapturedUserdataTarget> Target =
-      Captures->Adopt(State, StackIndex, ClassName);
-  if (!Target)
-    return OwnedValue();
-  return OwnedValue::Userdata(std::move(Target), std::move(ClassName));
-}
-
 constexpr int MaximumBridgeDepth = 64;
 
 [[nodiscard]] int AbsoluteIndex(lua_State *State, int StackIndex) {
   if (StackIndex > 0 || StackIndex <= LUA_REGISTRYINDEX)
     return StackIndex;
   return lua_gettop(State) + StackIndex + 1;
+}
+
+// What the captured value reports about its own class and owning scope: the
+// registered qualified name a consumer can render, the canonical type a
+// consumer that knows the concrete C++ type can match before recovering the
+// object, and the origin identity plus lifetime probe the access gate needs
+// every time that object is later handed out.
+[[nodiscard]] CapturedUserdataIdentity
+CapturedUserdataIdentityOf(lua_State *State, int StackIndex) {
+  const void *Block = lua_touserdata(State, StackIndex);
+  const auto ByteCount =
+      static_cast<std::size_t>(lua_objlen(State, StackIndex));
+  const UserdataHeader *Header = InspectUserdataHeader(Block, ByteCount);
+  if (Header == nullptr)
+    return CapturedUserdataIdentity();
+
+  CapturedUserdataIdentity Described;
+  Described.CapturedType = Header->DynamicType;
+
+  const UserdataAccessContext *Context = ObserveUserdataAccessContext(State);
+  if (Context) {
+    Described.Origin = Context->Origin;
+    Described.HandleProbe = Context->HandleProbe;
+  }
+
+  const RegisteredClass *Registered =
+      Context && Context->Classes ? Context->Classes->Find(Header->DynamicType)
+                                  : nullptr;
+  if (Registered)
+    Described.ClassName = Registered->QualifiedName;
+  return Described;
+}
+
+// The display text of the value at StackIndex, taken from the `__tostring`
+// metafield — which is exactly where a class's declared `ToText` operator is
+// installed. The render is protected, so a `ToText` that raises yields no
+// text rather than turning an argument capture into a failed call, and the
+// stack is left exactly as it was either way.
+[[nodiscard]] std::string CapturedUserdataDisplayText(lua_State *State,
+                                                      int StackIndex) {
+  if (!lua_checkstack(State, 4))
+    return std::string();
+
+  const int ValueIndex = AbsoluteIndex(State, StackIndex);
+  StackCheckpoint Checkpoint(State);
+
+  if (lua_getmetatable(State, ValueIndex) == 0)
+    return std::string();
+
+  const int MetaIndex = lua_gettop(State);
+  lua_rawgetfield(State, MetaIndex, "__tostring");
+  if (!lua_isfunction(State, -1))
+    return std::string();
+
+  lua_pushvalue(State, ValueIndex);
+  if (lua_pcall(State, 1, 1, 0) != LUA_OK)
+    return std::string();
+
+  std::size_t Length = 0;
+  const char *Bytes = lua_tolstring(State, -1, &Length);
+  if (Bytes == nullptr)
+    return std::string();
+  return std::string(Bytes, Length);
+}
+
+[[nodiscard]] OwnedValue CaptureUserdata(lua_State *State, int StackIndex) {
+  const int ValueIndex = AbsoluteIndex(State, StackIndex);
+  CapturedUserdataIdentity Described =
+      CapturedUserdataIdentityOf(State, ValueIndex);
+  VmUserdataCaptureRegistry *Captures = ObserveUserdataCaptureRegistry(State);
+  if (!Captures)
+    return OwnedValue();
+
+  std::string DisplayText = CapturedUserdataDisplayText(State, ValueIndex);
+  std::string ClassName = Described.ClassName;
+
+  std::shared_ptr<CapturedUserdataTarget> Target =
+      Captures->Adopt(State, ValueIndex, std::move(Described));
+  if (!Target)
+    return OwnedValue();
+  return OwnedValue::Userdata(std::move(Target), std::move(ClassName),
+                              std::move(DisplayText));
 }
 
 [[nodiscard]] OwnedValue BuildFrom(lua_State *State, int StackIndex,

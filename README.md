@@ -158,8 +158,9 @@ The documentation under `docs/` was written with AI assistance and checked again
 - Classes as typed userdata: constructors, factories, singletons, allocators, methods, properties, fields, base edges, checked casts, and operators
 - Generic-`for` iteration of a class through the `Iterate` operator, declared as one step of the loop rather than an iterator object
 - An optional on-change callback on a read-write property or a writable field, run after a successful write
-- Property, field, method, static-method, and operator value types of any consumer type with its own `Luna::TypeConverter<T>`, not just the foundation scalars
-- Variadic `ArgumentView` / `ArgumentPack` elements carrying a registered class instance, passed directly or nested inside a table
+- Property, field, method, static-method, operator, and construction value types of any consumer type with its own `Luna::TypeConverter<T>`, not just the foundation scalars
+- Registered class instances as method, operator, and construction operands, recovered by the operand's converter through `ValueView`'s read-only userdata accessors
+- Variadic `ArgumentView` / `ArgumentPack` elements carrying a registered class instance — passed directly or nested inside a table — with the text its class's `ToText` operator rendered
 - Lua-owned, borrowed, and `std::shared_ptr` shared ownership with `LifetimeHandle` invalidation
 - Load-once versioned modules with semantic-version constraint resolution
 - Asynchronous namespace and root functions returning `AsyncTask<T>` or `std::future<T>`, resumed on the owner thread with the awaited value
@@ -266,7 +267,7 @@ IDE, autocomplete, debug-UI, and profiling integrations are **available**, built
 
 A few current limitations are worth knowing before designing a surface:
 
-- A `Method`, `StaticMethod`, or `Operator` **operand** may be any type with its own `Luna::TypeConverter<T>` specialization, read through the same probe/read boundary a converted property or field value already uses. A *registered class* as an operand — `SpriteA + SpriteB`, both sides registered classes — is not yet supported.
-- Publishing a converted **return** value is not yet supported: a method or operator still returns one of the supported value types, a fixed or dynamic pack, an instance, or void.
+- A `Method`, `StaticMethod`, `Operator`, `Constructor`, `Factory`, or `Singleton` **operand** may be any type with its own `Luna::TypeConverter<T>` specialization, read through the same probe/read boundary a converted property or field value already uses. A *registered class* has no dedicated operand form of its own, but `SpriteA + SpriteB` works: `ValueView` reports a class instance's registered name, canonical type, and native storage, so the operand's converter recovers the object instead of rebuilding it from a table.
+- Publishing a converted **return** value is not yet supported: a method or operator still returns one of the supported value types, a fixed or dynamic pack, an instance, or void. Only `Constructor`, `Factory`, and `Singleton` produce an instance, so a `Vector3`-returning method is still expressed as a pack the caller re-wraps.
 - Generated `.d.lua` declarations describe an enumerator by its numeric value, so an enumeration published through `AsObjects()` still generates as `number` rather than as an enumerator type.
 - Inherited **fields** are not reachable through a derived class. Reach them through a value of the class that declared them.

@@ -1,6 +1,7 @@
 // clang-format off
 #include "state/invocation/parameters/vm_userdata_capture.hpp"
 
+#include "state/userdata/header.hpp"
 #include "state/vm/stack_checkpoint.hpp"
 
 #include <lua.h>
@@ -24,9 +25,11 @@ class VmCapturedUserdataTarget final : public CapturedUserdataTarget {
 public:
   VmCapturedUserdataTarget(std::shared_ptr<UserdataCaptureLink> Link,
                            int Reference, std::uint64_t Epoch,
-                           std::string ClassName) noexcept
+                           CapturedUserdataIdentity Described,
+                           const void *Block, std::size_t ByteCount) noexcept
       : LinkValue(std::move(Link)), ReferenceValue(Reference),
-        EpochValue(Epoch), ClassNameValue(std::move(ClassName)) {}
+        EpochValue(Epoch), DescribedValue(std::move(Described)),
+        BlockValue(Block), ByteCountValue(ByteCount) {}
 
   ~VmCapturedUserdataTarget() override { Release(); }
 
@@ -38,7 +41,25 @@ public:
   }
 
   [[nodiscard]] std::string_view ClassName() const noexcept override {
-    return ClassNameValue;
+    return DescribedValue.ClassName;
+  }
+
+  [[nodiscard]] TypeId CapturedType() const noexcept override {
+    return DescribedValue.CapturedType;
+  }
+
+  // Storage is never cached. Every request re-reads the header and runs the
+  // same access gate a receiver runs, so origin State, payload presence,
+  // borrowed lifetime, publication state, and const permission are all
+  // decided at the moment the object would be handed out — which is what
+  // makes a stale borrow refuse instead of yielding a dangling pointer.
+  [[nodiscard]] void *Storage() const noexcept override {
+    const UserdataAccessResult Access = InspectAccess(false);
+    return Access.IsPermitted() ? Access.Storage : nullptr;
+  }
+
+  [[nodiscard]] bool PermitsMutation() const noexcept override {
+    return InspectAccess(true).IsPermitted();
   }
 
   void Release() noexcept override {
@@ -93,10 +114,34 @@ public:
   }
 
 private:
+  [[nodiscard]] UserdataAccessResult
+  InspectAccess(bool RequiresMutation) const noexcept {
+    if (!IsLive() || BlockValue == nullptr)
+      return UserdataAccessResult();
+
+    const UserdataHeader *Header =
+        InspectUserdataHeader(BlockValue, ByteCountValue);
+    if (Header == nullptr)
+      return UserdataAccessResult();
+
+    // The identity request restates what the block itself reports: the
+    // consumer's own class check is the one that decides whether this value
+    // is the type it wanted, and it compares `CapturedType` for that.
+    UserdataAccessRequest Request;
+    Request.Origin = DescribedValue.Origin;
+    Request.Metatable = Header->Metatable;
+    Request.RequestedType = Header->DynamicType;
+    Request.RequiresMutation = RequiresMutation;
+    Request.HandleProbe = DescribedValue.HandleProbe;
+    return ValidateUserdataAccess(*Header, Request);
+  }
+
   std::shared_ptr<UserdataCaptureLink> LinkValue;
   int ReferenceValue = 0;
   std::uint64_t EpochValue = 0;
-  std::string ClassNameValue;
+  CapturedUserdataIdentity DescribedValue;
+  const void *BlockValue = nullptr;
+  std::size_t ByteCountValue = 0;
   bool ReleasedValue = false;
 };
 
@@ -120,7 +165,7 @@ void VmUserdataCaptureRegistry::Bind(lua_State *Root) noexcept {
 
 std::shared_ptr<CapturedUserdataTarget>
 VmUserdataCaptureRegistry::Adopt(lua_State *State, int StackIndex,
-                                 std::string ClassName) {
+                                 CapturedUserdataIdentity Described) {
   if (!LinkValue || !State)
     return nullptr;
 
@@ -129,6 +174,10 @@ VmUserdataCaptureRegistry::Adopt(lua_State *State, int StackIndex,
     return nullptr;
   if (lua_type(State, StackIndex) != LUA_TUSERDATA)
     return nullptr;
+
+  const void *Block = lua_touserdata(State, StackIndex);
+  const auto ByteCount =
+      static_cast<std::size_t>(lua_objlen(State, StackIndex));
 
   lua_pushvalue(State, StackIndex);
   const int Reference = lua_ref(State, -1);
@@ -147,8 +196,8 @@ VmUserdataCaptureRegistry::Adopt(lua_State *State, int StackIndex,
     LinkValue->Counters.Adopted += 1;
   }
 
-  return std::make_shared<VmCapturedUserdataTarget>(LinkValue, Reference, Epoch,
-                                                    std::move(ClassName));
+  return std::make_shared<VmCapturedUserdataTarget>(
+      LinkValue, Reference, Epoch, std::move(Described), Block, ByteCount);
 }
 
 std::size_t VmUserdataCaptureRegistry::InvalidateEverything() noexcept {

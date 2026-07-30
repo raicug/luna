@@ -127,6 +127,7 @@ std::uint32_t ConversionFrame::Insert(const OwnedValue &Source,
     Created.Text = Source.Kind() == ValueCategory::Userdata
                        ? std::string(Source.UserdataClassName())
                        : std::string(Source.TextBytes());
+    Created.UserdataText = std::string(Source.UserdataText());
     Created.Userdata = Source.UserdataTarget();
     Created.Parent = Parent;
     Created.Segment = std::move(Segment);
@@ -232,6 +233,30 @@ std::uint32_t ConversionFrame::FieldNode(std::uint32_t Node,
   return InvalidNode;
 }
 
+std::string_view
+ConversionFrame::UserdataClassNameOf(std::uint32_t Node) const noexcept {
+  const ValueNode *Found = NodeAt(Node);
+  if (!Found || Found->Category != ValueCategory::Userdata)
+    return {};
+  return Found->Text;
+}
+
+std::string_view
+ConversionFrame::UserdataTextOf(std::uint32_t Node) const noexcept {
+  const ValueNode *Found = NodeAt(Node);
+  if (!Found || Found->Category != ValueCategory::Userdata)
+    return {};
+  return Found->UserdataText;
+}
+
+const CapturedUserdataTarget *
+ConversionFrame::UserdataTargetOf(std::uint32_t Node) const noexcept {
+  const ValueNode *Found = NodeAt(Node);
+  if (!Found || Found->Category != ValueCategory::Userdata)
+    return nullptr;
+  return Found->Userdata.get();
+}
+
 ValueView ConversionFrame::ViewOf(std::uint32_t Node) const noexcept {
   if (Node == InvalidNode)
     return ValueView();
@@ -298,7 +323,8 @@ OwnedValue ConversionFrame::OwnedFrom(std::uint32_t Node) const {
     Copied = OwnedValue::Table();
     break;
   case ValueCategory::Userdata:
-    Copied = OwnedValue::Userdata(Found->Userdata, Found->Text);
+    Copied =
+        OwnedValue::Userdata(Found->Userdata, Found->Text, Found->UserdataText);
     break;
   default:
     return OwnedValue();

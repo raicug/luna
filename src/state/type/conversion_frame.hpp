@@ -68,6 +68,13 @@ public:
   [[nodiscard]] std::uint32_t FieldNode(std::uint32_t Node,
                                         std::string_view Name) const noexcept;
 
+  [[nodiscard]] std::string_view
+  UserdataClassNameOf(std::uint32_t Node) const noexcept;
+  [[nodiscard]] std::string_view
+  UserdataTextOf(std::uint32_t Node) const noexcept;
+  [[nodiscard]] const CapturedUserdataTarget *
+  UserdataTargetOf(std::uint32_t Node) const noexcept;
+
   [[nodiscard]] ValueView ViewOf(std::uint32_t Node) const noexcept;
 
   [[nodiscard]] std::string PathOf(std::uint32_t Node) const;
@@ -116,6 +123,9 @@ private:
     bool Boolean = false;
     double Number = 0.0;
     std::string Text;
+    // A userdata node keeps the class name in `Text` and the value's own
+    // rendered text here, so neither displaces the other on the way back out.
+    std::string UserdataText;
     std::shared_ptr<CapturedUserdataTarget> Userdata;
     std::vector<std::uint32_t> Elements;
     std::vector<std::string> FieldNames;

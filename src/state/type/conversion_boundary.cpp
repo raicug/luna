@@ -48,10 +48,63 @@ ValueCategory ValueView::Kind() const noexcept {
   return Frame ? Frame->CategoryOf(NodeIndexValue) : ValueCategory::None;
 }
 
-bool ValueView::IsNil() const noexcept { return Kind() == ValueCategory::Nil; }
+bool ValueView::IsNil() const noexcept {
+  return Kind() == ValueCategory::Nil;
+}
 
 bool ValueView::IsTable() const noexcept {
   return Kind() == ValueCategory::Table;
+}
+
+bool ValueView::IsUserdata() const noexcept {
+  return Kind() == ValueCategory::Userdata;
+}
+
+std::string_view ValueView::UserdataClassName() const noexcept {
+  const Detail::ConversionFrame *Frame = ResolveFrame(FrameTokenValue);
+  return Frame ? Frame->UserdataClassNameOf(NodeIndexValue)
+               : std::string_view();
+}
+
+std::string_view ValueView::UserdataText() const noexcept {
+  const Detail::ConversionFrame *Frame = ResolveFrame(FrameTokenValue);
+  return Frame ? Frame->UserdataTextOf(NodeIndexValue) : std::string_view();
+}
+
+bool ValueView::UserdataIsLive() const noexcept {
+  const Detail::ConversionFrame *Frame = ResolveFrame(FrameTokenValue);
+  if (!Frame)
+    return false;
+  const Detail::CapturedUserdataTarget *Target =
+      Frame->UserdataTargetOf(NodeIndexValue);
+  return Target != nullptr && Target->IsLive();
+}
+
+TypeId ValueView::UserdataType() const noexcept {
+  const Detail::ConversionFrame *Frame = ResolveFrame(FrameTokenValue);
+  if (!Frame)
+    return TypeId();
+  const Detail::CapturedUserdataTarget *Target =
+      Frame->UserdataTargetOf(NodeIndexValue);
+  return Target ? Target->CapturedType() : TypeId();
+}
+
+void *ValueView::UserdataStorage() const noexcept {
+  const Detail::ConversionFrame *Frame = ResolveFrame(FrameTokenValue);
+  if (!Frame)
+    return nullptr;
+  const Detail::CapturedUserdataTarget *Target =
+      Frame->UserdataTargetOf(NodeIndexValue);
+  return Target ? Target->Storage() : nullptr;
+}
+
+bool ValueView::UserdataPermitsMutation() const noexcept {
+  const Detail::ConversionFrame *Frame = ResolveFrame(FrameTokenValue);
+  if (!Frame)
+    return false;
+  const Detail::CapturedUserdataTarget *Target =
+      Frame->UserdataTargetOf(NodeIndexValue);
+  return Target != nullptr && Target->PermitsMutation();
 }
 
 std::optional<bool> ValueView::ToBoolean() const noexcept {
@@ -142,7 +195,9 @@ ConversionDirection ConversionContext::Direction() const noexcept {
   return Frame ? Frame->Direction() : ConversionDirection::Read;
 }
 
-bool ConversionContext::IsProbing() const noexcept { return ProbingValue; }
+bool ConversionContext::IsProbing() const noexcept {
+  return ProbingValue;
+}
 
 ValueCategory ConversionContext::Kind() const noexcept {
   const Detail::ConversionFrame *Frame = ResolveFrame(FrameTokenValue);

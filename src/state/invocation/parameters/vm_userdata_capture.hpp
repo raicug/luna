@@ -2,6 +2,9 @@
 
 // clang-format off
 #include <luna/binding/conversion.hpp>
+#include <luna/reflection/ids.hpp>
+
+#include "state/userdata/access.hpp"
 
 #include <memory>
 #include <mutex>
@@ -13,6 +16,17 @@
 struct lua_State;
 
 namespace Luna::Detail {
+
+// What a capture records about the value's own class and its owning scope.
+// The origin identity and the lifetime-handle probe are kept so that handing
+// the native object out later can run the same access gate a receiver runs,
+// rather than trusting a pointer cached at capture time.
+struct CapturedUserdataIdentity final {
+  std::string ClassName;
+  TypeId CapturedType;
+  StateIdentity Origin;
+  LifetimeHandleGenerationProbe HandleProbe = nullptr;
+};
 
 struct UserdataCaptureCounters final {
   std::size_t Adopted = 0;
@@ -55,9 +69,12 @@ public:
   void Bind(lua_State *Root) noexcept;
 
   // Adopts the userdata at StackIndex. The stack is left exactly as it was.
-  // Returns nullptr if the value at StackIndex is not userdata.
+  // Returns nullptr if the value at StackIndex is not userdata. `Described`
+  // names the registered class the block reported, so a consumer that knows
+  // the concrete C++ type can confirm the identity before recovering the
+  // native object.
   [[nodiscard]] std::shared_ptr<CapturedUserdataTarget>
-  Adopt(lua_State *State, int StackIndex, std::string ClassName);
+  Adopt(lua_State *State, int StackIndex, CapturedUserdataIdentity Described);
 
   std::size_t InvalidateEverything() noexcept;
 

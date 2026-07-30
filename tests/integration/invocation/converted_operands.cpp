@@ -111,6 +111,16 @@ void SetPosition(Body &Self, Vector3 Updated) {
   Self.Position = std::move(Updated);
 }
 
+// A factory whose operands are both converted values. The natural shape for
+// this boundary is "two vectors in, one instance out", and it is what used to
+// compile cleanly and then fail preparation because a construction entry never
+// staged its parameters' pending type records.
+[[nodiscard]] Body Span(Vector3 From, const Vector3 &To) {
+  Body Produced;
+  Produced.Position = Vector3{To.X - From.X, To.Y - From.Y, To.Z - From.Z};
+  return Produced;
+}
+
 [[nodiscard]] bool RegisterModel(Luna::State &Owner) {
   Luna::BindingRegistry Registry = Owner.Bindings();
   Luna::NamespaceBuilder Studio = Registry.RegisterNamespace("Studio");
@@ -123,7 +133,8 @@ void SetPosition(Body &Self, Vector3 Updated) {
   Luna::ClassBuilder<Body> &WithDot = WithProperty.Method("Dot", &Body::Dot);
   Luna::ClassBuilder<Body> &WithAdd =
       WithDot.Operator(Luna::ClassOperator::Add, &Body::DistanceTo);
-  static_cast<void>(WithAdd.QualifiedName());
+  Luna::ClassBuilder<Body> &WithFactory = WithAdd.Factory("Span", &Span);
+  static_cast<void>(WithFactory.QualifiedName());
   return Studio.Commit().IsSuccess();
 }
 
@@ -193,6 +204,27 @@ void CheckOperatorTakesConvertedOperand() {
         "every operator call and refusal restores the entry stack depth");
 }
 
+void CheckFactoryTakesConvertedOperands() {
+  Luna::State Owner;
+  Check(Owner.IsReady() && RegisterModel(Owner),
+        "a model whose factory declares converted parameters publishes");
+  const auto EntryDepth = Hooks::ObserveRootStackDepth(Owner);
+
+  Check(Succeeds(Owner, "local S = Studio.Body.Span({1, 1, 1}, {4, 5, 7})\n"
+                        "local P = S.Position\n"
+                        "assert(P[1] == 3 and P[2] == 4 and P[3] == 6)"),
+        "a factory reads two converted operands and publishes an instance");
+
+  const std::string Mistyped =
+      Refusal(Owner, "Studio.Body.Span({1, 1, 1}, {4, 5})");
+  Check(!Mistyped.empty(),
+        "a factory refuses a wrongly shaped converted operand before the "
+        "native producer runs");
+
+  Check(Hooks::ObserveRootStackDepth(Owner) == EntryDepth,
+        "every factory call and refusal restores the entry stack depth");
+}
+
 } // namespace
 
 int RunConvertedOperandTests();
@@ -201,5 +233,6 @@ int RunConvertedOperandTests() {
   FailureCount = 0;
   CheckMethodTakesSameClassOperand();
   CheckOperatorTakesConvertedOperand();
+  CheckFactoryTakesConvertedOperands();
   return FailureCount == 0 ? 0 : 1;
 }
