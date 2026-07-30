@@ -415,6 +415,15 @@ StagedMethod *FindStagedMethod(StagedClass &Declaration,
   return nullptr;
 }
 
+StagedConstant *FindStagedClassConstant(StagedClass &Declaration,
+                                        std::string_view Segment) {
+  for (StagedConstant &Staged : Declaration.Constants) {
+    if (Staged.Segment == Segment)
+      return &Staged;
+  }
+  return nullptr;
+}
+
 std::optional<ErrorDiagnostic>
 ValidateStagedMethod(const StagedClass &Class,
                      const StagedMethod &Declaration) {

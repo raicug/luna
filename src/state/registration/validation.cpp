@@ -240,6 +240,12 @@ CheckTypeAvailability(const RegistrationValidationRequest &Request,
         Subject, "the associated type",
         CanonicalTypeText(*Entry->Symbol.AssociatedType));
 
+  if (Request.DeclaredValueType != nullptr &&
+      !IsUsable(*Request.DeclaredValueType, false))
+    return UnavailableTypeDiagnostic(
+        Subject, "the declared value type",
+        CanonicalTypeText(*Request.DeclaredValueType));
+
   return std::nullopt;
 }
 

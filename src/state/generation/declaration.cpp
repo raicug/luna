@@ -174,10 +174,11 @@ private:
     case SymbolKind::Namespace:
     case SymbolKind::Class:
     case SymbolKind::Enumeration:
-    case SymbolKind::Constant:
     case SymbolKind::Module:
     case SymbolKind::Type:
       return Owner == SymbolKind::Namespace;
+    case SymbolKind::Constant:
+      return Owner == SymbolKind::Namespace || Owner == SymbolKind::Class;
     case SymbolKind::OverloadSet:
       return Owner == SymbolKind::Namespace || Owner == SymbolKind::Class;
     case SymbolKind::FunctionCandidate:
@@ -706,6 +707,9 @@ private:
     const ReflectionRecord &Record = Records[Index];
     const std::string Subject(Record.QualifiedName());
 
+    if (Record.Kind() == SymbolKind::Constant)
+      return true;
+
     if (Record.Kind() == SymbolKind::Property ||
         Record.Kind() == SymbolKind::Field) {
       std::string Element;
@@ -953,7 +957,7 @@ private:
           Out.push_back(Child);
         continue;
       }
-      if (Record.Kind() == SymbolKind::Class)
+      if (Record.Kind() == SymbolKind::Class && Kind != SymbolKind::Constant)
         continue;
       Out.push_back(Child);
     }

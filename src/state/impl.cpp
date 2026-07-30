@@ -971,6 +971,13 @@ RegistrationResult State::Impl::SubmitClassDeclaration(
     return ReportSubmissionFailure(Scope, std::move(*Diagnostic));
   static_cast<void>(Active.Append(std::move(Metatable)));
 
+  for (const Detail::StagedConstant &Member : Declaration.Constants) {
+    if (auto Result = SubmitClassConstantDeclaration(Scope, Declaration,
+                                                     ClassSymbol, Member);
+        !Result.IsSuccess())
+      return Result;
+  }
+
   for (const Detail::StagedConstruction &Member : Declaration.Constructions) {
     if (auto Result = SubmitConstructionDeclaration(Scope, Declaration,
                                                     ClassSymbol, Member);
@@ -999,6 +1006,55 @@ RegistrationResult State::Impl::SubmitClassDeclaration(
       return Result;
   }
 
+  return PrepareSubmittedDeclarations(Scope, Subject);
+}
+
+RegistrationResult State::Impl::SubmitClassConstantDeclaration(
+    const Detail::ActiveTransactionScope &Scope,
+    const Detail::StagedClass &Class, const SymbolId &ClassSymbol,
+    const Detail::StagedConstant &Declaration) {
+  Detail::RegistrationTransaction &Active = Scope.Active();
+  const std::string &Name = Declaration.QualifiedName;
+  const std::string Subject =
+      Detail::SubjectText(SymbolKindText(SymbolKind::Constant), Name);
+  const Detail::TransactionCapture &Entry = Active.Entry();
+
+  if (!Declaration.Request.IsSupported())
+    return ReportSubmissionFailure(
+        Scope, ConstantRequestDiagnostic(Subject, Declaration.Request));
+
+  const std::shared_ptr<const Detail::TypeGeneration> Types =
+      Entry.SharedGenerations()->Types();
+
+  const Detail::VmPathObservation Observed = VirtualMachine.ObserveVmPath(Name);
+  const bool UnownedPath = Observed.Exists();
+
+  Detail::DescriptorPlanEntry Candidate = Detail::MakeConstantPlanEntry(
+      Declaration, ClassSymbol, IdentityOfDescriptor(Declaration.Request.Type));
+
+  Detail::RegistrationValidationRequest Request;
+  Request.Precedence = Detail::RegistrationPrecedence::GeneralOperation;
+  Request.Name = Name;
+  Request.Entry = &Candidate;
+  Request.Category = Detail::PlanEntryKind::Value;
+  Request.SubjectKindText = SymbolKindText(SymbolKind::Constant);
+  Request.ScopeIsOwned = true;
+  Request.ScopeIsCurrent = true;
+  Request.ParentQualifiedName = Class.QualifiedName;
+  Request.VmPathIsOccupied = Bindings.Contains(Name);
+  Request.VmPathHoldsUnownedValue = UnownedPath;
+  Request.VmPathValueKindText =
+      UnownedPath ? Detail::VmValueKindText(Observed.Kind) : std::string_view();
+
+  if (auto Diagnostic =
+          Detail::ValidateRegistration(Request, Entry, Active.Symbols()))
+    return ReportSubmissionFailure(Scope, std::move(*Diagnostic));
+
+  if (auto Diagnostic = CheckDeclaredEnumeratorValue(Subject, *Types, Active,
+                                                     Declaration.Request))
+    return ReportSubmissionFailure(Scope, std::move(*Diagnostic));
+
+  static_cast<void>(Active.Append(std::move(Candidate)));
   return PrepareSubmittedDeclarations(Scope, Subject);
 }
 
@@ -1252,6 +1308,7 @@ RegistrationResult State::Impl::SubmitAccessorDeclaration(
   Request.ScopeIsOwned = true;
   Request.ScopeIsCurrent = true;
   Request.ParentQualifiedName = Class.QualifiedName;
+  Request.DeclaredValueType = &Declaration.ValueType;
 
   if (auto Diagnostic =
           Detail::ValidateRegistration(Request, Entry, Active.Symbols()))
@@ -1942,6 +1999,7 @@ void State::Impl::RecordPublishedClasses(
       Member.Change = Entry->ClassMember->Change;
       Member.ConvertedRead = Entry->ClassMember->ConvertedRead;
       Member.ConvertedWrite = Entry->ClassMember->ConvertedWrite;
+      Member.InstanceRead = Entry->ClassMember->InstanceRead;
       Owner->Members.push_back(std::move(Member));
       continue;
     }

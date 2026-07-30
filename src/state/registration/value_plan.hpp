@@ -26,15 +26,6 @@
 
 namespace Luna::Detail {
 
-struct StagedConstant final {
-  std::string Segment;
-  std::string QualifiedName;
-  ConstantRequest Request;
-  std::string Documentation;
-  std::vector<ReflectionAttributeFields> Attributes;
-  std::vector<std::string> Examples;
-};
-
 struct StagedEnumerator final {
   std::string Segment;
   std::int64_t Numeric = 0;

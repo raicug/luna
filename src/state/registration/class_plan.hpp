@@ -15,6 +15,7 @@
 #include "state/registration/operator_plan.hpp"
 #include "state/registration/plan.hpp"
 #include "state/registration/relationship_plan.hpp"
+#include "state/registration/scope_plan.hpp"
 
 #include <memory>
 #include <optional>
@@ -87,6 +88,8 @@ struct StagedClass final {
 
   std::vector<StagedMember> Members;
 
+  std::vector<StagedConstant> Constants;
+
   std::vector<StagedOperator> Operators;
 
   PlannedClassRelationships Relationships;
@@ -115,6 +118,9 @@ FindStagedConstruction(StagedClass &Declaration, std::string_view Segment);
 
 [[nodiscard]] StagedMethod *FindStagedMethod(StagedClass &Declaration,
                                              std::string_view Segment);
+
+[[nodiscard]] StagedConstant *FindStagedClassConstant(StagedClass &Declaration,
+                                                      std::string_view Segment);
 
 [[nodiscard]] DescriptorPlanEntry
 MakeOperatorPlanEntry(const StagedClass &Class,

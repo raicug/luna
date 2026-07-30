@@ -40,6 +40,8 @@ struct RegistrationValidationRequest final {
   std::string_view VmPathValueKindText;
 
   bool JoinsOverloadSet = false;
+
+  const TypeDescriptor *DeclaredValueType = nullptr;
 };
 
 [[nodiscard]] std::optional<ErrorDiagnostic>

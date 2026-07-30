@@ -176,6 +176,32 @@ MemberReadResult ReadClassMember(MemberAccessContext &Context,
     }
   }
 
+  if (Member.IsInstance()) {
+    MemberInstanceOutcome Produced;
+    try {
+      Produced = Member.InstanceRead(Receiver.Storage);
+    } catch (const std::exception &Error) {
+      return RefuseRead(
+          MemberAccessFailure::ContainedException, UserdataAccessFailure::None,
+          DescribeMemberException(Member.QualifiedName, true, Error.what()));
+    } catch (...) {
+      return RefuseRead(
+          MemberAccessFailure::ContainedException, UserdataAccessFailure::None,
+          DescribeMemberUnknownException(Member.QualifiedName, true));
+    }
+
+    if (!Produced.Succeeded || !Produced.Produced.has_value())
+      return RefuseRead(MemberAccessFailure::RefusedTarget,
+                        UserdataAccessFailure::None,
+                        DescribeMemberTargetRefusal(Member.QualifiedName, true,
+                                                    Produced.Refusal));
+
+    MemberReadResult Result;
+    Result.Failure = MemberAccessFailure::None;
+    Result.Instance = std::move(*Produced.Produced);
+    return Result;
+  }
+
   if (Member.IsConverted()) {
     if (!Member.ConvertedRead)
       return RefuseRead(

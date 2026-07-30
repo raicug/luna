@@ -18,6 +18,7 @@ int RunCanonicalIdentityEncodingTests();
 int RunCanonicalIdentityModelTests();
 int RunCanonicalIdentityVectorTests();
 int RunCacheOwnershipAndInvalidationTests();
+int RunClassConstantTests();
 int RunClassConstructionFaultTests();
 int RunClassConstructionTests();
 int RunClassMemberAccessTests();
@@ -38,6 +39,7 @@ int RunConversionRegistryIntegrationTests();
 int RunConversionReturnValidationFaultEdgeCaseTests();
 int RunConvertedOperandTests();
 int RunClassOperandTests();
+int RunInstanceMemberTests();
 int RunInstanceOperandTests();
 int RunInstanceReturnTests();
 int RunVariadicUserdataTests();
@@ -219,6 +221,10 @@ int main() {
                RunInstanceOperandTests},
       TestCase{"instance, table, and owned-pack return values",
                RunInstanceReturnTests},
+      TestCase{"registered class instances as property and field values",
+               RunInstanceMemberTests},
+      TestCase{"class-scope constants on the class table",
+               RunClassConstantTests},
       TestCase{"variadic parameters receiving userdata directly and nested "
                "inside tables",
                RunVariadicUserdataTests},

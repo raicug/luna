@@ -9,3 +9,4 @@ temp/
 *.txt
 .config*
 !CMake*.txt
+*.lua

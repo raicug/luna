@@ -712,6 +712,7 @@ void NamespaceBuilderState::StageClassAccessor(std::size_t ClassNode,
   Staging.Change = std::move(Request.Change);
   Staging.ConvertedRead = std::move(Request.ConvertedRead);
   Staging.ConvertedWrite = std::move(Request.ConvertedWrite);
+  Staging.InstanceRead = std::move(Request.InstanceRead);
   Staging.Refusal = std::move(Request.Refusal);
 
   if (auto Diagnostic = ValidateCanonicalQualifiedName(Staging.QualifiedName)) {
@@ -735,6 +736,12 @@ void NamespaceBuilderState::StageClassAccessor(std::size_t ClassNode,
     Collision.ExistingKind = SymbolKind::FunctionCandidate;
     Collision.ExistingCategory = PlanEntryKind::Function;
     Collision.ExistingIsPending = true;
+  } else if (FindStagedClassConstant(*Declaration, Staging.Segment) !=
+             nullptr) {
+    Collision.NameIsDeclared = true;
+    Collision.ExistingKind = SymbolKind::Constant;
+    Collision.ExistingCategory = PlanEntryKind::Value;
+    Collision.ExistingIsPending = true;
   }
   if (auto Diagnostic = DiagnoseMemberCollision(Collision)) {
     RecordFailure(std::move(*Diagnostic));
@@ -747,6 +754,64 @@ void NamespaceBuilderState::StageClassAccessor(std::size_t ClassNode,
   }
 
   Declaration->Members.push_back(std::move(Staging));
+}
+
+StagedConstant *
+NamespaceBuilderState::ConstantAt(StagedClass &Declaration,
+                                  std::string_view Member) noexcept {
+  return FindStagedClassConstant(Declaration, Member);
+}
+
+void NamespaceBuilderState::StageClassConstant(std::size_t ClassNode,
+                                               std::string_view Name,
+                                               ConstantRequest Request) {
+  StagedClass *Declaration = ClassAt(ClassNode);
+  if (!Declaration || !CanStage(RootScopeNode))
+    return;
+
+  if (auto Diagnostic = ValidateNamespaceSegment(Name)) {
+    RecordFailure(std::move(*Diagnostic));
+    return;
+  }
+
+  StagedConstant Staging;
+  Staging.Segment = std::string(Name);
+  Staging.QualifiedName = JoinQualifiedName(Declaration->QualifiedName, Name);
+  Staging.Request = std::move(Request);
+
+  if (auto Diagnostic = ValidateCanonicalQualifiedName(Staging.QualifiedName)) {
+    RecordFailure(std::move(*Diagnostic));
+    return;
+  }
+
+  MemberCollisionRequest Collision;
+  Collision.Segment = Staging.Segment;
+  Collision.QualifiedName = Staging.QualifiedName;
+  Collision.Kind = SymbolKind::Constant;
+  if (FindStagedClassConstant(*Declaration, Staging.Segment) != nullptr) {
+    Collision.NameIsDeclared = true;
+    Collision.ExistingKind = SymbolKind::Constant;
+    Collision.ExistingCategory = PlanEntryKind::Value;
+    Collision.ExistingIsPending = true;
+  } else if (const StagedMember *Existing =
+                 FindStagedClassMember(Declaration->Members, Staging.Segment)) {
+    Collision.NameIsDeclared = true;
+    Collision.ExistingKind = Existing->Kind;
+    Collision.ExistingCategory = PlanEntryKind::ClassMember;
+    Collision.ExistingIsPending = true;
+  } else if (FindStagedConstruction(*Declaration, Staging.Segment) != nullptr ||
+             FindStagedMethod(*Declaration, Staging.Segment) != nullptr) {
+    Collision.NameIsDeclared = true;
+    Collision.ExistingKind = SymbolKind::FunctionCandidate;
+    Collision.ExistingCategory = PlanEntryKind::Function;
+    Collision.ExistingIsPending = true;
+  }
+  if (auto Diagnostic = DiagnoseMemberCollision(Collision)) {
+    RecordFailure(std::move(*Diagnostic));
+    return;
+  }
+
+  Declaration->Constants.push_back(std::move(Staging));
 }
 
 void NamespaceBuilderState::StageClassConstruction(
@@ -881,6 +946,9 @@ NamespaceBuilderState::ClassAnnotationTarget(std::size_t ClassNode,
     return StagedAnnotationTarget{&Staged->Documentation, &Staged->Attributes,
                                   &Staged->Examples};
   if (StagedMember *Staged = AccessorAt(*Declaration, Member))
+    return StagedAnnotationTarget{&Staged->Documentation, &Staged->Attributes,
+                                  &Staged->Examples};
+  if (StagedConstant *Staged = ConstantAt(*Declaration, Member))
     return StagedAnnotationTarget{&Staged->Documentation, &Staged->Attributes,
                                   &Staged->Examples};
 
@@ -1204,6 +1272,12 @@ void ClassStaging::StageConstruction(std::string_view Name,
 void ClassStaging::StageMember(std::string_view Name, MethodRequest Request) {
   if (Plan)
     Plan->StageClassMember(Node, Name, std::move(Request));
+}
+
+void ClassStaging::StageConstant(std::string_view Name,
+                                 ConstantRequest Request) {
+  if (Plan)
+    Plan->StageClassConstant(Node, Name, std::move(Request));
 }
 
 void ClassStaging::StageAccessor(std::string_view Name, MemberRequest Request) {

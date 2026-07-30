@@ -1,12 +1,15 @@
 #pragma once
 
 // clang-format off
+#include <luna/binding/class_construction.hpp>
 #include <luna/binding/conversion.hpp>
 #include <luna/binding/value.hpp>
 
 #include <functional>
+#include <optional>
 #include <string>
 #include <string_view>
+#include <utility>
 // clang-format on
 
 namespace Luna {
@@ -250,6 +253,29 @@ using MemberConvertedReadOperation = std::function<MemberConvertedOutcome(
 
 using MemberConvertedWriteOperation = std::function<MemberConvertedOutcome(
     void *Object, Luna::ValueView Source, Luna::ConversionContext &Context)>;
+
+struct MemberInstanceOutcome final {
+  bool Succeeded = false;
+  std::optional<ConstructedInstance> Produced;
+  std::string Refusal;
+
+  [[nodiscard]] static MemberInstanceOutcome
+  Accept(ConstructedInstance Result) {
+    MemberInstanceOutcome Outcome;
+    Outcome.Succeeded = true;
+    Outcome.Produced = std::move(Result);
+    return Outcome;
+  }
+
+  [[nodiscard]] static MemberInstanceOutcome Refuse(std::string Reason) {
+    MemberInstanceOutcome Outcome;
+    Outcome.Refusal = std::move(Reason);
+    return Outcome;
+  }
+};
+
+using MemberInstanceReadOperation =
+    std::function<MemberInstanceOutcome(const void *Object)>;
 
 } // namespace Detail
 

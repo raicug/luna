@@ -135,6 +135,7 @@ DescriptorPlanEntry MakeMemberPlanEntry(const StagedMember &Declaration,
   Member.Change = Declaration.Change;
   Member.ConvertedRead = Declaration.ConvertedRead;
   Member.ConvertedWrite = Declaration.ConvertedWrite;
+  Member.InstanceRead = Declaration.InstanceRead;
   Entry.ClassMember = std::move(Member);
   return Entry;
 }
@@ -182,6 +183,13 @@ ValidateStagedMember(const StagedMember &Declaration) {
     return MalformedMetadataDiagnostic(
         Subject, "a Luna field copies its declared value across the member "
                  "boundary, so it cannot declare another ownership.");
+
+  if (Declaration.ValueType.Kind() == TypeKind::Class &&
+      (Declaration.HasWriter() || PermitsMemberWrite(Declaration.Access)))
+    return MalformedMetadataDiagnostic(
+        Subject, "a member whose value is a registered class instance "
+                 "publishes one object per read, so it is read-only; declare a "
+                 "method taking the new value instead of a setter.");
   return std::nullopt;
 }
 

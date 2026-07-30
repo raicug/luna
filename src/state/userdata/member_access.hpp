@@ -47,8 +47,14 @@ struct RegisteredMember final {
   MemberConvertedReadOperation ConvertedRead;
   MemberConvertedWriteOperation ConvertedWrite;
 
+  MemberInstanceReadOperation InstanceRead;
+
   [[nodiscard]] bool IsConverted() const noexcept {
     return ConvertedRead != nullptr || ConvertedWrite != nullptr;
+  }
+
+  [[nodiscard]] bool IsInstance() const noexcept {
+    return InstanceRead != nullptr;
   }
 
   [[nodiscard]] bool HasChangeHandler() const noexcept {
@@ -57,7 +63,8 @@ struct RegisteredMember final {
 
   [[nodiscard]] bool PermitsRead() const noexcept {
     return PermitsMemberRead(Access) &&
-           (Read != nullptr || ConvertedRead != nullptr);
+           (Read != nullptr || ConvertedRead != nullptr ||
+            InstanceRead != nullptr);
   }
 
   [[nodiscard]] bool PermitsWrite() const noexcept {
@@ -72,7 +79,7 @@ struct RegisteredMember final {
   [[nodiscard]] bool IsComplete() const noexcept {
     return Member.IsValid() && !QualifiedName.empty() && ValueType.IsValid() &&
            (Read != nullptr || Write != nullptr || ConvertedRead != nullptr ||
-            ConvertedWrite != nullptr);
+            ConvertedWrite != nullptr || InstanceRead != nullptr);
   }
 };
 
@@ -121,6 +128,8 @@ struct MemberReadResult final {
   Value Produced;
 
   std::optional<OwnedValue> ConvertedValue;
+
+  std::optional<ConstructedInstance> Instance;
 
   bool ServedFromCache = false;
 

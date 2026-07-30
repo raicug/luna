@@ -41,6 +41,28 @@ Sprites.Constructor<std::string, double, double>()
 
 An object is published only after allocation, native construction, ownership establishment, identity-cache insertion, metatable association, and protected return publication have all succeeded. Any failure performs exactly the cleanup the completed steps warrant.
 
+## Class constants
+
+`Constant` declares one immutable value on the class table itself, so a leaf value is a plain read rather than a call:
+
+```cpp
+Vectors.Constant("Dimensions", 2)
+       .Constant("xAxis", "1,0")
+       .Constant("DefaultChannel", Channel::Info, ChannelKey())
+       .Documentation("Dimensions", "How many axes one vector carries.");
+```
+
+```lua
+assert(Studio.Vector.Dimensions == 2)
+assert(Studio.Vector.DefaultChannel == Studio.Channel.Info)
+```
+
+It accepts exactly what `RegisterConstant` accepts — a `bool`, an integer in the canonical 32-bit range, a floating-point value, anything convertible to `std::string_view`, or an enum with its `StableTypeKey` — and it stages into the same class plan every other declaration of the class stages into, so it publishes with them or not at all. A constant is documented and annotated by naming it, exactly as a member is.
+
+A class constant occupies a name on the class table, so it must not collide with a member, a static method, a construction candidate, or another constant of that class. Each collision is refused transactionally with a diagnostic naming what already holds the name. Reflection publishes one `Constant` record scoped to the class, carrying its declared type and value text, and generated `.d.lua` declares it as a field of the class table rather than as a function.
+
+**Not yet available.** A constant's value is one of the canonical constant types above, so `Vector3.zero` cannot yet be a real `Vector3` instance. Publishing one interned Lua-owned instance per State is a distinct piece of work: declare a zero-argument factory or a static method until it lands.
+
 ## Ownership
 
 | Model | Who releases the object | Declared by |
@@ -128,7 +150,7 @@ A single getter means the plain read-only immediate property. A getter plus a se
 
 A field is never raw memory access. Luna generates the same getter and setter descriptors a property uses, so a field obeys its declared type, its constness, and its ownership restriction like every other member. The declared value is copied across the boundary in both directions, so no reference into an object Luna does not own can escape. `FieldPolicy` offers `ReadOnly()`, `ReadWrite()`, and `Owned(MemberOwnership)`; only `MemberOwnership::Copied` is honored, because that is the only ownership Luna can promise across the member boundary. A const-qualified data member is read-only whatever else is stated.
 
-A property or field value is one of the supported value types.
+A property or field value is one of the supported value types, a type with its own `Luna::TypeConverter<T>`, or a registered class instance.
 
 ### Reacting to a write
 
@@ -159,6 +181,42 @@ Studio.RegisterClass<Body>("Body", BodyKey())
 ```
 
 The getter and setter, or the field itself, still declare their native C++ type exactly as they would for a scalar member — `Vector3 GetPosition() const`, `void SetPosition(Vector3)`, `Vector3 Velocity`. Reading the member runs the value type's `Write`; writing it runs the value type's `Read`; both go through the identical probe/read/write boundary a converted parameter or return value uses, so a converted member gets the same diagnostics, the same reservation discipline, and the same atomicity guarantees. A getter or setter whose value type declares no `Luna::TypeConverter<T>` specialization is refused at compile time, the same way an unsupported scalar type is. `Property<Value>` and `Field<Value>` accept the same policy and getter/setter-shape overloads their scalar counterparts do. Two differences are worth knowing: an on-change callback is scalar-only, and a converted read runs on every access even under `Lazy()`, because a lazily cached value is one of the four supported value types.
+
+### Instance values
+
+A property or field value may be a **registered class instance**, so a derived object reaches a script as typed userdata rather than as a table or a call. The value type is inferred from the accessor's own declared return type — exactly the way an instance operand and an instance result are — so no explicit template argument names it:
+
+```cpp
+Vectors.Property("Unit", &Vector3::Unit)
+       .Property("Magnitude", &Vector3::Magnitude);
+
+Bodies.Field("Position", &Body::Position)
+      .Property("Anchor", &Body::Anchor)
+      .Property("Service", &Body::Service,
+                Luna::OwnershipPolicy::Borrowed(HostLifetime));
+```
+
+```lua
+local U = V.Unit                 -- userdata, not a table
+assert(U.X == 0.6)
+local http = Part.Service        -- the host's own object, borrowed
+```
+
+Inference is what tells the two member value kinds apart when a type is both a registered class and conversion-capable. A plain `Property`/`Field` publishes the instance, because the accessor's own type names a registered class; `Property<Value>`/`Field<Value>`, which names the value type explicitly, still publishes the converted form. So one type can reach a script as userdata through one member and as a table through another, and each member says which it means at its declaration.
+
+The three ownership models are the ones an instance result already declares, and a member states them the same way:
+
+| Declared value | Ownership | Declaration |
+|---|---|---|
+| `T` by value — a getter returning `T`, or a data member of type `T` | one Lua-owned copy per read | nothing extra |
+| `std::shared_ptr<T>` | shared | nothing extra |
+| `T *` | borrowed | `OwnershipPolicy::Borrowed(Lifetime)` |
+
+A by-value member publishes a copy, so writing the published object never reaches the owner's storage; a borrowed member publishes the owner's own object, so a write through it is observed by the next read. A pointer-valued member declared without a lifetime is refused at registration, as a borrowed result is, and the class whose instance a member publishes has to be registered before the member is declared — the same staging-order rule instance operands follow.
+
+**Current limitation.** An instance-valued member is **read-only**. A read publishes one object, and a write would have to decide whether it replaces the owner's value or mutates the published one, so `Property` with a setter, and a writable instance `Field`, are refused at registration with a diagnostic naming the limitation. Declare a method taking the new value — `Body:Move(Vector3)` — until writes land. A read also runs on every access even under `PropertyPolicy::Lazy()`, because a lazily cached value is one of the four supported value types.
+
+Two objects still must not share one native address. A borrowed member pointing at a data member at offset zero of its owner names the same address the owner's own userdata does; Luna keys userdata identity by address, so that read is refused deterministically at the moment it is published rather than aliasing the owner. The collision is only visible once an address is known, so it is a read-time refusal, not a registration-time one.
 
 ## Inheritance and casts
 
@@ -278,6 +336,30 @@ The operand's class identity comes from what `RegisterClass<T>` recorded for tha
 A mutable operand — `T &` or `T *` — requires a mutable instance, exactly as a non-const receiver does; a `const` spelling accepts either. Every operand passes the receiver gate before the native target runs, so origin State, metatable identity, payload liveness, borrowed lifetime, dynamic type, and const permission all produce a receiver-quality refusal at the operand's own position. An operand of the wrong class, a scalar, or an omitted operand is a caller error.
 
 One ordering rule applies: a plan is validated entry by entry in staging order, so a class has to be registered before a member that takes one of its instances is declared. Declaring them the other way round is refused with a diagnostic naming the operand position and the unregistered class.
+
+*Registered* means `RegisterClass<T>` has already been staged, not that it has already committed. Both of these satisfy the rule:
+
+- the class was registered by an earlier transaction and is committed, or
+- the class was staged earlier in the same pending plan — `RegisterClass` before the declaration that names it, with one `Commit` publishing both.
+
+A class staged *later* in the same plan does not: a forward reference inside one plan is refused, so declare the operand class first when you split a surface across one chain.
+
+A class **taking its own instances** always satisfies the rule, and it is the shape a math type needs most. `RegisterClass<T>` records the class ahead of everything the chain declares for it, so a method, an operator, a constructor, and a factory may all take `T` in the very chain that registers `T`:
+
+```cpp
+Luna::ClassBuilder<Vector3> Vectors =
+    Studio.RegisterClass<Vector3>("Vector3", Vector3Key());
+Vectors.Constructor<double, double, double>()
+    .Method("Dot", &Vector3::Dot)            // double(const Vector3 &)
+    .Method("Cross", &Vector3::Cross)        // Vector3(const Vector3 &)
+    .Operator(Luna::ClassOperator::Add, &Vector3::Plus)
+    .Factory("Between", &Vector3::Between);  // Vector3(const Vector3 &, const Vector3 &)
+```
+
+```lua
+local A, B = Studio.Vector3.New(3, 4, 0), Studio.Vector3.New(1, 0, 0)
+print(A:Dot(B), (A + B).X, Studio.Vector3.Between(A, B).X)
+```
 
 ### Converted operands carrying instances
 

@@ -1,6 +1,7 @@
 #pragma once
 
 // clang-format off
+#include <luna/binding/constant_value.hpp>
 #include <luna/reflection/ids.hpp>
 
 #include "state/identity/symbol_descriptor.hpp"
@@ -21,6 +22,15 @@ struct StagedNamespace final {
   std::string Segment;
   std::string QualifiedName;
 
+  std::string Documentation;
+  std::vector<ReflectionAttributeFields> Attributes;
+  std::vector<std::string> Examples;
+};
+
+struct StagedConstant final {
+  std::string Segment;
+  std::string QualifiedName;
+  ConstantRequest Request;
   std::string Documentation;
   std::vector<ReflectionAttributeFields> Attributes;
   std::vector<std::string> Examples;

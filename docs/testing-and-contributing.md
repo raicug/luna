@@ -65,7 +65,7 @@ Delegates and signals are available: `Delegate<Signature>` is an ordinary reflec
 
 Generic-for iteration of a class is available through the `Iterate` operator, whose target is one step of the loop rather than an iterator object. Enumerator objects are available through `EnumBuilder::AsObjects()`, which publishes each enumerator as one interned userdata value instead of its bare number; generated Luau declarations still describe such an enumerator by its numeric value.
 
-A registered class is both an operand and a result type. A class opts in with `Luna::RegisteredClassTrait`, after which `T`, `const T &`, `T &`, `T *`, and `const T *` name an instance operand of any registered class, and `T`, `std::shared_ptr<T>`, and a borrowed `T *` name an instance result of a method, static method, or operator. A class must be registered before a member naming it is declared, because a plan is validated in staging order. `OwnedValue` and `ValuePack` are result types too, which is how a table crosses the boundary; `ReturnPack` stays scalar-only.
+A registered class is an operand type, a result type, and a member value type. A class opts in with `Luna::RegisteredClassTrait`, after which `T`, `const T &`, `T &`, `T *`, and `const T *` name an instance operand of any registered class; `T`, `std::shared_ptr<T>`, and a borrowed `T *` name an instance result of a method, static method, or operator; and the same three shapes name a read-only property or field value, inferred from the accessor's own return type. A class must be staged before a member naming it is declared — committed earlier, or registered earlier in the same pending plan — because a plan is validated in staging order, and a class taking or publishing its own instances always qualifies. `OwnedValue` and `ValuePack` are result types too, which is how a table crosses the boundary; `ReturnPack` stays scalar-only. `ClassBuilder::Constant` publishes an immutable scalar value on the class table itself.
 
 Not implemented at all, and absent rather than partial:
 
@@ -73,7 +73,7 @@ Not implemented at all, and absent rather than partial:
 
 IDE, autocomplete, debug-UI, and profiling integrations are available: `InstallProfilingHook` reports every invocation stage using the same canonical `SymbolId`/`TypeId` reflection publishes, runs on the owner thread only after Luna has already decided the outcome, and contains and uninstalls a hook that throws.
 
-Limitations of the shipped surface are documented where they bite: a converted *return* value cannot be published, generated declarations describe an enumerator by its numeric value, and inherited *fields* are not reachable through a derived class.
+Limitations of the shipped surface are documented where they bite: a converted *return* value cannot be published, an instance-valued member is read-only, a class constant carries one of the canonical constant types rather than a class instance, generated declarations describe an enumerator by its numeric value, and inherited *fields* are not reachable through a derived class.
 
 ---
 

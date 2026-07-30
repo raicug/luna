@@ -101,7 +101,8 @@ bool DescriptorPlanEntry::IsValid() const {
     return Record.has_value() && ClassMember.has_value() &&
            (ClassMember->Read != nullptr || ClassMember->Write != nullptr ||
             ClassMember->ConvertedRead != nullptr ||
-            ClassMember->ConvertedWrite != nullptr);
+            ClassMember->ConvertedWrite != nullptr ||
+            ClassMember->InstanceRead != nullptr);
   default:
     return true;
   }

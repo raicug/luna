@@ -11,6 +11,7 @@
 #include "state/userdata/access.hpp"
 #include "state/userdata/class_operators.hpp"
 #include "state/userdata/class_registry.hpp"
+#include "state/userdata/construction.hpp"
 #include "state/userdata/exposure.hpp"
 #include "state/userdata/header.hpp"
 #include "state/userdata/member_access.hpp"
@@ -241,8 +242,18 @@ AccessContextFor(const ResolvedMember &Resolved) {
                             StateFaultPoint::MemberValuePublication);
 
   bool Published = false;
+  std::string InstanceRefusal;
   if (!Injected) {
-    if (Resolved.Member->IsConverted()) {
+    if (Resolved.Member->IsInstance()) {
+      if (Read.Instance.has_value() && lua_checkstack(State, 2)) {
+        const InstancePublication Instance = PublishConstructedInstance(
+            State, *Resolved.Types, Resolved.Member->ValueDescriptor.Key(),
+            *Read.Instance);
+        Published = Instance.IsSuccess() && Instance.PublishedCount == 1;
+        if (!Published)
+          InstanceRefusal = Instance.Diagnostic;
+      }
+    } else if (Resolved.Member->IsConverted()) {
       Published = Read.ConvertedValue.has_value() && lua_checkstack(State, 2) &&
                   PushOwnedValueToStack(State, *Read.ConvertedValue);
     } else {
@@ -259,9 +270,14 @@ AccessContextFor(const ResolvedMember &Resolved) {
     Observed.Boundary = Read.ServedFromCache
                             ? MemberSideEffectBoundary::BeforeUserCode
                             : MemberSideEffectBoundary::AfterUserCode;
-    Observed.Diagnostic = DescribeMemberPublicationRefusal(
-        Resolved.Member->QualifiedName,
-        Declared.empty() ? std::string("its declared type") : Declared);
+    Observed.Diagnostic =
+        InstanceRefusal.empty()
+            ? DescribeMemberPublicationRefusal(
+                  Resolved.Member->QualifiedName,
+                  Declared.empty() ? std::string("its declared type")
+                                   : Declared)
+            : DescribeMemberTargetRefusal(Resolved.Member->QualifiedName, true,
+                                          InstanceRefusal);
     return Observed;
   }
 

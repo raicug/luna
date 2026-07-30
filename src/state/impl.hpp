@@ -292,6 +292,12 @@ private:
                           const Detail::RelationshipCandidate &Relationships);
 
   [[nodiscard]] RegistrationResult
+  SubmitClassConstantDeclaration(const Detail::ActiveTransactionScope &Scope,
+                                 const Detail::StagedClass &Class,
+                                 const SymbolId &ClassSymbol,
+                                 const Detail::StagedConstant &Declaration);
+
+  [[nodiscard]] RegistrationResult
   SubmitAccessorDeclaration(const Detail::ActiveTransactionScope &Scope,
                             const Detail::StagedClass &Class,
                             const SymbolId &ClassSymbol,

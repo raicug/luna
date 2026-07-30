@@ -298,27 +298,6 @@ private:
   OwnershipPolicy PolicyValue = UndeclaredOwnershipPolicy();
 };
 
-template <class Return>
-[[nodiscard]] std::string
-ClassifyInstanceReturnPolicy(const OwnershipPolicy &Declared) {
-  if constexpr (IsInstanceReturnType<Return>) {
-    if constexpr (InstanceReturnTrait<Return>::RequiresLifetime) {
-      if (Declared.Ownership() != ConstructionOwnership::Borrowed ||
-          !Declared.IsCoherent())
-        return "returning a class instance by pointer is a borrowed result, so "
-               "the declaration states Luna::OwnershipPolicy::Borrowed with "
-               "one declared lifetime.";
-      return std::string();
-    } else if (Declared.Lifetime().IsDeclared()) {
-      return "a lifetime is declared for a result that is not borrowed; only a "
-             "pointer result borrows.";
-    }
-  } else {
-    static_cast<void>(Declared);
-  }
-  return std::string();
-}
-
 template <class Type, class Shape, class Signature>
 struct MethodCandidateBuilder;
 

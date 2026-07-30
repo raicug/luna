@@ -1,14 +1,17 @@
 #pragma once
 
 // clang-format off
+#include <luna/binding/class_construction.hpp>
 #include <luna/binding/class_member.hpp>
 #include <luna/binding/supported_callable.hpp>
 #include <luna/binding/value.hpp>
+#include <luna/detail/callable_adapter.hpp>
 #include <luna/detail/canonical_type.hpp>
 #include <luna/reflection/ids.hpp>
 #include <luna/type/stable_type_key.hpp>
 #include <luna/type/type_descriptor.hpp>
 
+#include <memory>
 #include <string>
 #include <type_traits>
 #include <utility>
@@ -35,10 +38,13 @@ struct MemberRequest final {
   MemberConvertedReadOperation ConvertedRead;
   MemberConvertedWriteOperation ConvertedWrite;
 
+  MemberInstanceReadOperation InstanceRead;
+
   std::string Refusal;
 
   [[nodiscard]] bool HasReader() const noexcept {
-    return Read != nullptr || ConvertedRead != nullptr;
+    return Read != nullptr || ConvertedRead != nullptr ||
+           InstanceRead != nullptr;
   }
   [[nodiscard]] bool HasWriter() const noexcept {
     return Write != nullptr || ConvertedWrite != nullptr;
@@ -189,6 +195,14 @@ inline constexpr bool IsConvertedMemberValue =
     !SupportedValue<Declared> && std::is_class_v<Declared> &&
     ConversionCapable<Declared>;
 
+template <class Declared>
+inline constexpr bool IsInstanceMemberValue = IsInstanceReturnType<Declared>;
+
+inline constexpr std::string_view WritableInstanceMemberRefusal =
+    "a member whose value is a registered class instance publishes one object "
+    "per read, so it is read-only; declare a method taking the new value "
+    "instead of a setter.";
+
 [[nodiscard]] inline StableTypeKey
 SyntheticConvertedValueKey(const StableTypeKey &ClassKey,
                            std::string_view MemberName) {
@@ -203,6 +217,15 @@ MemberValueDescriptor(const StableTypeKey &ConvertedKey = StableTypeKey()) {
     return CanonicalDescriptorFor<Declared>();
   else if constexpr (IsConvertedMemberValue<Declared>)
     return TypeDescriptor::ForConverted(ConvertedKey);
+  else
+    return TypeDescriptor::Unsupported();
+}
+
+template <class Declared>
+[[nodiscard]] inline TypeDescriptor InstanceMemberValueDescriptor() {
+  if constexpr (IsInstanceMemberValue<Declared>)
+    return TypeDescriptor::ForClass(
+        RecordedClassKey<typename InstanceReturnTrait<Declared>::Native>());
   else
     return TypeDescriptor::Unsupported();
 }
@@ -223,6 +246,38 @@ template <class Class, class Target>
       return MemberReadOutcome::Refuse(
           "the generated getter received no native object.");
     return MemberReadOutcome::Accept(Value(Shape::Read(Object, Accessor)));
+  };
+}
+
+template <class Class, class Target>
+[[nodiscard]] MemberInstanceReadOperation
+MakeMemberInstanceReader(Target Accessor, OwnershipPolicy Declared) {
+  using Shape = MemberReadShape<Class, Target>;
+  static_assert(Shape::IsSupported,
+                "A Luna property or field getter is a const or non-const "
+                "accessor of the class, a data member of it, or a callable "
+                "taking the class and returning one value type.");
+  using Produced = typename Shape::Declared;
+  static_assert(IsInstanceMemberValue<Produced>,
+                "An instance property or field publishes one registered class "
+                "instance: the class itself, a std::shared_ptr to it, or a "
+                "borrowed pointer to it.");
+
+  return [Accessor,
+          Declared](const void *Object) mutable -> MemberInstanceOutcome {
+    if (Object == nullptr)
+      return MemberInstanceOutcome::Refuse(
+          "the generated getter received no native object.");
+    Produced Value = Shape::Read(Object, Accessor);
+    if constexpr (std::is_pointer_v<Produced> ||
+                  !std::is_same_v<Produced, typename InstanceReturnTrait<
+                                                Produced>::Native>) {
+      if (!Value)
+        return MemberInstanceOutcome::Refuse(
+            "the generated getter produced no object.");
+    }
+    return MemberInstanceOutcome::Accept(
+        AdoptInstanceReturn<Produced>(std::move(Value), Declared));
   };
 }
 
@@ -341,6 +396,18 @@ ClassifyPropertyPolicy(const PropertyPolicy &Policy, bool HasReader,
   return std::string();
 }
 
+template <class Produced>
+[[nodiscard]] inline std::string
+ClassifyInstancePropertyPolicy(const PropertyPolicy &Policy,
+                               const OwnershipPolicy &Ownership) {
+  if (Policy.PermitsWrite())
+    return std::string(WritableInstanceMemberRefusal);
+  if (std::string Refused = ClassifyPropertyPolicy(Policy, true, false);
+      !Refused.empty())
+    return Refused;
+  return ClassifyInstanceReturnPolicy<Produced>(Ownership);
+}
+
 [[nodiscard]] inline std::string
 ClassifyFieldPolicy(const FieldPolicy &Policy) {
   if (!Policy.IsCoherent())
@@ -352,20 +419,32 @@ ClassifyFieldPolicy(const FieldPolicy &Policy) {
 }
 
 template <class Class, class Getter>
-[[nodiscard]] MemberRequest
-MakeReadablePropertyRequest(const StableTypeKey &Key,
-                            const PropertyPolicy &Policy, Getter Accessor) {
+[[nodiscard]] MemberRequest MakeReadablePropertyRequest(
+    const StableTypeKey &Key, const PropertyPolicy &Policy, Getter Accessor,
+    OwnershipPolicy Ownership = UndeclaredOwnershipPolicy()) {
   using Shape = MemberReadShape<Class, Getter>;
+  using Produced = typename Shape::Declared;
 
   MemberRequest Request;
   Request.Kind = SymbolKind::Property;
   Request.Access = Policy.Access();
   Request.Evaluation = Policy.Evaluation();
   Request.ReceiverType = TypeDescriptor::ForClass(Key);
-  Request.ValueType = MemberValueDescriptor<typename Shape::Declared>();
   Request.ReadRequiresMutableReceiver = Shape::RequiresMutableReceiver;
-  Request.Read = MakeMemberReader<Class, Getter>(std::move(Accessor));
-  Request.Refusal = ClassifyPropertyPolicy(Policy, true, false);
+
+  if constexpr (IsInstanceMemberValue<Produced>) {
+    Request.Access = MemberAccess::ReadOnly;
+    Request.ValueType = InstanceMemberValueDescriptor<Produced>();
+    Request.InstanceRead =
+        MakeMemberInstanceReader<Class, Getter>(std::move(Accessor), Ownership);
+    Request.Refusal =
+        ClassifyInstancePropertyPolicy<Produced>(Policy, Ownership);
+  } else {
+    static_cast<void>(Ownership);
+    Request.ValueType = MemberValueDescriptor<Produced>();
+    Request.Read = MakeMemberReader<Class, Getter>(std::move(Accessor));
+    Request.Refusal = ClassifyPropertyPolicy(Policy, true, false);
+  }
   return Request;
 }
 
@@ -438,22 +517,33 @@ template <class Class, class Getter, class Setter>
 MakePropertyRequest(const StableTypeKey &Key, const PropertyPolicy &Policy,
                     Getter Accessor, Setter Mutator) {
   using ReadShape = MemberReadShape<Class, Getter>;
-  using WriteShape = MemberWriteShape<Class, Setter>;
-  static_assert(std::is_same_v<typename ReadShape::Declared,
-                               typename WriteShape::Declared>,
-                "A Luna read-write property declares one value type for both "
-                "its getter and its setter.");
+  using Produced = typename ReadShape::Declared;
 
   MemberRequest Request;
   Request.Kind = SymbolKind::Property;
   Request.Access = Policy.Access();
   Request.Evaluation = Policy.Evaluation();
   Request.ReceiverType = TypeDescriptor::ForClass(Key);
-  Request.ValueType = MemberValueDescriptor<typename ReadShape::Declared>();
   Request.ReadRequiresMutableReceiver = ReadShape::RequiresMutableReceiver;
-  Request.Read = MakeMemberReader<Class, Getter>(std::move(Accessor));
-  Request.Write = MakeMemberWriter<Class, Setter>(std::move(Mutator));
-  Request.Refusal = ClassifyPropertyPolicy(Policy, true, true);
+
+  if constexpr (IsInstanceMemberValue<Produced>) {
+    static_cast<void>(Mutator);
+    Request.Access = MemberAccess::ReadOnly;
+    Request.ValueType = InstanceMemberValueDescriptor<Produced>();
+    Request.InstanceRead = MakeMemberInstanceReader<Class, Getter>(
+        std::move(Accessor), UndeclaredOwnershipPolicy());
+    Request.Refusal = std::string(WritableInstanceMemberRefusal);
+  } else {
+    using WriteShape = MemberWriteShape<Class, Setter>;
+    static_assert(std::is_same_v<Produced, typename WriteShape::Declared>,
+                  "A Luna read-write property declares one value type for both "
+                  "its getter and its setter.");
+
+    Request.ValueType = MemberValueDescriptor<Produced>();
+    Request.Read = MakeMemberReader<Class, Getter>(std::move(Accessor));
+    Request.Write = MakeMemberWriter<Class, Setter>(std::move(Mutator));
+    Request.Refusal = ClassifyPropertyPolicy(Policy, true, true);
+  }
   return Request;
 }
 
@@ -493,58 +583,88 @@ template <class Class, class Getter, class Setter, class OnChange>
 [[nodiscard]] MemberRequest
 MakePropertyRequest(const StableTypeKey &Key, const PropertyPolicy &Policy,
                     Getter Accessor, Setter Mutator, OnChange Handler) {
-  using WriteShape = MemberWriteShape<Class, Setter>;
-
   MemberRequest Request = MakePropertyRequest<Class, Getter, Setter>(
       Key, Policy, std::move(Accessor), std::move(Mutator));
-  Request.Change =
-      MakeMemberChangeHandler<Class, typename WriteShape::Declared>(
-          std::move(Handler));
+
+  if constexpr (IsInstanceMemberValue<
+                    typename MemberReadShape<Class, Getter>::Declared>) {
+    static_cast<void>(Handler);
+  } else {
+    using WriteShape = MemberWriteShape<Class, Setter>;
+    Request.Change =
+        MakeMemberChangeHandler<Class, typename WriteShape::Declared>(
+            std::move(Handler));
+  }
   return Request;
 }
 
 template <class Class, class Held>
-[[nodiscard]] MemberRequest MakeFieldRequest(const StableTypeKey &Key,
-                                             const FieldPolicy &Policy,
-                                             Held Class::*Member) {
+[[nodiscard]] MemberRequest
+MakeFieldRequest(const StableTypeKey &Key, const FieldPolicy &Policy,
+                 Held Class::*Member,
+                 OwnershipPolicy Ownership = UndeclaredOwnershipPolicy()) {
   using Pointer = Held Class::*;
   using ReadShape = MemberReadShape<Class, Pointer>;
-  constexpr bool IsWritable =
-      !std::is_const_v<Held> && MemberWriteShape<Class, Pointer>::IsSupported;
+  using Produced = typename ReadShape::Declared;
 
   MemberRequest Request;
   Request.Kind = SymbolKind::Field;
   Request.Evaluation = PropertyEvaluation::Immediate;
   Request.Ownership = Policy.Ownership();
   Request.ReceiverType = TypeDescriptor::ForClass(Key);
-  Request.ValueType = MemberValueDescriptor<typename ReadShape::Declared>();
-  Request.Read = MakeMemberReader<Class, Pointer>(Member);
 
-  const bool PermitsWrite = Policy.PermitsWrite() && IsWritable;
-  Request.Access =
-      PermitsWrite ? MemberAccess::ReadWrite : MemberAccess::ReadOnly;
-  if constexpr (IsWritable) {
-    if (PermitsWrite)
-      Request.Write = MakeMemberWriter<Class, Pointer>(Member);
+  if constexpr (IsInstanceMemberValue<Produced>) {
+    Request.Access = MemberAccess::ReadOnly;
+    Request.ValueType = InstanceMemberValueDescriptor<Produced>();
+    Request.InstanceRead =
+        MakeMemberInstanceReader<Class, Pointer>(Member, Ownership);
+    Request.Refusal = ClassifyFieldPolicy(Policy);
+    if (Request.Refusal.empty())
+      Request.Refusal = ClassifyInstanceReturnPolicy<Produced>(Ownership);
+    if (Request.Refusal.empty() && Policy.DeclaresDirection() &&
+        Policy.PermitsWrite())
+      Request.Refusal = std::string(WritableInstanceMemberRefusal);
+    return Request;
+  } else {
+    static_cast<void>(Ownership);
+    constexpr bool IsWritable =
+        !std::is_const_v<Held> && MemberWriteShape<Class, Pointer>::IsSupported;
+
+    Request.ValueType = MemberValueDescriptor<Produced>();
+    Request.Read = MakeMemberReader<Class, Pointer>(Member);
+
+    const bool PermitsWrite = Policy.PermitsWrite() && IsWritable;
+    Request.Access =
+        PermitsWrite ? MemberAccess::ReadWrite : MemberAccess::ReadOnly;
+    if constexpr (IsWritable) {
+      if (PermitsWrite)
+        Request.Write = MakeMemberWriter<Class, Pointer>(Member);
+    }
+
+    Request.Refusal = ClassifyFieldPolicy(Policy);
+
+    if (Request.Refusal.empty() && Policy.DeclaresDirection() &&
+        Policy.PermitsWrite() && !IsWritable)
+      Request.Refusal = "this field is declared const, so it can never be "
+                        "written through.";
+    return Request;
   }
-
-  Request.Refusal = ClassifyFieldPolicy(Policy);
-
-  if (Request.Refusal.empty() && Policy.DeclaresDirection() &&
-      Policy.PermitsWrite() && !IsWritable)
-    Request.Refusal = "this field is declared const, so it can never be "
-                      "written through.";
-  return Request;
 }
 
 template <class Class, class Held, class OnChange>
+  requires(!std::is_same_v<std::decay_t<OnChange>, OwnershipPolicy>)
 [[nodiscard]] MemberRequest
 MakeFieldRequest(const StableTypeKey &Key, const FieldPolicy &Policy,
                  Held Class::*Member, OnChange Handler) {
   MemberRequest Request = MakeFieldRequest<Class, Held>(Key, Policy, Member);
-  if (Request.HasWriter())
+
+  if constexpr (IsInstanceMemberValue<std::remove_cv_t<Held>>) {
+    static_cast<void>(Handler);
+    Request.Refusal = std::string(WritableInstanceMemberRefusal);
+  } else if (Request.HasWriter()) {
     Request.Change = MakeMemberChangeHandler<Class, std::remove_cv_t<Held>>(
         std::move(Handler));
+  }
   return Request;
 }
 

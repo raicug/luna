@@ -44,6 +44,8 @@ struct StagedMember final {
   MemberConvertedReadOperation ConvertedRead;
   MemberConvertedWriteOperation ConvertedWrite;
 
+  MemberInstanceReadOperation InstanceRead;
+
   std::string Refusal;
 
   std::string Documentation;
@@ -51,7 +53,8 @@ struct StagedMember final {
   std::vector<std::string> Examples;
 
   [[nodiscard]] bool HasReader() const noexcept {
-    return Read != nullptr || ConvertedRead != nullptr;
+    return Read != nullptr || ConvertedRead != nullptr ||
+           InstanceRead != nullptr;
   }
   [[nodiscard]] bool HasWriter() const noexcept {
     return Write != nullptr || ConvertedWrite != nullptr;

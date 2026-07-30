@@ -25,6 +25,31 @@ struct Bead final {
   int Weight = 0;
 };
 
+struct Point final {
+  double X = 0.0;
+  double Y = 0.0;
+
+  [[nodiscard]] double Dot(const Point &Other) const {
+    return X * Other.X + Y * Other.Y;
+  }
+
+  [[nodiscard]] Point Plus(const Point &Other) const {
+    return Point{X + Other.X, Y + Other.Y};
+  }
+
+  [[nodiscard]] static Point Between(const Point &First, const Point &Second) {
+    return Point{(First.X + Second.X) / 2.0, (First.Y + Second.Y) / 2.0};
+  }
+};
+
+struct Trailing final {
+  int Weight = 0;
+};
+
+struct Leading final {
+  [[nodiscard]] int Take(const Trailing &Other) const { return Other.Weight; }
+};
+
 struct Slot final {
   int Total = 0;
 
@@ -47,6 +72,9 @@ struct Slot final {
 } // namespace
 
 template <> struct Luna::RegisteredClassTrait<Bead> : std::true_type {};
+template <> struct Luna::RegisteredClassTrait<Leading> : std::true_type {};
+template <> struct Luna::RegisteredClassTrait<Point> : std::true_type {};
+template <> struct Luna::RegisteredClassTrait<Trailing> : std::true_type {};
 template <> struct Luna::RegisteredClassTrait<Slot> : std::true_type {};
 
 namespace {
@@ -177,15 +205,115 @@ void CheckWrongOperandIsRefused() {
         "every refusal restores the entry stack depth");
 }
 
+void CheckSelfReferentialDeclarationsInOneChain() {
+  Luna::State Owner;
+  Check(Owner.IsReady(), "the state is ready");
+
+  Luna::BindingRegistry Registry = Owner.Bindings();
+  Luna::NamespaceBuilder Studio = Registry.RegisterNamespace("Studio");
+
+  Luna::ClassBuilder<Point> Points = Studio.RegisterClass<Point>(
+      "Point", Luna::StableTypeKey("Studio.OperandPoint"));
+  Luna::ClassBuilder<Point> &Declared =
+      Points.Constructor<double, double>()
+          .Constructor<Point>("Copy")
+          .Field("X", &Point::X)
+          .Field("Y", &Point::Y)
+          .Method("Dot", &Point::Dot)
+          .Operator(Luna::ClassOperator::Add, &Point::Plus)
+          .Factory("Between", &Point::Between);
+  static_cast<void>(Declared.QualifiedName());
+
+  const Luna::RegistrationResult Committed = Studio.Commit();
+  Check(Committed.IsSuccess(),
+        "a class declares a method, an operator, a constructor, and a factory "
+        "taking its own instances in the chain that registers it");
+  if (!Committed.IsSuccess()) {
+    if (const Luna::ErrorDiagnostic *Diagnostic = Committed.Diagnostic())
+      std::cerr << "self-referential model refused: " << Diagnostic->Message()
+                << '\n';
+    return;
+  }
+
+  Check(Succeeds(Owner, "local A = Studio.Point.New(3, 4)\n"
+                        "local B = Studio.Point.New(1, 0)\n"
+                        "assert(A:Dot(B) == 3)"),
+        "a method resolves an operand of its own class at run time");
+  Check(Succeeds(Owner, "local A = Studio.Point.New(3, 4)\n"
+                        "local B = Studio.Point.New(1, 2)\n"
+                        "local S = A + B\n"
+                        "assert(S.X == 4 and S.Y == 6)"),
+        "an operator takes and publishes its own class");
+  Check(Succeeds(Owner, "local A = Studio.Point.New(2, 2)\n"
+                        "local B = Studio.Point.New(4, 6)\n"
+                        "local M = Studio.Point.Between(A, B)\n"
+                        "assert(M.X == 3 and M.Y == 4)"),
+        "a factory takes two operands of the class it constructs");
+  Check(Succeeds(Owner, "local A = Studio.Point.New(5, 6)\n"
+                        "local C = Studio.Point.Copy(A)\n"
+                        "assert(C.X == 5 and C.Y == 6)\n"
+                        "C.X = 9\n"
+                        "assert(A.X == 5)"),
+        "a constructor takes one instance of its own class by value");
+}
+
+void CheckStagingOrderWithinOnePlan() {
+  {
+    Luna::State Owner;
+    Check(Owner.IsReady(), "the state is ready");
+    Luna::BindingRegistry Registry = Owner.Bindings();
+    Luna::NamespaceBuilder Studio = Registry.RegisterNamespace("Studio");
+
+    Luna::ClassBuilder<Leading> Leaders = Studio.RegisterClass<Leading>(
+        "Leading", Luna::StableTypeKey("Studio.OperandLeading"));
+    static_cast<void>(Leaders.Constructor<>().Method("Take", &Leading::Take));
+
+    Luna::ClassBuilder<Trailing> Trailers = Studio.RegisterClass<Trailing>(
+        "Trailing", Luna::StableTypeKey("Studio.OperandTrailing"));
+    static_cast<void>(
+        Trailers.Constructor<>().Field("Weight", &Trailing::Weight));
+
+    Check(!Studio.Commit().IsSuccess(),
+          "an operand class staged later in the same plan is refused, because "
+          "a plan is validated in staging order");
+  }
+
+  Luna::State Owner;
+  Check(Owner.IsReady(), "the state is ready");
+  Luna::BindingRegistry Registry = Owner.Bindings();
+  Luna::NamespaceBuilder Studio = Registry.RegisterNamespace("Studio");
+
+  Luna::ClassBuilder<Trailing> Trailers = Studio.RegisterClass<Trailing>(
+      "Trailing", Luna::StableTypeKey("Studio.OperandTrailing"));
+  static_cast<void>(
+      Trailers.Constructor<>().Field("Weight", &Trailing::Weight));
+
+  Luna::ClassBuilder<Leading> Leaders = Studio.RegisterClass<Leading>(
+      "Leading", Luna::StableTypeKey("Studio.OperandLeading"));
+  static_cast<void>(Leaders.Constructor<>().Method("Take", &Leading::Take));
+
+  Check(
+      Studio.Commit().IsSuccess(),
+      "an operand class staged earlier in the same plan is accepted before it "
+      "commits");
+  Check(Succeeds(Owner, "local L = Studio.Leading.New()\n"
+                        "local T = Studio.Trailing.New()\n"
+                        "T.Weight = 6\n"
+                        "assert(L:Take(T) == 6)"),
+        "the operand resolves at run time once the plan commits");
+}
+
 } // namespace
 
 int RunInstanceOperandTests();
 
 int RunInstanceOperandTests() {
   FailureCount = 0;
+  CheckStagingOrderWithinOnePlan();
   CheckCrossClassOperand();
   CheckSameClassOperandAndOperator();
   CheckMutableOperandWrites();
   CheckWrongOperandIsRefused();
+  CheckSelfReferentialDeclarationsInOneChain();
   return FailureCount == 0 ? 0 : 1;
 }

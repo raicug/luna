@@ -159,6 +159,9 @@ public:
   void StageClassAccessor(std::size_t ClassNode, std::string_view Name,
                           MemberRequest Request);
 
+  void StageClassConstant(std::size_t ClassNode, std::string_view Name,
+                          ConstantRequest Request);
+
   void StageClassAllocator(std::size_t ClassNode,
                            const ClassAllocator &Storage);
 
@@ -209,6 +212,9 @@ private:
 
   [[nodiscard]] StagedMember *AccessorAt(StagedClass &Declaration,
                                          std::string_view Member) noexcept;
+
+  [[nodiscard]] StagedConstant *ConstantAt(StagedClass &Declaration,
+                                           std::string_view Member) noexcept;
 
   [[nodiscard]] StagedOperator *OperatorAt(StagedClass &Declaration,
                                            std::string_view Member) noexcept;

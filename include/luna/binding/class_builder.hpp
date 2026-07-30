@@ -6,6 +6,7 @@
 #include <luna/binding/class_member.hpp>
 #include <luna/binding/class_operator.hpp>
 #include <luna/binding/class_relationship.hpp>
+#include <luna/binding/constant_value.hpp>
 #include <luna/detail/construction_adapter.hpp>
 #include <luna/detail/method_adapter.hpp>
 #include <luna/detail/property_adapter.hpp>
@@ -80,6 +81,8 @@ public:
   void StageMember(std::string_view Name, MethodRequest Request);
 
   void StageAccessor(std::string_view Name, MemberRequest Request);
+
+  void StageConstant(std::string_view Name, ConstantRequest Request);
 
   void StageAllocator(const ClassAllocator &Storage);
 
@@ -214,13 +217,36 @@ public:
   }
 
   template <class Getter, class Setter>
-    requires(!std::is_same_v<std::decay_t<Getter>, PropertyPolicy>)
+    requires(!std::is_same_v<std::decay_t<Getter>, PropertyPolicy> &&
+             !std::is_same_v<std::decay_t<Setter>, OwnershipPolicy>)
   ClassBuilder &Property(std::string_view Name, Getter Accessor,
                          Setter Mutator) {
     const PropertyPolicy Policy = PropertyPolicy::ReadWrite();
     Detail::MemberRequest Request =
         Detail::MakePropertyRequest<Type, Getter, Setter>(
             ClassKey, Policy, std::move(Accessor), std::move(Mutator));
+    Staging.StageAccessor(Name, std::move(Request));
+    return *this;
+  }
+
+  template <class Getter>
+    requires(!std::is_same_v<std::decay_t<Getter>, PropertyPolicy>)
+  ClassBuilder &Property(std::string_view Name, Getter Accessor,
+                         OwnershipPolicy Ownership) {
+    const PropertyPolicy Policy = PropertyPolicy::ReadOnly();
+    Detail::MemberRequest Request =
+        Detail::MakeReadablePropertyRequest<Type, Getter>(
+            ClassKey, Policy, std::move(Accessor), std::move(Ownership));
+    Staging.StageAccessor(Name, std::move(Request));
+    return *this;
+  }
+
+  template <class Accessor>
+  ClassBuilder &Property(std::string_view Name, PropertyPolicy Policy,
+                         Accessor Target, OwnershipPolicy Ownership) {
+    Detail::MemberRequest Request =
+        Detail::MakeReadablePropertyRequest<Type, Accessor>(
+            ClassKey, Policy, std::move(Target), std::move(Ownership));
     Staging.StageAccessor(Name, std::move(Request));
     return *this;
   }
@@ -243,6 +269,7 @@ public:
   }
 
   template <class Getter, class Setter>
+    requires(!std::is_same_v<std::decay_t<Setter>, OwnershipPolicy>)
   ClassBuilder &Property(std::string_view Name, PropertyPolicy Policy,
                          Getter Accessor, Setter Mutator) {
     Detail::MemberRequest Request =
@@ -301,6 +328,8 @@ public:
   }
 
   template <class Getter, class Setter, class OnChange>
+    requires(!std::is_same_v<std::decay_t<Getter>, PropertyPolicy> &&
+             !std::is_same_v<std::decay_t<OnChange>, OwnershipPolicy>)
   ClassBuilder &Property(std::string_view Name, Getter Accessor, Setter Mutator,
                          OnChange Handler) {
     const PropertyPolicy Policy = PropertyPolicy::ReadWrite();
@@ -324,7 +353,8 @@ public:
   }
 
   template <class Held>
-    requires SupportedValue<std::remove_cv_t<Held>>
+    requires(SupportedValue<std::remove_cv_t<Held>> ||
+             Detail::IsInstanceMemberValue<std::remove_cv_t<Held>>)
   ClassBuilder &Field(std::string_view Name, Held Type::*Member) {
     const FieldPolicy Policy;
     Detail::MemberRequest Request =
@@ -334,7 +364,8 @@ public:
   }
 
   template <class Held>
-    requires SupportedValue<std::remove_cv_t<Held>>
+    requires(SupportedValue<std::remove_cv_t<Held>> ||
+             Detail::IsInstanceMemberValue<std::remove_cv_t<Held>>)
   ClassBuilder &Field(std::string_view Name, Held Type::*Member,
                       FieldPolicy Policy) {
     Detail::MemberRequest Request =
@@ -343,8 +374,20 @@ public:
     return *this;
   }
 
+  template <class Held>
+    requires Detail::IsInstanceMemberValue<std::remove_cv_t<Held>>
+  ClassBuilder &Field(std::string_view Name, Held Type::*Member,
+                      OwnershipPolicy Ownership) {
+    const FieldPolicy Policy;
+    Detail::MemberRequest Request = Detail::MakeFieldRequest<Type, Held>(
+        ClassKey, Policy, Member, std::move(Ownership));
+    Staging.StageAccessor(Name, std::move(Request));
+    return *this;
+  }
+
   template <class Held, class OnChange>
-    requires(!std::is_same_v<std::decay_t<OnChange>, FieldPolicy>)
+    requires(!std::is_same_v<std::decay_t<OnChange>, FieldPolicy> &&
+             !std::is_same_v<std::decay_t<OnChange>, OwnershipPolicy>)
   ClassBuilder &Field(std::string_view Name, Held Type::*Member,
                       OnChange Handler) {
     const FieldPolicy Policy;
@@ -382,6 +425,22 @@ public:
         Detail::MakeConvertedFieldRequest<Type, Value, Held>(ClassKey, Name,
                                                              Policy, Member);
     Staging.StageAccessor(Name, std::move(Request));
+    return *this;
+  }
+
+  template <class ValueType>
+  ClassBuilder &Constant(std::string_view Name, ValueType &&Declared) {
+    Staging.StageConstant(
+        Name, Detail::MakeConstantRequest(std::forward<ValueType>(Declared)));
+    return *this;
+  }
+
+  template <class ValueType>
+  ClassBuilder &Constant(std::string_view Name, ValueType &&Declared,
+                         StableTypeKey Key) {
+    Staging.StageConstant(
+        Name, Detail::MakeConstantRequest(std::forward<ValueType>(Declared),
+                                          std::move(Key)));
     return *this;
   }
 
