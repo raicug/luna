@@ -56,9 +56,9 @@ IsProtectedInternalFailure(const Luna::ExecutionResult &Execution) {
 } // namespace
 
 int RunInternalValidationFailureProperties() {
-  // clang-format off
+
   const bool Passed = rc::check(
-      // clang-format on
+
       "Internal validation failure never invokes user code", [](int Argument) {
         RC_ASSERT(RecordsInternalError(FaultPoint::MissingMetadata, Argument));
         RC_ASSERT(

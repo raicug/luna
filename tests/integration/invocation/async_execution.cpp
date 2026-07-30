@@ -39,8 +39,6 @@ void Check(bool Condition, std::string_view Description) {
              : std::string(Result.Diagnostic()->Message());
 }
 
-// The host side of every suspended call in this file. Workers only ever touch
-// their own completion state, never the State or the virtual machine.
 struct Host final {
   std::vector<std::thread> Workers;
   std::vector<Luna::AsyncCompletionSource<Luna::ReturnPack>> Packs;
@@ -93,8 +91,6 @@ Host *Live = nullptr;
   return Pending;
 }
 
-// Retires its own dispatch slot before handing the work back, so the
-// resumption can only succeed through the generation the call retained.
 [[nodiscard]] Luna::AsyncTask<int> RetiringScaleLater(int Value) {
   Luna::AsyncCompletionSource<int> Source;
   Luna::AsyncTask<int> Pending = Source.Task();
@@ -110,9 +106,7 @@ Host *Live = nullptr;
   return Pending;
 }
 
-[[nodiscard]] int Direct(int Value) {
-  return Value + 1;
-}
+[[nodiscard]] int Direct(int Value) { return Value + 1; }
 
 void CheckScriptsAwaitValuesThroughTheRealMachine() {
   Host Local;

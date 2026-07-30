@@ -165,9 +165,6 @@ ProbeConvertedPosition(lua_State *State, const ParameterDescriptor &Parameter,
   return Probe;
 }
 
-// An instance operand probes exactly as a value of its registered class does,
-// which is what makes an overload taking one distinguishable from an overload
-// taking a table or a scalar at the same position.
 [[nodiscard]] ArgumentProbe
 ProbeInstancePosition(const TypeGeneration &Types, lua_State *State,
                       const ParameterDescriptor &Parameter, int StackIndex) {

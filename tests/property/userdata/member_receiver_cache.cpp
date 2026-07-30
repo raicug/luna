@@ -1371,10 +1371,9 @@ void VerifyVirtualMachineMemberSequence(ByteCursor &Cursor) {
 } // namespace
 
 int RunMemberReceiverAndLazyCacheProperties() {
-  // clang-format off
-  // Feature: reflection-driven-binding-system, Property 28: Member access follows receiver precedence and lazy-cache generations
+
   const bool Passed = rc::check(
-      // clang-format on
+
       "Member access follows receiver precedence and lazy-cache generations",
       [](const std::vector<std::uint8_t> &GateBytes,
          const std::vector<std::uint8_t> &DispatchBytes) {

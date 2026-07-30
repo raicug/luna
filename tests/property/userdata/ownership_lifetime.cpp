@@ -1279,10 +1279,9 @@ void VerifyWritePathSequence(ByteCursor &Cursor) {
 } // namespace
 
 int RunUserdataOwnershipLifetimeProperties() {
-  // clang-format off
-  // Feature: reflection-driven-binding-system, Property 26: Userdata ownership and lifetime transitions match the release state machine
+
   const bool Passed = rc::check(
-      // clang-format on
+
       "Userdata ownership and lifetime transitions match the release state "
       "machine",
       [](const std::vector<std::uint8_t> &OwnershipBytes,

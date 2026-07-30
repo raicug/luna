@@ -25,17 +25,13 @@ void Check(bool Condition, std::string_view Description) {
   std::cerr << "profiling hook check failed: " << Description << '\n';
 }
 
-// Every report a hook observed in this test, in the exact order Luna
-// delivered it.
 struct RecordedEvents final {
   std::vector<Luna::ProfilingEvent> Events;
 
   void Record(const Luna::ProfilingEvent &Event) { Events.push_back(Event); }
 };
 
-[[nodiscard]] int Scale(int Value) {
-  return Value * 2;
-}
+[[nodiscard]] int Scale(int Value) { return Value * 2; }
 
 [[nodiscard]] int Fail(int) {
   throw std::runtime_error("the callable refused");
@@ -194,10 +190,6 @@ void CheckSuspendedCallsReportEveryStage() {
         "every reported stage of one call names the same symbol");
 }
 
-// Exercises a namespaced overload set, a class method, and a module load
-// together through the real compiler and VM, proving the hook observes
-// every one of them with the same canonical identity reflection publishes
-// and changes nothing about how any of them resolve or execute.
 void CheckRepresentativeSurfaceReportsThroughTheRealMachine() {
   Luna::State Owner;
   Luna::BindingRegistry Registry = Owner.Bindings();

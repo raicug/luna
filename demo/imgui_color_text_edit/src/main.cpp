@@ -33,10 +33,6 @@ enum class Access : unsigned int { Read = 1, Write = 2, Execute = 4 };
 
 enum class Material : int { Wood = 0, Stone = 1, Metal = 2 };
 
-// Luna's extension boundary is checked when this demo compiles. Work that
-// finishes after the call that started it declares a supported return type,
-// a subscribed handler declares a supported parameter type, while a raw
-// coroutine handle still names no awaited value.
 static_assert(Luna::SupportedReturn<std::future<int>> &&
                   Luna::SupportedReturn<Luna::AsyncTask<std::string>>,
               "Suspended work declares a supported return type.");
@@ -48,8 +44,6 @@ static_assert(Luna::SupportedParameter<std::function<void(int)>> &&
 static_assert(Luna::SupportedCallable<std::future<int> (*)()>,
               "An asynchronous callable is accepted at compile time.");
 
-// The supported surface stays available, so the constraints refuse the
-// unavailable extensions rather than everything.
 static_assert(Luna::SupportedCallable<int (*)(int)> &&
                   Luna::SupportedValue<std::string>,
               "Ordinary callables and values stay supported.");
@@ -125,9 +119,6 @@ public:
            NumberText(Height) + ")";
   }
 
-  // One step of a Luau generic `for` loop. The control operand is whatever
-  // the previous step published first, and is omitted on the first step, so
-  // an empty pack is what ends the loop.
   [[nodiscard]] Luna::ReturnPack
   NextDimension(std::optional<std::string> Control) const {
     Luna::ReturnPack Produced;
@@ -149,9 +140,7 @@ public:
   return static_cast<int>(Text.size());
 }
 
-[[nodiscard]] int Measure(int Width, int Height) {
-  return Width * Height;
-}
+[[nodiscard]] int Measure(int Width, int Height) { return Width * Height; }
 
 [[nodiscard]] std::string Greet(std::string Name,
                                 std::optional<std::string> Title) {
@@ -218,9 +207,6 @@ public:
   return Pack;
 }
 
-// One asynchronous form: the call starts work, hands Luna the task, and the
-// script resumes with the awaited value once this host settles it. The demo
-// settles it on another thread to show the call really suspends.
 [[nodiscard]] Luna::AsyncTask<std::string> ShoutLater(std::string Text) {
   Luna::AsyncCompletionSource<std::string> Source;
   Luna::AsyncTask<std::string> Pending = Source.Task();
@@ -260,9 +246,7 @@ public:
   return Described.empty() ? std::string("none") : Described;
 }
 
-[[nodiscard]] double ToPixels(double Metres) {
-  return Metres * 64.0;
-}
+[[nodiscard]] double ToPixels(double Metres) { return Metres * 64.0; }
 
 [[nodiscard]] std::string DescribePasses(int Passes) {
   return "render graph with " + std::to_string(Passes) + " pass(es)";
@@ -340,13 +324,8 @@ Exported(Luna::SymbolKind Kind, std::string Name, std::string Documentation) {
   return Created ? std::move(*Created) : Luna::ModuleManifest();
 }
 
-// Counts how often Luna actually runs a module's registration callback. A
-// second load of an identical definition is answered idempotently, so this
-// stays where the first load left it.
 int ModuleCallbackRuns = 0;
 
-// The same render module at a later version. Luna is load-once, so offering
-// this for an already loaded identity is a conflict rather than a reload.
 [[nodiscard]] Luna::ModuleManifest ReplacementRenderManifest() {
   std::vector<Luna::ModuleDependency> Dependencies;
   Dependencies.push_back(Dependency("studio.units", ">=1.0.0"));
@@ -397,31 +376,31 @@ constexpr std::array<BoundFeature, 21> BoundFeatures{{
      R"(Registry.RegisterFunction("Join", &Join);
 Registry.RegisterConstant("HostName", "Luna playground");)"},
     {"Overload set",
-     R"(// One name, two candidates. `Overload<Signature>` selects the C++
-// target by its declared signature, with no macro involved.
+     R"(
+
 Registry.RegisterFunction("Measure",
                           Luna::Overload<int(std::string)>(&Measure));
 Registry.RegisterFunction("Measure",
                           Luna::Overload<int(int, int)>(&Measure));)"},
     {"Optional parameter",
-     R"(// std::string Greet(std::string Name, std::optional<std::string> Title)
-// Omission and an explicit nil both arrive as the empty value.
+     R"(
+
 Registry.RegisterFunction("Greet", &Greet);)"},
     {"Defaulted parameter",
-     R"(// std::string Shorten(std::string Text, int Limit)
-// The default is validated at registration and materialized only when the
-// parameter is omitted.
+     R"(
+
+
 Text.RegisterFunction("Shorten", Luna::WithDefaults(&Shorten, 8));)"},
     {"Variadic parameter",
-     R"(// std::string Join(Luna::ArgumentView Arguments)
-// The view is callback-lifetime only; `ToOwned()` is the way to keep it.
+     R"(
+
 Registry.RegisterFunction("Join", &Join);)"},
     {"Multiple returns",
-     R"(// std::tuple<int, int, std::string> Analyze(std::string Text)
+     R"(
 Registry.RegisterFunction("Analyze", &Analyze);
 
-// Luna::ReturnPack Tally(Luna::ArgumentView Arguments)
-// The dynamic form: the element count is decided by the invocation.
+
+
 Registry.RegisterFunction("Tally", &Tally);)"},
     {"Nested namespaces and constants",
      R"(Luna::NamespaceBuilder Studio = Registry.RegisterNamespace("Studio");
@@ -434,7 +413,7 @@ Studio.RegisterConstant("Version", "0.1.0")
 Luna::NamespaceBuilder Text = Studio.RegisterNamespace("Text");
 Text.RegisterConstant("Ellipsis", "...");
 
-// One plan, one transaction: the whole namespace publishes or none of it.
+
 return Studio.Commit();)"},
     {"Scoped enumeration with an "
      "alias",
@@ -457,9 +436,9 @@ Flags.Value("Read", Access::Read)
     .Bitflags()
     .Documentation("Declared bitflags: the supported mask is checked.");)"},
     {"Enumerator objects",
-     R"CPP(// AsObjects publishes each enumerator as one interned object rather
-// than its bare number, so `typeof` reports EnumItem, the enumerator
-// names itself, and equality is identity.
+     R"CPP(
+
+
 Luna::EnumBuilder<Material> Materials =
     Studio.RegisterEnum<Material>("Material", MaterialKey());
 Materials.AsObjects()
@@ -475,7 +454,7 @@ Entities.Constructor<std::string>()
     .Field("Tag", &Entity::Tag)
     .Property("Name", &Entity::Name, &Entity::Rename,
              [](Entity &Value, const std::string &) {
-               ++Value.RenameCount;  // an optional on-change callback
+               ++Value.RenameCount;
              })
     .Method("Label", &Entity::Label)
     .StaticMethod("Category", &Entity::Category)
@@ -507,10 +486,10 @@ Sprites.Base<Entity>(EntityKey())
     .Documentation(Luna::ClassOperator::Add,
                    "Sprite + padding is the padded area.");)"},
     {"Iteration operator",
-     R"CPP(// Iterate makes the class usable in a generic for loop. The target is
-// one step of the loop, not an iterator: it receives the control value
-// the previous step published first (omitted on the first step) and
-// returns a pack. An empty pack ends the loop.
+     R"CPP(
+
+
+
 Luna::ReturnPack Sprite::NextDimension(
     std::optional<std::string> Control) const {
   Luna::ReturnPack Produced;
@@ -523,19 +502,19 @@ Luna::ReturnPack Sprite::NextDimension(
 
 Sprites.Operator(Luna::ClassOperator::Iterate, &Sprite::NextDimension);)CPP"},
     {"Versioned module graph",
-     R"(// Two versions of the dependency become available without loading
-// anything, so resolution has a choice to make.
+     R"(
+
 Registry.ProvideModule(UnitsManifest("1.0.0"), &ConfigureUnits);
 Registry.ProvideModule(UnitsManifest("1.2.0"), &ConfigureUnits);
 
-// The load resolves `studio.units >=1.0.0` to the highest available
-// version, then runs every callback dependency-first in one transaction.
+
+
 Registry.RegisterModule(RenderManifest(), &ConfigureRender);)"},
     {"Freeze, reflection, and generation",
      R"(const Luna::RegistrationResult Frozen = Registry.Freeze();
 
-// One captured generation. It stays readable after later registrations, a
-// freeze, a State move, and destruction of the State.
+
+
 const Luna::ReflectionSnapshot Snapshot = Registry.Reflection();
 
 const Luna::GeneratedArtifact Documentation =
@@ -543,20 +522,20 @@ const Luna::GeneratedArtifact Documentation =
 const Luna::GeneratedArtifact Declarations =
     Luna::GenerateDeclarations(Snapshot, Luna::DeclarationOptions());)"},
     {"Load-once modules: idempotent reload and version conflict",
-     R"(// Loading the same identity and version again with an identical
-// definition succeeds idempotently and reruns no callback.
+     R"(
+
 Registry.RegisterModule(RenderManifest(), &ConfigureRender);
 
-// A different version of an already loaded identity is a conflict, not a
-// replacement. Registration is additive: there is no public unload or hot
-// reload, so this is refused deterministically and the loaded graph is
-// left exactly as it was. See the registration log for both outcomes.
+
+
+
+
 Registry.RegisterModule(ReplacementRenderManifest(), &ConfigureRender);)"},
     {"Asynchronous results: a call that finishes later",
-     R"(// The callable starts work and hands Luna the task. The executing
-// chunk suspends, this host settles the work on another thread, and the
-// call resumes with the awaited value. Luau calls it like any function:
-//   HostLog(ShoutLater("luna"))
+     R"(
+
+
+
 Luna::AsyncTask<std::string> ShoutLater(std::string Text) {
   Luna::AsyncCompletionSource<std::string> Source;
   Luna::AsyncTask<std::string> Pending = Source.Task();
@@ -568,11 +547,11 @@ Luna::AsyncTask<std::string> ShoutLater(std::string Text) {
 
 Registry.RegisterFunction("ShoutLater", &ShoutLater);)"},
     {"Delegate and signal subscription",
-     R"(// A subscribed handler is an ordinary reflected parameter of canonical
-// type `Luna::Delegate<Signature>`. A `Luna::Signal<Signature>` owns every
-// subscription as one of these delegates, so subscribing, unsubscribing,
-// and emitting are ordinary registered callables rather than a parallel
-// callback system.
+     R"(
+
+
+
+
 Luna::Signal<void(int)> Alarm;
 
 Registry.RegisterFunction("Subscribe",
@@ -586,19 +565,19 @@ Registry.RegisterFunction("Raise", [this](int Level) {
   return static_cast<int>(Alarm.Emit(Level).Delivered);
 });)"},
     {"Profiling and debug-UI hook",
-     R"(// A profiling or debug-UI hook consumes only the canonical SymbolId
-// and TypeId reflection already publishes. It runs on the owner thread
-// after Luna has already produced the reported outcome, so it can never
-// change how a call resolves or what it returns.
+     R"(
+
+
+
 Registry.InstallProfilingHook([this](const Luna::ProfilingEvent &Event) {
   ProfilingLog.push_back(std::string(Luna::ProfilingEventKindText(Event.Kind)) +
                          " " + Event.QualifiedName);
 });)"},
     {"Extension boundary: unavailable forms are refused",
-     R"(// A raw coroutine handle names no awaited value, so the public
-// constraints refuse it when this demo compiles rather than failing
-// inside a call. Delegates and suspended work with a canonical awaited
-// value stay supported.
+     R"(
+
+
+
 static_assert(!Luna::SupportedReturn<std::coroutine_handle<>>);
 static_assert(Luna::SupportedParameter<std::function<void(int)>>);
 static_assert(Luna::SupportedCallable<std::future<int> (*)()>);
@@ -995,9 +974,6 @@ private:
         .Documentation("Declared bitflags, so a combined mask converts whole.")
         .Example("Studio.DescribeAccess(bit32.bor(Studio.Access.Read, 2))");
 
-    // The same enumeration surface, published as interned enumerator objects
-    // instead of bare numbers. Each enumerator names itself, compares equal
-    // only to itself, and reports its own `typeof`.
     Luna::EnumBuilder<Material> Materials =
         Studio.RegisterEnum<Material>("Material", MaterialKey());
     Materials.AsObjects()
@@ -1013,13 +989,9 @@ private:
         Studio.RegisterClass<Entity>("Entity", EntityKey());
     Entities.Constructor<std::string>()
         .Field("Tag", &Entity::Tag)
-        .Property("Name", &Entity::Name, &Entity::Rename,
-                  [](Entity &Value, const std::string &) {
-                    // The on-change callback runs after `Rename` has already
-                    // succeeded, so it only ever observes a value already
-                    // written.
-                    ++Value.RenameCount;
-                  })
+        .Property(
+            "Name", &Entity::Name, &Entity::Rename,
+            [](Entity &Value, const std::string &) { ++Value.RenameCount; })
         .Method("Label", &Entity::Label)
         .StaticMethod("Category", &Entity::Category)
         .Documentation("One named host object.")
@@ -1073,8 +1045,6 @@ private:
     Record("RegisterModule(studio.render@2.1.0)",
            Registry.RegisterModule(RenderManifest(), &ConfigureRender));
 
-    // Modules are load-once. Loading the same identity and version again with
-    // an identical definition is answered idempotently and reruns no callback.
     const int RunsAfterLoad = ModuleCallbackRuns;
     Record("RegisterModule(studio.render@2.1.0) again",
            Registry.RegisterModule(RenderManifest(), &ConfigureRender));
@@ -1084,9 +1054,6 @@ private:
                ? std::string("none; the loaded definition was reused")
                : std::string("the callback ran again unexpectedly"));
 
-    // A different version of an already loaded identity is a conflict, not a
-    // replacement. There is no public unload or hot reload, so the refusal is
-    // deterministic and the loaded graph is left exactly as it was.
     Record(
         "RegisterModule(studio.render@2.2.0)",
         Registry.RegisterModule(ReplacementRenderManifest(), &ConfigureRender));

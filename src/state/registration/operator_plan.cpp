@@ -85,9 +85,7 @@ ValidateStagedOperator(const StagedOperator &Declaration) {
                      " operand(s) beyond its receiver, but the declaration "
                      "takes " +
                      std::to_string(Declared.size()) + ".");
-  // One iteration step receives the loop's control value, which the loop has
-  // not produced yet on its first step, so that one operand is the single
-  // operand shape Luna declares as omittable.
+
   const bool AcceptsOmittedOperand =
       Declaration.Selected == ClassOperator::Iterate;
   for (const ParameterDescriptor &Parameter : Declared) {

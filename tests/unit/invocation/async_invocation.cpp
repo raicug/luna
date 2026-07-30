@@ -27,9 +27,6 @@ void Check(bool Condition, std::string_view Description) {
   std::cerr << "asynchronous invocation check failed: " << Description << '\n';
 }
 
-// Every suspended call in this test settles through one of these sources, so
-// the test can settle work after the native call already returned and can
-// observe the stage Luna left behind.
 struct AsyncFixture final {
   Luna::AsyncCompletionSource<int> Scaled;
   Luna::AsyncCompletionSource<void> Recorded;
@@ -133,9 +130,7 @@ AsyncFixture *Fixture = nullptr;
   return Pending;
 }
 
-[[nodiscard]] int Scale(int Value) {
-  return Value * 2;
-}
+[[nodiscard]] int Scale(int Value) { return Value * 2; }
 
 void CheckAsyncMetadataIsReflectedCanonically() {
   AsyncFixture Local;

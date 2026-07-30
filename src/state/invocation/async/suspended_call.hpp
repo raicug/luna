@@ -24,10 +24,6 @@ namespace Luna::Detail {
 
 class FaultInjector;
 
-// One suspended native call. It owns every value the resumption needs and
-// retains the immutable dispatch generation it was dispatched through, so it
-// never refers back to the transient stack, an argument view, or a conversion
-// context.
 struct SuspendedCall final {
   std::uint64_t Id = 0;
 
@@ -57,8 +53,6 @@ struct SuspendedCall final {
   std::size_t Resumptions = 0;
 };
 
-// What an invocation path hands back when the callable started work it did
-// not finish. It carries only owned values.
 struct StartedAsyncCall final {
   std::unique_ptr<PendingAsyncWork> Work;
   ArgumentPack Arguments;
@@ -74,9 +68,6 @@ struct AsyncCallCounters final {
   std::size_t Refusals = 0;
 };
 
-// Owner-thread-only registry of suspended calls. It is published to the
-// virtual machine as an opaque pointer so the trampoline and its continuation
-// resolve the same suspended work the pump advanced.
 class AsyncCallRegistry final {
 public:
   AsyncCallRegistry() = default;
@@ -100,8 +91,6 @@ public:
     return Pending.size();
   }
 
-  // Advances the suspended call for one thread on the owner thread until it
-  // settles. Returns the reached stage.
   [[nodiscard]] AsyncStage Advance(lua_State *Thread);
 
   [[nodiscard]] std::optional<SuspendedCall> Take(lua_State *Thread);

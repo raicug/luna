@@ -90,9 +90,9 @@ SelectOutOfRange(std::uint64_t GeneratedMagnitude, bool Negative) {
 } // namespace
 
 int RunInvalidIntegerClassificationProperties() {
-  // clang-format off
+
   const bool Passed = rc::check(
-      // clang-format on
+
       "Invalid integer numbers are classified deterministically",
       [](std::uint8_t GeneratedNonFinite, std::uint64_t GeneratedMagnitude,
          bool NegativeOutOfRange, std::uint64_t GeneratedBase,

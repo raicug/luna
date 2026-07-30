@@ -1379,10 +1379,9 @@ void VerifyWritePathConstruction(ByteCursor &Cursor) {
 } // namespace
 
 int RunAllocatorConstructionCleanupProperties() {
-  // clang-format off
-  // Feature: reflection-driven-binding-system, Property 27: Construction and allocator cleanup follow completed milestones exactly once
+
   const bool Passed = rc::check(
-      // clang-format on
+
       "Construction and allocator cleanup follow completed milestones exactly "
       "once",
       [](const std::vector<std::uint8_t> &MilestoneBytes,

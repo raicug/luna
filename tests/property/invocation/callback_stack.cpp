@@ -74,9 +74,9 @@ RegisterAtGeneratedDepth(Luna::State &State, std::string_view Name,
 } // namespace
 
 int RunNativeFailureCallbackStackProperties() {
-  // clang-format off
+
   const bool Passed = rc::check(
-      // clang-format on
+
       "Native failures restore the callback checkpoint",
       [](int GeneratedDepth, bool InjectInspectionFault) {
         const int CallbackDepth = NormalizeDepth(GeneratedDepth);

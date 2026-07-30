@@ -36,9 +36,9 @@ enum class RequestKind : std::uint32_t {
 } // namespace
 
 int RunRegistrationStackBalanceProperties() {
-  // clang-format off
+
   const bool Passed = rc::check(
-      // clang-format on
+
       "Registration preserves stack depth",
       [](int GeneratedDepth, int GeneratedRequest) {
         Luna::State State;

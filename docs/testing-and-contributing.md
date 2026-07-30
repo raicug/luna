@@ -65,6 +65,8 @@ Delegates and signals are available: `Delegate<Signature>` is an ordinary reflec
 
 Generic-for iteration of a class is available through the `Iterate` operator, whose target is one step of the loop rather than an iterator object. Enumerator objects are available through `EnumBuilder::AsObjects()`, which publishes each enumerator as one interned userdata value instead of its bare number; generated Luau declarations still describe such an enumerator by its numeric value.
 
+A registered class is both an operand and a result type. A class opts in with `Luna::RegisteredClassTrait`, after which `T`, `const T &`, `T &`, `T *`, and `const T *` name an instance operand of any registered class, and `T`, `std::shared_ptr<T>`, and a borrowed `T *` name an instance result of a method, static method, or operator. A class must be registered before a member naming it is declared, because a plan is validated in staging order. `OwnedValue` and `ValuePack` are result types too, which is how a table crosses the boundary; `ReturnPack` stays scalar-only.
+
 Not implemented at all, and absent rather than partial:
 
 - annotation helper macros

@@ -21,14 +21,8 @@ struct ClassOperatorDescriptor final {
   bool ForwardsEveryArgument = false;
   bool ProducesValue = true;
 
-  // Set when the operator's target publishes a pack whose length only the
-  // call itself decides, so its forwarding closure asks for every result
-  // instead of a fixed count.
   bool PublishesPack = false;
 
-  // Set when Luna installs the metamethod as a small publisher that hands
-  // the loop its step function, rather than installing the forwarding
-  // closure directly.
   bool PublishesIterator = false;
 };
 

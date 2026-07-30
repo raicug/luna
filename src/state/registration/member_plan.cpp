@@ -117,11 +117,6 @@ DescriptorPlanEntry MakeMemberPlanEntry(const StagedMember &Declaration,
   Record.Examples = Declaration.Examples;
   Entry.Record = std::move(Record);
 
-  // A converted value type (one with its own Luna::TypeConverter<T>) needs
-  // its own TypeRecord staged alongside the member, the same way a class or
-  // enum value type does — the converted member closures do the actual
-  // conversion, but a TypeRecord is still what makes the value type
-  // identifiable and available in this generation.
   if (Declaration.ValueType.Kind() == TypeKind::Converted) {
     Entry.TypeConversion = DeclareConvertedTypeRecord(
         Declaration.ValueType.Key(), CanonicalTypeText(Declaration.ValueType));

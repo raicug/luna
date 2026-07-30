@@ -65,10 +65,6 @@ constexpr int ForwardsEveryArgument = -1;
   return Results;
 }
 
-// Luau asks `__iter` for the loop's step function, its state, and its first
-// control value. Luna answers with the declared iteration step, the receiver
-// the loop is iterating, and no control value, so the first step observes an
-// omitted control exactly the way its declared optional operand describes.
 [[nodiscard]] int PublishClassIterator(lua_State *State) {
   if (State == nullptr)
     return 0;

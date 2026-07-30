@@ -49,6 +49,10 @@ TypeDescriptor CanonicalReturnType(const ReturnMetadata &Return) {
       Elements.push_back(CanonicalValueType(Kind));
     return ReturnPackTypeOf(std::move(Elements));
   }
+  case ReturnDisposition::Owned:
+    return TypeDescriptor::ForFixed(FixedTypeKey::Value);
+  case ReturnDisposition::OwnedPack:
+    return DynamicPackType();
   case ReturnDisposition::Instance:
     if (const StableTypeKey *Class = Return.InstanceKey())
       return TypeDescriptor::ForClass(*Class);
@@ -64,7 +68,8 @@ std::vector<TypeDescriptor>
 PublishedReturnTypes(const TypeDescriptor &ReturnType) {
   std::vector<TypeDescriptor> Published;
 
-  if (ReturnType.FixedKey() == FixedTypeKey::ValuePack)
+  if (ReturnType.FixedKey() == FixedTypeKey::ValuePack ||
+      ReturnType.FixedKey() == FixedTypeKey::Value)
     return Published;
 
   if (IsOrderedPackDescriptor(ReturnType)) {
@@ -93,6 +98,10 @@ ReturnShape ReflectedReturnShapeOf(const ReturnMetadata &Return) {
       return ReturnShape::Scalar;
     return ReturnShape::Multiple;
   }
+  case ReturnDisposition::Owned:
+    return ReturnShape::Scalar;
+  case ReturnDisposition::OwnedPack:
+    return ReturnShape::Multiple;
   case ReturnDisposition::Instance:
     return Return.InstanceKey() ? ReturnShape::Scalar : ReturnShape::Zero;
   case ReturnDisposition::Void:
@@ -131,6 +140,12 @@ MakeReflectedReturnFields(const ReturnMetadata &Return) {
                                    CanonicalValueType(Kinds[Index])));
     return Reflected;
   }
+  case ReturnDisposition::Owned:
+    Reflected.push_back(
+        Describe("Result", TypeDescriptor::ForFixed(FixedTypeKey::Value)));
+    return Reflected;
+  case ReturnDisposition::OwnedPack:
+    return Reflected;
   case ReturnDisposition::Instance:
     if (const StableTypeKey *Class = Return.InstanceKey())
       Reflected.push_back(Describe("Result", TypeDescriptor::ForClass(*Class)));

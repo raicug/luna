@@ -33,8 +33,7 @@ DeclaredParameterType(const ParameterDescriptor &Parameter) {
   if (const StableTypeKey *Key = Parameter.ConvertedKey())
     return TypeDescriptor::ForConverted(*Key);
   if (Parameter.IsInstance()) {
-    // An instance operand is the registered class itself, so it is the very
-    // canonical type a receiver of that class already carries.
+
     if (const StableTypeKey *Key = Parameter.InstanceKey())
       return TypeDescriptor::ForClass(*Key);
     return TypeDescriptor::Unsupported();
@@ -54,16 +53,13 @@ DispositionOf(const ParameterDescriptor &Parameter) {
   case ParameterForm::Variadic:
     return ParameterDisposition::Variadic;
   case ParameterForm::Delegate:
-    // A subscribed handler is always supplied, so it is reflected as
-    // required and its call shape lives in its canonical callable type.
+
     return ParameterDisposition::Required;
   case ParameterForm::Converted:
-    // A converted operand is always supplied, exactly like a delegate
-    // parameter; its call shape lives in its canonical converted type.
+
     return ParameterDisposition::Required;
   case ParameterForm::Instance:
-    // An instance operand is likewise always supplied, and its identity lives
-    // in its canonical class type.
+
     return ParameterDisposition::Required;
   }
   return ParameterDisposition::Required;

@@ -42,8 +42,6 @@ enum class Material { Wood = 0, Stone = 1, Metal = 2 };
   if (!Enumerated)
     return false;
 
-  // A constant of the enumeration reaches a script as the very same
-  // enumerator object its table publishes.
   Luna::NamespaceBuilder Constants = Registry.RegisterNamespace("Studio");
   Luna::NamespaceBuilder &Staged =
       Constants.RegisterConstant("Heaviest", Material::Metal, MaterialKey());

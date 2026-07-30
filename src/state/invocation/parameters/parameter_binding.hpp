@@ -44,8 +44,6 @@ struct RichInvocationResult final {
   int ReturnCount = -1;
   std::string Diagnostic;
 
-  // Set when the callable started work it did not finish. The caller owns the
-  // started work and decides whether this call site can suspend.
   std::unique_ptr<StartedAsyncCall> Suspension;
 
   [[nodiscard]] bool IsSuccess() const noexcept { return ReturnCount >= 0; }

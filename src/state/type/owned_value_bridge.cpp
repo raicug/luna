@@ -27,11 +27,6 @@ constexpr int MaximumBridgeDepth = 64;
   return lua_gettop(State) + StackIndex + 1;
 }
 
-// What the captured value reports about its own class and owning scope: the
-// registered qualified name a consumer can render, the canonical type a
-// consumer that knows the concrete C++ type can match before recovering the
-// object, and the origin identity plus lifetime probe the access gate needs
-// every time that object is later handed out.
 [[nodiscard]] CapturedUserdataIdentity
 CapturedUserdataIdentityOf(lua_State *State, int StackIndex) {
   const void *Block = lua_touserdata(State, StackIndex);
@@ -58,11 +53,6 @@ CapturedUserdataIdentityOf(lua_State *State, int StackIndex) {
   return Described;
 }
 
-// The display text of the value at StackIndex, taken from the `__tostring`
-// metafield — which is exactly where a class's declared `ToText` operator is
-// installed. The render is protected, so a `ToText` that raises yields no
-// text rather than turning an argument capture into a failed call, and the
-// stack is left exactly as it was either way.
 [[nodiscard]] std::string CapturedUserdataDisplayText(lua_State *State,
                                                       int StackIndex) {
   if (!lua_checkstack(State, 4))

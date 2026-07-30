@@ -4,7 +4,7 @@ Luna has two layers here, and it helps to keep them apart. The **supported value
 
 ## Supported value types
 
-These are the types a registered signature uses for parameters and returns. A property or field value, and a `Method`/`StaticMethod`/`Operator`/`Constructor`/`Factory`/`Singleton` parameter, may additionally be any type with its own `Luna::TypeConverter<T>` specialization — see [custom conversions](#custom-conversions) below and [classes and userdata](classes-and-userdata.md#custom-value-types). Publishing a converted *return* value is not yet supported.
+These are the types a registered signature uses for parameters and returns. A property or field value, and a `Method`/`StaticMethod`/`Operator`/`Constructor`/`Factory`/`Singleton` parameter, may additionally be any type with its own `Luna::TypeConverter<T>` specialization — see [custom conversions](#custom-conversions) below and [classes and userdata](classes-and-userdata.md#custom-value-types). Publishing a converted *return* value is not yet supported; a target that needs to hand back a table returns an `OwnedValue` instead.
 
 | C++ type | Luau value | Notes |
 |---|---|---|
@@ -14,7 +14,7 @@ These are the types a registered signature uses for parameters and returns. A pr
 | `std::string` | string | Byte-preserving, including embedded NUL bytes |
 | `void` | no return | Return type only |
 
-Parameters may additionally be a trailing `std::optional<T>` of one of these, or one final variadic `ArgumentView` / `ArgumentPack`. Returns may additionally be `std::pair`, `std::tuple`, or `ReturnPack`. See [registering functions](registering-functions.md) for those shapes.
+Parameters may additionally be a trailing `std::optional<T>` of one of these, or one final variadic `ArgumentView` / `ArgumentPack`. Returns may additionally be `std::pair`, `std::tuple`, or `ReturnPack` of these; a registered class instance; or `OwnedValue` / `ValuePack` for a value whose shape the target decides at run time. See [registering functions](registering-functions.md) for the declared shapes and [classes and userdata](classes-and-userdata.md#returning-instances-and-tables) for instance and table results.
 
 Luna does not coerce strings to numbers, numbers to booleans, or other near matches. The Luau type must agree with the declared C++ type.
 
@@ -136,7 +136,7 @@ public:
   }
 };
 
-} // namespace Luna
+}
 ```
 
 Three types carry the boundary. `ValueView` is a transient token naming one value inside the current conversion frame: it exposes shape only, carries no pointer or stack index, and becomes inert when its frame ends, so retaining one can never reach released VM storage. `OwnedValue` and `ValuePack` are owning values that outlive any frame — `ToOwned()` is how you keep something. `ConversionContext` is the frame itself: it reports the shape under conversion, the callable name, the one-based position, and the complete nested path such as `argument 2[4].Key`, and `Describe` turns a reason into one deterministic diagnostic carrying all of it.
@@ -144,8 +144,8 @@ Three types carry the boundary. `ValueView` is a transient token naming one valu
 The same specialization is what makes `AppColor` usable as a property or field value (`Property<AppColor>(...)`, `Field<AppColor>(...)`) and as a `Method`, `StaticMethod`, `Operator`, `Constructor`, `Factory`, or `Singleton` operand — declared with no explicit template argument there, since the parameter's own C++ type already names it:
 
 ```cpp
-Sprites.Method("Tint", &Sprite::Tint);   // void Tint(AppColor)
-Sprites.Factory("Span", &Span);          // Sprite Span(AppColor, AppColor)
+Sprites.Method("Tint", &Sprite::Tint);
+Sprites.Factory("Span", &Span);
 ```
 
 A registered class is a parameter type in its own right — see [instance operands](classes-and-userdata.md#instance-operands) — but `ValueView` also reaches a class instance arriving at a *converted* operand, for the case where the native signature wants a value type rather than a handle. When the value under conversion is one, `IsUserdata()` is true and the view reports the registered `UserdataClassName()`, the canonical `UserdataType()`, the `UserdataText()` its `ToText` operator rendered, `UserdataPermitsMutation()`, and `UserdataStorage()` — the native object itself. Storage is decided at the moment it is requested, through the same access gate a receiver passes, so it yields null for a value from another State, an unpublished or destroyed object, or a borrowed object whose lifetime handle has been invalidated. A converter that confirms the class before it casts therefore refuses a wrong-class or stale operand with the same quality a receiver refusal has, and does it inside `Probe`, before the native target runs:

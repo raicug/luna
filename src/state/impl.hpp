@@ -203,8 +203,6 @@ public:
 
   void AdvanceOwnerEpoch() noexcept;
 
-  // Replacing a scope or a module retires every handler a script subscribed
-  // through the generation that is going away.
   void AdvanceLifecycleGeneration() noexcept {
     Lifecycle.AdvanceGeneration();
     AccessContext.DispatchGeneration = Lifecycle.Generation();
@@ -231,9 +229,6 @@ public:
     return UserdataCaptures;
   }
 
-  // Installing or clearing the profiling hook is owner-thread-only, exactly
-  // like every other VM-touching operation; the hook itself is consulted
-  // from the same thread when Luna reports an event.
   [[nodiscard]] RegistrationResult InstallProfilingHook(ProfilingHook Hook);
   [[nodiscard]] RegistrationResult ClearProfilingHook();
 

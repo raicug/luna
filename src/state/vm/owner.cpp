@@ -39,9 +39,7 @@ VirtualMachineOwner::VirtualMachineOwner() noexcept {
   }
 }
 
-VirtualMachineOwner::~VirtualMachineOwner() {
-  Reset();
-}
+VirtualMachineOwner::~VirtualMachineOwner() { Reset(); }
 
 VirtualMachineOwner::VirtualMachineOwner(VirtualMachineOwner &&Other) noexcept
     : Handle(std::exchange(Other.Handle, nullptr)) {}
@@ -55,9 +53,7 @@ VirtualMachineOwner::operator=(VirtualMachineOwner &&Other) noexcept {
   return *this;
 }
 
-bool VirtualMachineOwner::IsReady() const noexcept {
-  return Handle != nullptr;
-}
+bool VirtualMachineOwner::IsReady() const noexcept { return Handle != nullptr; }
 int VirtualMachineOwner::StackDepth() const noexcept {
   return Handle ? lua_gettop(Handle) : 0;
 }
@@ -244,9 +240,7 @@ bool VirtualMachineOwner::HasUserdataCollector() const noexcept {
   return UserdataCollectorIsInstalled(Handle);
 }
 
-void VirtualMachineOwner::Finalize() noexcept {
-  Reset();
-}
+void VirtualMachineOwner::Finalize() noexcept { Reset(); }
 
 void VirtualMachineOwner::Reset() noexcept {
   if (!Handle)

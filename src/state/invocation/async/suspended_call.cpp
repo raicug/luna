@@ -14,7 +14,7 @@ namespace {
 
 constexpr const char *AsyncRegistrySlot = "Luna.AsyncCalls";
 
-} // namespace
+}
 
 AsyncCallRegistry::~AsyncCallRegistry() {
   CancelEverything("the State that suspended it is gone");
@@ -128,8 +128,7 @@ AsyncStage AsyncCallRegistry::Advance(lua_State *Thread) {
     return Call->Stage;
 
   case AsyncStage::Pending:
-    // Cancellation was requested while the host still owed a result, so the
-    // suspended call settles deterministically instead of waiting forever.
+
     SettleCancelled(*Call, "the asynchronous work stopped without a result");
     return Call->Stage;
 

@@ -55,8 +55,7 @@ namespace {
   case TypeKind::ArgumentPack:
   case TypeKind::ReturnPack:
   case TypeKind::Callable:
-    // A delegate declares no converter or type-registry record of its own;
-    // it is usable once every child value kind in its call shape resolves.
+
     return true;
   default:
     return false;

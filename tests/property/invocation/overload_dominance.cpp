@@ -965,10 +965,9 @@ void VerifyRegistrationOrderInvariance(ByteCursor &Cursor) {
 } // namespace
 
 int RunParetoOverloadResolutionProperties() {
-  // clang-format off
-  // Feature: reflection-driven-binding-system, Property 24: Overload resolution agrees with Pareto dominance
+
   const bool Passed = rc::check(
-      // clang-format on
+
       "Overload resolution agrees with Pareto dominance",
       [](const std::vector<std::uint8_t> &RankShape,
          const std::vector<std::uint8_t> &CallShape) {

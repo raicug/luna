@@ -477,10 +477,9 @@ void VerifyRejectionPublishesNothing(Database &Reflection,
 } // namespace
 
 int RunOwningReflectionSnapshotProperties() {
-  // clang-format off
-  // Feature: reflection-driven-binding-system, Property 20: Reflection snapshots retain one complete immutable generation
+
   const bool Passed = rc::check(
-      // clang-format on
+
       "Reflection snapshots retain one complete immutable generation",
       [](const std::vector<std::uint8_t> &CommitShape,
          const std::vector<std::uint8_t> &ActionShape) {

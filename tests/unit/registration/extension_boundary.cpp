@@ -37,8 +37,6 @@ void Check(bool Condition, std::string_view Description) {
   std::cerr << "extension boundary check failed: " << Description << '\n';
 }
 
-// One representative signal, event, and delegate surface. Luna owns the
-// canonical delegate descriptor; the event source itself stays native.
 class SignalHub final {
 public:
   [[nodiscard]] int Connect(Luna::Delegate<void(int)> Listener) {
@@ -55,12 +53,9 @@ private:
 
 using DelegateSlot = std::function<void(int)>;
 
-// A generic template callable stands in for template auto-binding.
 const auto GenericScale = [](auto Value) { return Value; };
 
-[[nodiscard]] int Scale(int Value) {
-  return Value * 2;
-}
+[[nodiscard]] int Scale(int Value) { return Value * 2; }
 
 [[nodiscard]] std::string PathKind(Luna::State &Owner,
                                    const std::string &Path) {
@@ -95,16 +90,13 @@ RefusedWithoutCanonicalType(const Luna::RegistrationResult &Result,
 }
 
 void CheckTypedConstraintsRefuseUnavailableCallables() {
-  // Template auto-binding: an unconstrained generic callable declares no
-  // signature, so no descriptor can be derived from it.
+
   Check(!Luna::SupportedCallableTrait<decltype(GenericScale)>::value,
         "a generic template callable is refused by the public constraint");
   Check(Luna::SupportedCallableTrait<decltype(Luna::Overload<int(int)>(
             GenericScale))>::value,
         "an explicit concrete overload selection stays the supported opt-in");
 
-  // Coroutine and asynchronous invocation is available through the ordinary
-  // typed constraint, and its awaited value stays inside the canonical domain.
   Check(Luna::SupportedReturn<std::future<int>>,
         "an asynchronous result is a supported return type");
   Check(Luna::SupportedReturn<Luna::AsyncTask<std::string>> &&
@@ -125,8 +117,6 @@ void CheckTypedConstraintsRefuseUnavailableCallables() {
             !Luna::SupportedCallableTrait<std::future<SignalHub> (*)()>::value,
         "an awaited value outside the canonical domain stays refused");
 
-  // Delegates, signals, and events are available through one canonical
-  // delegate parameter.
   Check(Luna::SupportedParameter<DelegateSlot> &&
             Luna::SupportedParameter<Luna::Delegate<void(int)>>,
         "a delegate is a supported parameter type");
@@ -145,8 +135,6 @@ void CheckTypedConstraintsRefuseUnavailableCallables() {
             !Luna::SupportedCallableTrait<SignalHub (*)()>::value,
         "handing an event source itself across the boundary stays refused");
 
-  // The ordinary supported forms stay available, so the constraint refuses
-  // the unavailable extensions rather than everything.
   Check(Luna::SupportedCallableTrait<int (*)(int)>::value,
         "an ordinary callable remains supported");
   Check(Luna::SupportedValue<int> && Luna::SupportedReturn<void>,
@@ -186,13 +174,11 @@ void CheckUnavailableValuesAreRejectedAtRegistration() {
   Check(StackDepth(Owner) == EntryDepth,
         "a refused extension restores the exact entry stack depth");
 
-  // Deterministic diagnostics: the same refusal repeats identically.
   const auto Repeated = Registry.RegisterConstant("Signal", SignalHub());
   Check(Repeated.Diagnostic() && Signal.Diagnostic() &&
             Repeated.Diagnostic()->Message() == Signal.Diagnostic()->Message(),
         "repeating a refused extension reports the same diagnostic");
 
-  // State recovery: the ordinary surface still registers and runs.
   Check(Registry.RegisterConstant("Ready", true).IsSuccess() &&
             Registry.RegisterFunction("Scale", &Scale).IsSuccess(),
         "the supported surface registers after every refusal");

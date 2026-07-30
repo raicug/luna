@@ -631,10 +631,9 @@ void VerifyNormalizationEquivalence() {
 } // namespace
 
 int RunStableCanonicalIdentityProperties() {
-  // clang-format off
-  // Feature: reflection-driven-binding-system, Property 18: Stable type and symbol identities follow canonical descriptors
+
   const bool Passed = rc::check(
-      // clang-format on
+
       "Stable type and symbol identities follow canonical descriptors",
       [](const std::vector<std::uint8_t> &TypeShape,
          const std::vector<std::uint8_t> &SymbolShape,

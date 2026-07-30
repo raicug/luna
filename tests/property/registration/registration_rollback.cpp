@@ -68,9 +68,9 @@ std::string VerificationSource(const std::vector<std::string> &Names) {
 } // namespace
 
 int RunFailedRegistrationTransactionsProperties() {
-  // clang-format off
+
   const bool Passed = rc::check(
-      // clang-format on
+
       "Failed registration is transactional",
       [](const std::vector<int> &GeneratedValues, int GeneratedCount,
          int GeneratedAttempt) {

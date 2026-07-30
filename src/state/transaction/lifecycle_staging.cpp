@@ -522,9 +522,7 @@ LifecycleStageStatus PrepareLifecycle(RegistrationTransaction &Transaction,
       continue;
     const bool BelongsToModule =
         Record->Module && RemovedModule && *Record->Module == *RemovedModule;
-    // A symbol a compatible replacement retains, and every scope it needs to
-    // stay reachable, keeps its canonical declaration and identity instead of
-    // being dropped with the rest of the module it came from.
+
     const bool RetainedPath = IsRetained(Plan, Record->QualifiedName);
     if (!RetainedPath &&
         (BelongsToModule || IsRemoved(Plan, Record->QualifiedName))) {

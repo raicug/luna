@@ -108,9 +108,9 @@ MakeGeneratedString(const std::vector<std::uint8_t> &Bytes) {
 } // namespace
 
 int RunSupportedValueRoundTripProperties() {
-  // clang-format off
+
   const bool Passed = rc::check(
-      // clang-format on
+
       "Supported values round-trip equivalently",
       [](bool GeneratedBoolean, std::int32_t GeneratedInteger,
          std::uint64_t GeneratedDoubleBits,

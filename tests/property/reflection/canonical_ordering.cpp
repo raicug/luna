@@ -582,10 +582,9 @@ void VerifySubmission(const LogicalGeneration &Generation,
 } // namespace
 
 int RunReflectionEnumerationOrderProperties() {
-  // clang-format off
-  // Feature: reflection-driven-binding-system, Property 19: Reflection enumeration is permutation-invariant
+
   const bool Passed = rc::check(
-      // clang-format on
+
       "Reflection enumeration is permutation-invariant",
       [](const std::vector<std::uint8_t> &Shape,
          const std::vector<std::uint8_t> &PermutationShape) {

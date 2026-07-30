@@ -18,8 +18,6 @@
 
 namespace Luna {
 
-// Why one call of a subscribed handler ended the way it did. Every failure
-// stage is reported, never thrown, by the non-throwing invocation path.
 enum class DelegateStatus {
   Ready,
   Released,
@@ -45,8 +43,6 @@ DelegateStatusText(DelegateStatus Status) noexcept {
   return "released";
 }
 
-// The declared call shape of one delegate parameter. It names only canonical
-// Luna value kinds, so a delegate descriptor stays reflectable.
 struct DelegateShape final {
   std::vector<ValueKind> Parameters;
   std::optional<ValueKind> Result;
@@ -55,8 +51,6 @@ struct DelegateShape final {
                                        const DelegateShape &Right) = default;
 };
 
-// One completed handler call. A produced value is present only when the
-// delegate declares a result and the handler published a matching value.
 class DelegateCallResult final {
 public:
   DelegateCallResult() = default;
@@ -98,7 +92,6 @@ private:
   std::string DiagnosticValue;
 };
 
-// What the throwing call operator reports when a handler cannot deliver.
 class DelegateFailure final : public std::runtime_error {
 public:
   DelegateFailure(DelegateStatus Status, const std::string &Diagnostic)
@@ -132,9 +125,6 @@ template <class Type> [[nodiscard]] constexpr ValueKind DelegateValueKind() {
     return ValueKind::String;
 }
 
-// One subscribed handler that the virtual machine owns. Luna holds it through
-// its own reference mechanism, so no public declaration ever names a virtual
-// machine state or a stack index.
 class DelegateTarget {
 public:
   DelegateTarget() = default;
@@ -170,9 +160,6 @@ struct DelegateSignatureShape<Return(Parameters...)> {
 
 } // namespace Detail
 
-// A handler a script subscribed, held by owning native code. Copies share one
-// virtual-machine reference, so releasing one copy releases the handler for
-// every copy and every later call reports the release deterministically.
 template <class Signature> class Delegate;
 
 template <class Return, class... Parameters>
@@ -211,7 +198,6 @@ public:
     return BoundValue;
   }
 
-  // Calls the handler and reports every stage without throwing.
   [[nodiscard]] DelegateCallResult Invoke(Parameters... Arguments) const {
     if (!BoundValue)
       return DelegateCallResult::Refused(
@@ -226,8 +212,6 @@ public:
     return BoundValue->Call(Staged);
   }
 
-  // Calls the handler and translates every refusal into one exception, so an
-  // ordinary std::function subscriber reports failure the C++ way.
   Return operator()(Parameters... Arguments) const {
     DelegateCallResult Result = Invoke(std::forward<Parameters>(Arguments)...);
     if (!Result.IsSuccess())

@@ -151,7 +151,7 @@ Luna::ReflectionSnapshot Snapshot;
   static_cast<void>(State.Bindings().Freeze());
   Snapshot = State.Bindings().Reflection();
 }
-// The State is gone. The snapshot is not.
+
 const Luna::ArtifactPublication Published = Luna::PublishDocumentation(
     Snapshot, Luna::DocumentationOptions(), "docs/generated/api.md");
 ```

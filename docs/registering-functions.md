@@ -166,10 +166,10 @@ int Subscribe(Luna::Delegate<void(int)> Handler) {
 Luna::Signal<void(int)> Alarm;
 
 Registry.RegisterFunction("Subscribe", [&Alarm](Luna::Delegate<void(int)> Handler) {
-  return Alarm.Subscribe(std::move(Handler));                // returns a token
+  return Alarm.Subscribe(std::move(Handler));
 });
 Registry.RegisterFunction("Unsubscribe", [&Alarm](int Token) {
-  return Alarm.Unsubscribe(Token);                           // releases the handler
+  return Alarm.Unsubscribe(Token);
 });
 Registry.RegisterFunction("Raise", [&Alarm](int Level) {
   return static_cast<int>(Alarm.Emit(Level).Delivered);

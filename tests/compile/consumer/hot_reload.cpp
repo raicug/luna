@@ -82,9 +82,7 @@ struct ReloadProbe final {
   [[nodiscard]] int Level() const { return Charge * 2; }
 };
 
-[[nodiscard]] int ReloadScale(int Value) {
-  return Value * 3;
-}
+[[nodiscard]] int ReloadScale(int Value) { return Value * 3; }
 
 void ConfigureReloadSurface(Luna::NamespaceBuilder &Builder) {
   Luna::NamespaceBuilder Scope = Builder.RegisterNamespace("Reload");
@@ -128,8 +126,7 @@ void VerifyHotReloadConsumerBoundaryCompiles() {
 
     if (const std::optional<Luna::ModuleManifest> Second =
             ReloadManifest("2.0.0")) {
-      // A second load of the same identity is answered by one ordinary Luna
-      // result, never by a lifecycle or dispatch detail.
+
       [[maybe_unused]] const Luna::RegistrationResult Again =
           Registry.RegisterModule(*Second, &ConfigureReloadSurface);
     }

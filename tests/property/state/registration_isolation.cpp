@@ -7,9 +7,9 @@
 // clang-format on
 
 int RunStateRegistrationIsolationProperties() {
-  // clang-format off
+
   const bool Passed = rc::check(
-      // clang-format on
+
       "Registrations are isolated by State",
       [](const std::vector<int> &Values) {
         const auto Pick = [&](std::size_t Index) {

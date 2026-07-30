@@ -39,6 +39,7 @@ int RunConversionReturnValidationFaultEdgeCaseTests();
 int RunConvertedOperandTests();
 int RunClassOperandTests();
 int RunInstanceOperandTests();
+int RunInstanceReturnTests();
 int RunVariadicUserdataTests();
 int RunDeclarationGenerationTests();
 int RunDeclaredParameterIntegrationTests();
@@ -216,6 +217,8 @@ int main() {
                RunClassOperandTests},
       TestCase{"native instance operands across registered classes",
                RunInstanceOperandTests},
+      TestCase{"instance, table, and owned-pack return values",
+               RunInstanceReturnTests},
       TestCase{"variadic parameters receiving userdata directly and nested "
                "inside tables",
                RunVariadicUserdataTests},

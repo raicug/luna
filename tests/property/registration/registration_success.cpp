@@ -44,9 +44,9 @@ constexpr std::string_view LaterCharacters =
 } // namespace
 
 int RunInvocableValidRegistrationProperties() {
-  // clang-format off
+
   const bool Passed = rc::check(
-      // clang-format on
+
       "Valid registration installs an invocable global",
       [](const std::vector<int> &GeneratedValues) {
         const std::size_t GeneratedLength =

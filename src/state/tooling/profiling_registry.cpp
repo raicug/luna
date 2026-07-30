@@ -11,7 +11,7 @@ namespace {
 
 constexpr const char *ProfilingRegistrySlot = "Luna.Profiling";
 
-} // namespace
+}
 
 bool PublishProfilingRegistry(lua_State *State,
                               ProfilingRegistry *Registry) noexcept {

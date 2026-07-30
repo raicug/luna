@@ -505,8 +505,8 @@ RetainedGenerationDetail(const LifecycleRetainedGeneration &Held) {
 
 [[nodiscard]] std::string ReferencedSubject(std::string_view Subject) {
   const std::size_t Marker = Subject.find('#');
-  return std::string(Marker == std::string_view::npos ? Subject
-                                                      : Subject.substr(0, Marker));
+  return std::string(
+      Marker == std::string_view::npos ? Subject : Subject.substr(0, Marker));
 }
 
 [[nodiscard]] bool Contains(const std::set<std::string> &Names,
@@ -544,9 +544,9 @@ ReflectedOwnershipText(const ReflectionRecordFields &Record) {
   }
 }
 
-[[nodiscard]] std::string
-ClassNameOf(const ClassRegistry *Classes, const SymbolId &ClassSymbol,
-            const TypeId &DynamicType) {
+[[nodiscard]] std::string ClassNameOf(const ClassRegistry *Classes,
+                                      const SymbolId &ClassSymbol,
+                                      const TypeId &DynamicType) {
   if (Classes == nullptr)
     return std::string();
   const RegisteredClass *Registered = Classes->FindBySymbol(ClassSymbol);
@@ -766,11 +766,9 @@ LifecycleAnalysis AnalyzeLifecycleRequest(const LifecycleRequest &Request,
                 : (Incompatible ? "incompatible" : "retained compatibly");
     Analysis.Affected.Add(AffectedKindOf(Symbol->Kind), Symbol->QualifiedName,
                           std::string(Standing));
-    Analysis.Affected.Add(LifecycleAffectedKind::ReflectionRecord,
-                          Symbol->QualifiedName,
-                          std::string(SymbolKindText(Symbol->Kind))
-                              .append(" ")
-                              .append(Standing));
+    Analysis.Affected.Add(
+        LifecycleAffectedKind::ReflectionRecord, Symbol->QualifiedName,
+        std::string(SymbolKindText(Symbol->Kind)).append(" ").append(Standing));
 
     if (Removed) {
       RemovedNames.insert(Symbol->QualifiedName);
@@ -809,8 +807,7 @@ LifecycleAnalysis AnalyzeLifecycleRequest(const LifecycleRequest &Request,
     bool Matched = false;
     bool Unavailable = false;
     for (const std::string &Name : OwnedNames) {
-      if (Name != Slot.QualifiedName &&
-          !PathContains(Name, Slot.QualifiedName))
+      if (Name != Slot.QualifiedName && !PathContains(Name, Slot.QualifiedName))
         continue;
       Matched = true;
       if (Contains(RemovedNames, Name))
@@ -897,15 +894,14 @@ LifecycleAnalysis AnalyzeLifecycleRequest(const LifecycleRequest &Request,
                           std::string(LifecycleCacheKindText(Entry.Kind)));
     Analysis.InvalidatedCaches.push_back(Entry);
   }
-  std::sort(Analysis.InvalidatedCaches.begin(),
-            Analysis.InvalidatedCaches.end(),
-            [](const LifecycleCacheEntry &Left,
-               const LifecycleCacheEntry &Right) {
-              if (Left.Kind != Right.Kind)
-                return static_cast<std::uint8_t>(Left.Kind) <
-                       static_cast<std::uint8_t>(Right.Kind);
-              return Left.Subject < Right.Subject;
-            });
+  std::sort(
+      Analysis.InvalidatedCaches.begin(), Analysis.InvalidatedCaches.end(),
+      [](const LifecycleCacheEntry &Left, const LifecycleCacheEntry &Right) {
+        if (Left.Kind != Right.Kind)
+          return static_cast<std::uint8_t>(Left.Kind) <
+                 static_cast<std::uint8_t>(Right.Kind);
+        return Left.Subject < Right.Subject;
+      });
 
   if (Target != nullptr) {
     for (const LifecycleRetainedGeneration &Held : Subject.RetainedGenerations)
@@ -1015,9 +1011,8 @@ DescribeLifecycleSubject(const LifecycleSubjectSources &Sources) {
       if (Record == nullptr || !RecordIsLive(*Record))
         continue;
       LifecycleUserdataValue Value;
-      Value.ClassQualifiedName =
-          ClassNameOf(Sources.Classes, Record->ClassSymbol,
-                      Record->DynamicType);
+      Value.ClassQualifiedName = ClassNameOf(
+          Sources.Classes, Record->ClassSymbol, Record->DynamicType);
       Value.Type = Record->DynamicType;
       Value.Nonce = Record->Identity.Nonce;
       Value.Ownership = Record->Ownership;
@@ -1068,8 +1063,8 @@ DescribeLifecycleSubject(const LifecycleSubjectSources &Sources) {
     for (const UserdataCacheEntry &Entry : Sources.Identities->Entries()) {
       if (!Entry.IsActive)
         continue;
-      std::string Named = ClassNameOf(Sources.Classes, Entry.ClassSymbol,
-                                      Entry.DynamicType);
+      std::string Named =
+          ClassNameOf(Sources.Classes, Entry.ClassSymbol, Entry.DynamicType);
       if (Named.empty())
         Named = "<unregistered class>";
       Named.push_back('#');
@@ -1079,22 +1074,21 @@ DescribeLifecycleSubject(const LifecycleSubjectSources &Sources) {
     }
   }
 
-  std::sort(Subject.Caches.begin(), Subject.Caches.end(),
-            [](const LifecycleCacheEntry &Left,
-               const LifecycleCacheEntry &Right) {
-              if (Left.Kind != Right.Kind)
-                return static_cast<std::uint8_t>(Left.Kind) <
-                       static_cast<std::uint8_t>(Right.Kind);
-              return Left.Subject < Right.Subject;
-            });
-  Subject.Caches.erase(
-      std::unique(Subject.Caches.begin(), Subject.Caches.end(),
-                  [](const LifecycleCacheEntry &Left,
-                     const LifecycleCacheEntry &Right) {
-                    return Left.Kind == Right.Kind &&
-                           Left.Subject == Right.Subject;
-                  }),
-      Subject.Caches.end());
+  std::sort(
+      Subject.Caches.begin(), Subject.Caches.end(),
+      [](const LifecycleCacheEntry &Left, const LifecycleCacheEntry &Right) {
+        if (Left.Kind != Right.Kind)
+          return static_cast<std::uint8_t>(Left.Kind) <
+                 static_cast<std::uint8_t>(Right.Kind);
+        return Left.Subject < Right.Subject;
+      });
+  Subject.Caches.erase(std::unique(Subject.Caches.begin(), Subject.Caches.end(),
+                                   [](const LifecycleCacheEntry &Left,
+                                      const LifecycleCacheEntry &Right) {
+                                     return Left.Kind == Right.Kind &&
+                                            Left.Subject == Right.Subject;
+                                   }),
+                       Subject.Caches.end());
   return Subject;
 }
 } // namespace Luna::Detail

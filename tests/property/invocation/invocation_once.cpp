@@ -64,9 +64,9 @@ GeneratedText(const std::vector<std::uint8_t> &Bytes) {
 } // namespace
 
 int RunSuccessfulValidationExactlyOnceProperties() {
-  // clang-format off
+
   const bool Passed = rc::check(
-      // clang-format on
+
       "Successful validation invokes exactly once",
       [](bool GeneratedBoolean, std::int32_t GeneratedInteger,
          std::int32_t GeneratedNumberEighths,

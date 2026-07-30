@@ -95,10 +95,6 @@ template <class Type> struct CanonicalType {
       FixedKeyFor<Type>();
   static constexpr bool IsFixed = FixedLeafKey.has_value();
 
-  // A class with its own `Luna::TypeConverter<T>` specialization is a
-  // *converted* leaf: its shape lives entirely in consumer code, so it
-  // never needs registration as a Luna class or enum to appear as a
-  // property or field value.
   static constexpr bool IsConverted = !IsFixed &&
                                       !std::is_enum_v<std::remove_cv_t<Type>> &&
                                       std::is_class_v<std::remove_cv_t<Type>> &&

@@ -80,9 +80,9 @@ void DestroySlot(std::array<std::optional<Luna::State>, SlotCount> &Actual,
 } // namespace
 
 int RunStateOwnershipTransitionsProperties() {
-  // clang-format off
+
   const bool Passed = rc::check(
-      // clang-format on
+
       "State ownership follows the move-only model",
       [](const std::vector<std::array<int, 4>> &GeneratedTransitions) {
         Hooks::ResetLifecycle();

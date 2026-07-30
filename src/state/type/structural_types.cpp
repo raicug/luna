@@ -859,9 +859,6 @@ RejectEnumerator(const ConversionScope &Scope, const TypeRecord &Record,
   return Record.Enumeration && Record.Enumeration->PublishesObjects;
 }
 
-// An enumeration that publishes objects accepts exactly its own enumerator
-// objects: a bare number, a foreign userdata, and an enumerator of another
-// enumeration are each an ordinary type mismatch.
 [[nodiscard]] StructuredReadResult
 ReadEnumeratorObject(ConversionScope &Scope, const TypeRecord &Record,
                      int StackIndex) {
@@ -1391,13 +1388,6 @@ TypeRecord DeclareClassTypeRecord(const StableTypeKey &Key,
 
 namespace {
 
-// A converted leaf's actual stack conversion happens entirely inside the
-// member's own `MemberConvertedReadOperation`/`MemberConvertedWriteOperation`
-// closures, which already know the concrete C++ type and its
-// `Luna::TypeConverter<T>` specialization. This generic pair exists only so
-// the leaf has a complete, idempotently redeclarable `TypeRecord` of its
-// own; nothing currently reaches it, since a member bypasses `TypeRecord`
-// entirely once it knows it is converted.
 [[nodiscard]] StructuredReadResult
 RejectConvertedRead(ConversionScope &Scope, const TypeRecord &Record, int) {
   return StructuredReadResult::Reject(

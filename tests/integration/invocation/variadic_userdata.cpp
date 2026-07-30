@@ -26,8 +26,6 @@ struct Marker final {
   int Tag = 0;
 };
 
-// The same shape, except that its class declares a ToText operator, which is
-// what a captured value's display text is resolved from.
 struct Labelled final {
   int Tag = 0;
 
@@ -63,7 +61,6 @@ void ResetCounters() {
   return Found;
 }
 
-// Receives a class instance directly as one of its variadic elements.
 [[nodiscard]] int CountUserdata(Luna::ArgumentView Arguments) {
   ++DirectCalls;
   int Found = 0;
@@ -74,8 +71,6 @@ void ResetCounters() {
   return Found;
 }
 
-// Receives a table that itself contains a class instance, still through the
-// same variadic parameter.
 [[nodiscard]] int CountNestedUserdata(Luna::ArgumentPack Arguments) {
   ++NestedCalls;
   int Found = 0;
@@ -84,8 +79,6 @@ void ResetCounters() {
   return Found;
 }
 
-// Reports the display text and class name of the first userdata element it
-// receives, which is all a generic native renderer has to work with.
 [[nodiscard]] int DescribeFirstUserdata(Luna::ArgumentPack Arguments) {
   ++DescribeCalls;
   ObservedText.clear();

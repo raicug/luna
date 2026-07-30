@@ -884,10 +884,9 @@ void VerifyInvalidationPrecedesUnavailability(
 } // namespace
 
 int RunFrozenCacheEquivalenceProperties() {
-  // clang-format off
-  // Feature: reflection-driven-binding-system, Property 30: Frozen caches are equivalent to uncached generation lookups
+
   const bool Passed = rc::check(
-      // clang-format on
+
       "Frozen caches are equivalent to uncached generation lookups",
       [](const std::vector<std::uint8_t> &Shape,
          const std::vector<std::uint8_t> &History) {

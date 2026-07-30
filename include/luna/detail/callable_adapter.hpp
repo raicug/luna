@@ -65,20 +65,66 @@ template <class Pack>
   return Staged;
 }
 
+template <class Return>
+[[nodiscard]] ConstructedInstance
+AdoptInstanceReturn(Return &&Produced, const OwnershipPolicy &Policy) {
+  using Trait = InstanceReturnTrait<std::remove_cvref_t<Return>>;
+  using Native = typename Trait::Native;
+
+  if constexpr (std::is_pointer_v<std::remove_cvref_t<Return>>) {
+    static_cast<void>(Policy);
+    return BorrowedClassInstance(static_cast<void *>(Produced),
+                                 Policy.Lifetime());
+  } else if constexpr (std::is_same_v<std::remove_cvref_t<Return>,
+                                      std::shared_ptr<Native>>) {
+    static_cast<void>(Policy);
+    std::shared_ptr<Native> Held = std::forward<Return>(Produced);
+    Native *const Object = Held.get();
+    return SharedClassInstance(Object,
+                               std::static_pointer_cast<void>(std::move(Held)));
+  } else {
+    static_cast<void>(Policy);
+    ClassAllocator Protocol =
+        ClassAllocator::ForOwnedObject<Native>(ConstructedStoragePolicyName);
+    auto Held = std::make_shared<Native>(std::forward<Return>(Produced));
+    ClassAllocator::ConstructOperation Build = [Held](void *Storage) {
+      static_cast<void>(new (Storage) Native(std::move(*Held)));
+      return AllocatorStepResult::Done();
+    };
+    return CreatedClassInstance(std::move(Protocol), std::move(Build));
+  }
+}
+
+[[nodiscard]] inline OwnershipPolicy UndeclaredOwnershipPolicy() {
+  return OwnershipPolicy::LuaOwned();
+}
+
 template <class Return, class Invoker>
-[[nodiscard]] InvocationOutcome CaptureReturn(Invoker &&Invoke) {
+[[nodiscard]] InvocationOutcome
+CaptureReturn(Invoker &&Invoke,
+              const OwnershipPolicy &Policy = UndeclaredOwnershipPolicy()) {
   if constexpr (AsyncReturnTrait<Return>::value) {
+    static_cast<void>(Policy);
     return InvocationOutcome::Suspended(MakePendingAsyncWork(Invoke()));
   } else if constexpr (std::same_as<Return, void>) {
     Invoke();
     return InvocationOutcome::Void();
   } else if constexpr (std::same_as<Return, ConstructedInstance>) {
     return InvocationOutcome::WithInstance(Invoke());
+  } else if constexpr (IsInstanceReturnType<Return>) {
+    return InvocationOutcome::WithInstance(
+        AdoptInstanceReturn<Return>(Invoke(), Policy));
   } else if constexpr (IsDynamicReturnPack<Return>) {
     const ReturnPack Produced = Invoke();
     const std::span<const Value> Elements = Produced.Values();
     return InvocationOutcome::WithValues(
         std::vector<Value>(Elements.begin(), Elements.end()));
+  } else if constexpr (IsOwnedValueReturn<Return>) {
+    ValuePack Produced;
+    Produced.Append(Invoke());
+    return InvocationOutcome::WithOwnedValues(std::move(Produced));
+  } else if constexpr (IsOwnedPackReturn<Return>) {
+    return InvocationOutcome::WithOwnedValues(Invoke());
   } else if constexpr (IsFixedReturnPack<Return>::value) {
     return InvocationOutcome::WithValues(StageReturnPack(Invoke()));
   } else {
@@ -114,13 +160,6 @@ DeclaredDefaultAt(std::span<const Value> Defaults, std::size_t Position,
   return Ordinal.fetch_add(1, std::memory_order_relaxed);
 }
 
-// A converted parameter's declared type never needs a consumer-supplied
-// identity — nothing outside the declaring callable ever looks it up by a
-// stable key, the same way `DelegateShape` needs no key at all. One ordinal
-// per distinct C++ type, assigned the first time that type is used as a
-// converted parameter anywhere in the program, is exactly as stable as the
-// declaration itself: every later parameter of the same C++ type reaches the
-// same already-initialized static and so observes the same key.
 template <class Native>
 [[nodiscard]] const StableTypeKey &ConvertedParameterKeyFor() {
   static const StableTypeKey Key(
@@ -277,14 +316,28 @@ ParameterArgumentFor(const InvocationArguments &Arguments,
   }
 }
 
+template <class Signature> struct CallableReturnOf;
+
+template <class Return, class... Parameters>
+struct CallableReturnOf<Return(Parameters...)> {
+  using Type = Return;
+};
+
+template <class Return, class... Parameters>
+struct CallableReturnOf<Return(Parameters..., ...)> {
+  using Type = Return;
+};
+
 template <class Signature, class StoredCallable> class CallableAdapter;
 
 template <class Return, class... Parameters, class StoredCallable>
 class CallableAdapter<Return(Parameters...), StoredCallable> {
 public:
   template <class Callable>
-  explicit CallableAdapter(Callable &&Target)
-      : TargetValue(std::forward<Callable>(Target)) {}
+  explicit CallableAdapter(
+      Callable &&Target, OwnershipPolicy Declared = UndeclaredOwnershipPolicy())
+      : TargetValue(std::forward<Callable>(Target)),
+        PolicyValue(std::move(Declared)) {}
 
   [[nodiscard]] bool HasTarget() const noexcept {
     if constexpr (std::is_pointer_v<StoredCallable>)
@@ -330,10 +383,12 @@ private:
   [[nodiscard]] InvocationOutcome
   InvokeWithIndices(std::span<const Value> Arguments,
                     std::index_sequence<Indices...>) {
-    return CaptureReturn<Return>([&] {
-      return std::invoke(TargetValue,
-                         std::get<Parameters>(Arguments[Indices])...);
-    });
+    return CaptureReturn<Return>(
+        [&] {
+          return std::invoke(TargetValue,
+                             std::get<Parameters>(Arguments[Indices])...);
+        },
+        PolicyValue);
   }
 
   template <std::size_t... Indices>
@@ -347,13 +402,16 @@ private:
   [[nodiscard]] InvocationOutcome
   InvokeWithArguments(const InvocationArguments &Arguments,
                       std::index_sequence<Indices...>) {
-    return CaptureReturn<Return>([&] {
-      return std::invoke(
-          TargetValue, ParameterArgumentFor<Parameters>(Arguments, Indices)...);
-    });
+    return CaptureReturn<Return>(
+        [&] {
+          return std::invoke(TargetValue, ParameterArgumentFor<Parameters>(
+                                              Arguments, Indices)...);
+        },
+        PolicyValue);
   }
 
   StoredCallable TargetValue;
+  OwnershipPolicy PolicyValue = UndeclaredOwnershipPolicy();
 };
 
 template <class Signature> struct DescriptorMetadata;
@@ -377,6 +435,13 @@ struct DescriptorMetadata<Return(Parameters...)> {
       return ReturnMetadata::ForVoid();
     else if constexpr (IsDynamicReturnPack<Return>)
       return ReturnMetadata::ForDynamicPack();
+    else if constexpr (IsOwnedValueReturn<Return>)
+      return ReturnMetadata::ForOwnedValue();
+    else if constexpr (IsOwnedPackReturn<Return>)
+      return ReturnMetadata::ForOwnedPack();
+    else if constexpr (IsInstanceReturnType<Return>)
+      return ReturnMetadata::ForInstance(
+          RecordedClassKey<typename InstanceReturnTrait<Return>::Native>());
     else if constexpr (IsFixedReturnPack<Return>::value)
       return ReturnMetadata::ForPack(FixedReturnPackKinds<Return>::Kinds());
     else
@@ -417,8 +482,8 @@ struct DescriptorMetadata<Return(Parameters...)> {
 };
 
 template <SupportedCallable Callable>
-[[nodiscard]] ErasedCallableDescriptor
-MakeErasedCallableDescriptor(Callable &&Target) {
+[[nodiscard]] ErasedCallableDescriptor MakeErasedCallableDescriptor(
+    Callable &&Target, OwnershipPolicy Declared = UndeclaredOwnershipPolicy()) {
   using NormalizedCallable = std::remove_cvref_t<Callable>;
   using Signature = typename CallableSignature<NormalizedCallable>::Type;
   using StoredCallable = std::decay_t<Callable>;
@@ -427,11 +492,13 @@ MakeErasedCallableDescriptor(Callable &&Target) {
   if constexpr (IsDefaultedCallable<NormalizedCallable>::value) {
     CallableMetadata Metadata =
         DescriptorMetadata<Signature>::CreateWithDefaults(Target.Defaults());
-    return ErasedCallableDescriptor(std::move(Metadata),
-                                    Adapter(std::forward<Callable>(Target)));
+    return ErasedCallableDescriptor(
+        std::move(Metadata),
+        Adapter(std::forward<Callable>(Target), std::move(Declared)));
   } else {
-    return ErasedCallableDescriptor(DescriptorMetadata<Signature>::Create(),
-                                    Adapter(std::forward<Callable>(Target)));
+    return ErasedCallableDescriptor(
+        DescriptorMetadata<Signature>::Create(),
+        Adapter(std::forward<Callable>(Target), std::move(Declared)));
   }
 }
 

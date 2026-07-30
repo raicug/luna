@@ -32,9 +32,6 @@ struct MemberRequest final {
   MemberWriteOperation Write;
   MemberChangeOperation Change;
 
-  // Set instead of Read/Write when the declared value type is not one of
-  // the four foundation scalars: a getter or setter of a consumer type with
-  // its own `Luna::TypeConverter<T>` specialization.
   MemberConvertedReadOperation ConvertedRead;
   MemberConvertedWriteOperation ConvertedWrite;
 
@@ -192,11 +189,6 @@ inline constexpr bool IsConvertedMemberValue =
     !SupportedValue<Declared> && std::is_class_v<Declared> &&
     ConversionCapable<Declared>;
 
-// A converted member's value type needs some `StableTypeKey`, the same way
-// a registered class or enum leaf does, but the key never has to be a
-// consumer-supplied identity: nothing outside the declaring member ever
-// looks a converted value up by it, so one synthesized from the class key
-// and the member's own name is exactly as stable as the declaration itself.
 [[nodiscard]] inline StableTypeKey
 SyntheticConvertedValueKey(const StableTypeKey &ClassKey,
                            std::string_view MemberName) {
@@ -377,14 +369,6 @@ MakeReadablePropertyRequest(const StableTypeKey &Key,
   return Request;
 }
 
-// A property or field whose declared value type is not one of the four
-// foundation scalars converts through the consumer's own
-// `Luna::TypeConverter<T>` specialization instead. `Value` is named
-// explicitly at the call site — `Property<Vector3>(Name, Getter, Setter)` —
-// exactly like `Base<T>`/`Cast<T>` name a related class explicitly; the
-// `StableTypeKey` such a value type needs is synthesized from the class key
-// and the member's own segment, since nothing outside the declaring member
-// ever looks a converted value up by that key.
 template <class Class, class Value, class Getter>
 [[nodiscard]] MemberRequest MakeReadableConvertedPropertyRequest(
     const StableTypeKey &Key, std::string_view Name,

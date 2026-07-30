@@ -18,7 +18,6 @@ namespace {
 
 using Hooks = Luna::Detail::StateTestHooks;
 
-// How the host settles one generated suspended call.
 enum class Settlement : std::uint32_t {
   CompletedBeforeReturning,
   CompletedFromWorker,
@@ -37,8 +36,6 @@ enum class Settlement : std::uint32_t {
   return static_cast<int>(static_cast<std::uint32_t>(Value) % 1000U);
 }
 
-// The independent model of one suspended call. It predicts the stage Luna must
-// settle in and the value the resumption must publish.
 struct ExpectedCall final {
   Settlement Chosen = Settlement::CompletedBeforeReturning;
   int Argument = 0;
@@ -55,8 +52,6 @@ struct Plan final {
   std::vector<ExpectedCall> Calls;
 };
 
-// The generated plan drives one callable. Each invocation consumes the next
-// planned settlement, so the script and the model stay in lockstep.
 struct Harness final {
   Plan Planned;
   std::size_t Consumed = 0;
@@ -116,17 +111,14 @@ Harness *Active = nullptr;
   return Pending;
 }
 
-[[nodiscard]] int Direct(int Value) {
-  return Value + 1;
-}
+[[nodiscard]] int Direct(int Value) { return Value + 1; }
 
 } // namespace
 
 int RunAsynchronousSettlementProperties() {
-  // clang-format off
-  // Feature: reflection-driven-binding-system, Property 32: Suspended calls settle exactly once and resume through their retained generation
+
   const bool Passed = rc::check(
-      // clang-format on
+
       "Suspended calls settle exactly once and resume through their retained "
       "generation",
       [](const std::vector<int> &GeneratedSettlements,
@@ -186,7 +178,6 @@ int RunAsynchronousSettlementProperties() {
             }
           }
 
-          // Nothing is retained, the stack is exact, and no generation moved.
           RC_ASSERT(Hooks::PendingAsyncCallCount(Owner) == 0);
           RC_ASSERT(Hooks::ObserveRootStackDepth(Owner) == EntryDepth);
           RC_ASSERT(Hooks::DispatchGenerationOf(Owner) == EntryGeneration);
@@ -200,13 +191,11 @@ int RunAsynchronousSettlementProperties() {
         RC_ASSERT(Counters.Cancellations == ExpectedCancellations);
         RC_ASSERT(Counters.Refusals == 0);
 
-        // Every settled call settled exactly once, so settling again fails.
         for (Luna::AsyncCompletionSource<int> &Settled : Local.Sources) {
           RC_ASSERT(Settled.Stage() != Luna::AsyncStage::Pending);
           RC_ASSERT(!Settled.Complete(0));
         }
 
-        // The State stays reusable after every settled stage.
         RC_ASSERT(Owner.Execute("assert(Direct(1) == 2)").IsSuccess());
 
         Local.Join();

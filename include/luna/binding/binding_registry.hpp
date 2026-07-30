@@ -97,10 +97,6 @@ public:
     return Owner->CaptureReflection();
   }
 
-  // Installs a profiling or debug-UI hook. It runs on the owner thread only,
-  // strictly after Luna has already produced the reported outcome, and
-  // never changes invocation semantics. Installing a new hook replaces any
-  // previous one.
   [[nodiscard]] RegistrationResult InstallProfilingHook(ProfilingHook Hook) {
     return Owner->InstallProfilingHook(std::move(Hook));
   }

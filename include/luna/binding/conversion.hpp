@@ -21,12 +21,6 @@ namespace Luna {
 namespace Detail {
 class ConversionFrame;
 
-// A registered class instance captured from the Luau stack, retained the
-// same way a subscribed delegate handler is: through Luna's own reference
-// mechanism, never through a raw pointer or stack index. Nothing about the
-// owning virtual machine appears here — the concrete implementation, and
-// the only code that ever pushes one back onto a stack, lives entirely in
-// internal state code.
 class CapturedUserdataTarget {
 public:
   CapturedUserdataTarget() = default;
@@ -37,21 +31,8 @@ public:
 
   [[nodiscard]] virtual bool IsLive() const noexcept = 0;
   [[nodiscard]] virtual std::string_view ClassName() const noexcept = 0;
-
-  // The canonical type of the registered class the captured value reported.
-  // A call site that knows the concrete C++ type compares this against the
-  // type it expects before touching `Storage`, so a value of the wrong class
-  // is refused rather than reinterpreted.
   [[nodiscard]] virtual TypeId CapturedType() const noexcept = 0;
-
-  // The native object behind the captured value, or null whenever handing it
-  // out would be unsound: the capture has expired, the owning scope has gone
-  // away, or the object itself is no longer published — which is exactly the
-  // stale-borrow case a receiver already refuses.
   [[nodiscard]] virtual void *Storage() const noexcept = 0;
-
-  // Whether the captured value was exposed mutably. A const instance yields
-  // its storage for reading and refuses a mutating call site.
   [[nodiscard]] virtual bool PermitsMutation() const noexcept = 0;
 
   virtual void Release() noexcept = 0;
@@ -282,11 +263,6 @@ public:
     return Result;
   }
 
-  // A registered class instance captured from the Luau stack — directly, or
-  // nested inside a table — retained through `Target` the same way a
-  // subscribed delegate handler is retained. `ClassName` is available even
-  // when the concrete C++ type is unknown, so a consumer without it can
-  // still describe what was received.
   [[nodiscard]] static OwnedValue
   Userdata(std::shared_ptr<Detail::CapturedUserdataTarget> Target,
            std::string ClassName) {
@@ -297,11 +273,6 @@ public:
     return Result;
   }
 
-  // The same capture carrying the value's own display text — whatever the
-  // class's `ToText` operator renders, resolved once at capture time. It is
-  // stored apart from `ClassName` because both are wanted at once: a generic
-  // native `print` shows the text, a diagnostic names the class. Empty when
-  // the class declares no `ToText`, or when its `ToText` failed.
   [[nodiscard]] static OwnedValue
   Userdata(std::shared_ptr<Detail::CapturedUserdataTarget> Target,
            std::string ClassName, std::string DisplayText) {
@@ -372,15 +343,11 @@ public:
     return CategoryValue == ValueCategory::Userdata;
   }
 
-  // The registered class name of a captured userdata value, valid whether
-  // or not the concrete C++ type is known to the caller.
   [[nodiscard]] std::string_view UserdataClassName() const noexcept {
     return CategoryValue == ValueCategory::Userdata ? TextValue
                                                     : std::string_view();
   }
 
-  // The display text of a captured userdata value, produced by its class's
-  // `ToText` operator at capture time. Empty when the class declares none.
   [[nodiscard]] std::string_view UserdataText() const noexcept {
     return CategoryValue == ValueCategory::Userdata ? UserdataTextValue
                                                     : std::string_view();
@@ -488,9 +455,6 @@ public:
   }
 
   [[nodiscard]] std::size_t TotalByteCount() const {
-    // For a userdata node the class name is metadata rather than published
-    // bytes, but the display text is a string a consumer can hand back, so
-    // it participates in the reservation the way any other string does.
     std::size_t Total = CategoryValue == ValueCategory::Userdata
                             ? UserdataTextValue.size()
                             : TextValue.size();
@@ -662,10 +626,6 @@ public:
   [[nodiscard]] std::optional<double> ToNumber() const noexcept;
   [[nodiscard]] std::optional<std::string> ToText() const;
 
-  // A registered class instance seen through the conversion boundary. A
-  // `TypeConverter<T>::Read` recovers its `T *` by confirming the captured
-  // type is the one it expects and then casting the storage it is handed;
-  // every accessor here is read-only and refuses a capture that has expired.
   [[nodiscard]] std::string_view UserdataClassName() const noexcept;
   [[nodiscard]] std::string_view UserdataText() const noexcept;
   [[nodiscard]] bool UserdataIsLive() const noexcept;
@@ -796,13 +756,6 @@ template <class Type>
 
 namespace Detail {
 
-// A method, static method, or operator parameter whose declared type
-// converts through its own `Luna::TypeConverter<T>` specialization is bound
-// as a plain `OwnedValue` (the same currency a variadic argument already
-// uses) until the templated call site — instantiated where the concrete C++
-// type is known — reads it. These free functions bridge that bound value
-// into the same conversion-frame machinery a converted member value already
-// opens, without exposing the frame itself outside the library.
 [[nodiscard]] ConversionFrame *
 OpenArgumentConversionFrame(const OwnedValue &Source, std::string_view Callable,
                             std::size_t Position);
@@ -813,10 +766,6 @@ ArgumentConversionCommitContext(ConversionFrame *Frame) noexcept;
 
 } // namespace Detail
 
-// Reads one converted method, static method, or operator parameter's bound
-// value as `Type`, using `Type`'s own `Luna::TypeConverter<Type>`
-// specialization. `Callable` and `Position` are used only to describe a
-// failure the same way a converted member value's failure already reads.
 template <class Type>
 [[nodiscard]] ConversionResult<Type>
 ReadConvertedArgument(const OwnedValue &Source, std::string_view Callable,

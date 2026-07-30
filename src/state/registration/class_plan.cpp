@@ -251,10 +251,6 @@ MakeConstructionPlanEntry(const StagedClass &Class,
   Record.Examples = Declaration.Examples;
   Entry.Record = std::move(Record);
 
-  // A constructor, factory, or singleton declares parameters through the same
-  // machinery a method does, so a converted parameter stages the same pending
-  // type record here. Without this a construction entry compiled cleanly and
-  // then failed preparation with an unavailable canonical type.
   Entry.ParameterTypeConversions = MakeParameterTypeConversions(Metadata);
 
   Entry.Callable.emplace(std::move(*Declaration.Callable));

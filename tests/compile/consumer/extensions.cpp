@@ -20,8 +20,6 @@
 
 namespace {
 
-// A native event source built from the supported delegate surface. Nothing
-// here needs a macro, a Luau declaration, or a parallel callback system.
 class SignalHub final {
 public:
   [[nodiscard]] int Connect(Luna::Delegate<void(int)> Listener) {
@@ -57,12 +55,8 @@ SignalHub ConsumerHub;
 
 const auto GenericScale = [](auto Value) { return Value; };
 
-[[nodiscard]] int ConsumerScale(int Value) {
-  return Value * 2;
-}
+[[nodiscard]] int ConsumerScale(int Value) { return Value * 2; }
 
-// One asynchronous form: the callable starts the work, hands Luna the task,
-// and the host settles it later without touching Luna's internals.
 [[nodiscard]] Luna::AsyncTask<int> ConsumerScaleLater(int Value) {
   Luna::AsyncCompletionSource<int> Source;
   Luna::AsyncTask<int> Pending = Source.Task();
@@ -70,18 +64,12 @@ const auto GenericScale = [](auto Value) { return Value; };
   return Pending;
 }
 
-// Template auto-binding stays unavailable: an unconstrained generic callable
-// declares no signature, so no canonical descriptor exists for it. Explicit
-// concrete selection remains the supported opt-in.
 static_assert(!Luna::SupportedCallable<decltype(GenericScale)>,
               "A generic template callable must be refused at compile time.");
 static_assert(
     Luna::SupportedCallable<decltype(Luna::Overload<int(int)>(GenericScale))>,
     "An explicit concrete overload selection must remain supported.");
 
-// Coroutine and asynchronous invocation is available: work that finishes
-// after the call that started it declares a supported return type, and the
-// ordinary registration path accepts it.
 static_assert(Luna::SupportedReturn<std::future<int>> &&
                   Luna::SupportedReturn<Luna::AsyncTask<int>> &&
                   Luna::SupportedReturn<Luna::AsyncTask<void>> &&
@@ -98,17 +86,11 @@ static_assert(
     "Explicit selection must carry an asynchronous form through the same "
     "public constraint.");
 
-// The asynchronous domain stays exactly as wide as its awaited values. A raw
-// coroutine handle names no result, so it remains refused, and an awaited
-// value outside the canonical domain stays refused too.
 static_assert(!Luna::SupportedReturn<std::coroutine_handle<>> &&
                   !Luna::SupportedReturn<std::future<SignalHub>> &&
                   !Luna::SupportedReturn<Luna::AsyncTask<unsigned int>>,
               "Suspended work must still declare a canonical awaited value.");
 
-// Delegates, signals, and events are available: a subscribed handler is one
-// canonical delegate parameter, so subscribing and emitting are ordinary
-// callables. An event source itself stays native, never a bound value.
 static_assert(
     Luna::SupportedParameter<DelegateSlot> &&
         Luna::SupportedParameter<Luna::Delegate<void(int)>> &&
@@ -132,8 +114,6 @@ static_assert(!Luna::SupportedParameter<Luna::Delegate<void(unsigned int)>> &&
               "A delegate outside the canonical value domain must be refused "
               "at compile time.");
 
-// The supported surface stays available, so the constraints refuse the
-// unavailable extensions rather than everything.
 static_assert(Luna::SupportedCallable<int (*)(int)> &&
                   Luna::SupportedValue<int> && Luna::SupportedReturn<void>,
               "Ordinary callables, values, and returns must stay supported.");
@@ -182,14 +162,11 @@ template <template <typename, typename> class Detector>
          Detector<Luna::ReflectionSnapshot, void>::value;
 }
 
-// Asynchronous delivery reuses the ordinary registration, reflection, and
-// dispatch surface, so no parallel coroutine or awaiting API exists.
 static_assert(!AdvertisedAnywhere<ExposesCoroutine>() &&
                   !AdvertisedAnywhere<ExposesAsync>() &&
                   !AdvertisedAnywhere<ExposesAwait>(),
               "Asynchronous invocation must not add a parallel public API.");
-// Subscribing and emitting reuse the ordinary registration, reflection, and
-// dispatch surface, so Luna adds no parallel event API of its own.
+
 static_assert(!AdvertisedAnywhere<ExposesSubscribe>() &&
                   !AdvertisedAnywhere<ExposesEmit>(),
               "Delegates, signals, and events must stay ordinary reflected "
@@ -197,10 +174,6 @@ static_assert(!AdvertisedAnywhere<ExposesSubscribe>() &&
 static_assert(!AdvertisedAnywhere<ExposesAnnotations>(),
               "No public declaration may advertise annotation helpers.");
 
-// IDE, autocomplete, debug-UI, and profiling consumers are available. They
-// consume only public snapshots, generated artifacts, canonical SymbolId
-// and TypeId values, and the profiling hook, without changing invocation
-// semantics or introducing a second metadata schema.
 static_assert(std::is_default_constructible_v<Luna::ProfilingEvent> &&
                   std::is_copy_constructible_v<Luna::ProfilingEvent>,
               "A profiling event is an ordinary owning consumer value.");
@@ -219,7 +192,6 @@ void VerifyUnavailableExtensionBoundaryCompiles() {
   Luna::State Owner;
   Luna::BindingRegistry Registry = Owner.Bindings();
 
-  // Only the available forms are declarable, and they need no macro.
   [[maybe_unused]] const Luna::RegistrationResult Ordinary =
       Registry.RegisterFunction("ExtensionScale", &ConsumerScale);
   [[maybe_unused]] const Luna::RegistrationResult Selected =
@@ -233,8 +205,6 @@ void VerifyUnavailableExtensionBoundaryCompiles() {
           .At(0)
           .IsAsynchronous();
 
-  // Subscribing, unsubscribing, and emitting register like any other
-  // callable, and reflection describes the delegate parameter canonically.
   [[maybe_unused]] const Luna::RegistrationResult Subscribing =
       Registry.RegisterFunction("ExtensionConnect", &ConsumerConnect);
   [[maybe_unused]] const Luna::RegistrationResult SubscribingSlot =
@@ -244,7 +214,6 @@ void VerifyUnavailableExtensionBoundaryCompiles() {
   [[maybe_unused]] const bool ReflectsDelegateParameter =
       Registry.Reflection().Find("ExtensionConnect").IsValid();
 
-  // The event source itself is still refused through the typed outcome.
   [[maybe_unused]] const Luna::RegistrationResult Refused =
       Registry.RegisterConstant("ExtensionHub", SignalHub());
   [[maybe_unused]] const bool Rejected =
@@ -255,9 +224,6 @@ void VerifyUnavailableExtensionBoundaryCompiles() {
   [[maybe_unused]] const bool NotAdvertised =
       !Published.Find("ExtensionHub").IsValid();
 
-  // A profiling or debug-UI hook installs and clears through the ordinary
-  // typed outcome, and reports only the canonical identity a snapshot would
-  // already publish.
   std::vector<Luna::ProfilingEvent> ExtensionEvents;
   [[maybe_unused]] const Luna::RegistrationResult HookInstalled =
       Registry.InstallProfilingHook(

@@ -43,9 +43,7 @@ bool State::IsReady() const noexcept {
   return Implementation && Implementation->IsReady();
 }
 
-BindingRegistry State::Bindings() noexcept {
-  return BindingRegistry(*this);
-}
+BindingRegistry State::Bindings() noexcept { return BindingRegistry(*this); }
 
 RegistrationResult
 State::RegisterErased(std::string_view GlobalName,

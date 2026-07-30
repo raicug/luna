@@ -333,10 +333,9 @@ StagedValue GenerateValue(const TypeDescriptor &Type, SeedCursor &Seeds) {
 } // namespace
 
 int RunCanonicalConversionRoundTripProperties() {
-  // clang-format off
-  // Feature: reflection-driven-binding-system, Property 22: Canonical conversions round-trip without partial aggregates
+
   const bool Passed = rc::check(
-      // clang-format on
+
       "Canonical conversions round-trip without partial aggregates",
       [](const std::vector<std::uint8_t> &GeneratedSeeds,
          std::int32_t GeneratedNumber) {

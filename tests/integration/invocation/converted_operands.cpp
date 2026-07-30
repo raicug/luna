@@ -23,10 +23,6 @@ void Check(bool Condition, std::string_view Description) {
   std::cerr << "converted operand check failed: " << Description << '\n';
 }
 
-// A plain aggregate whose only connection to the type system is a
-// Luna::TypeConverter<T> specialization, exactly like the converted member
-// value tests already exercise. Here it also appears as a Method operand
-// and as a class operator's non-receiver operand.
 struct Vector3 final {
   double X = 0.0;
   double Y = 0.0;
@@ -103,18 +99,12 @@ public:
 
 namespace {
 
-[[nodiscard]] Vector3 GetPosition(const Body &Self) {
-  return Self.Position;
-}
+[[nodiscard]] Vector3 GetPosition(const Body &Self) { return Self.Position; }
 
 void SetPosition(Body &Self, Vector3 Updated) {
   Self.Position = std::move(Updated);
 }
 
-// A factory whose operands are both converted values. The natural shape for
-// this boundary is "two vectors in, one instance out", and it is what used to
-// compile cleanly and then fail preparation because a construction entry never
-// staged its parameters' pending type records.
 [[nodiscard]] Body Span(Vector3 From, const Vector3 &To) {
   Body Produced;
   Produced.Position = Vector3{To.X - From.X, To.Y - From.Y, To.Z - From.Z};

@@ -4,8 +4,8 @@ set(LUAU_BUILD_CLI OFF CACHE BOOL "" FORCE)
 set(LUAU_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(LUAU_BUILD_WEB OFF CACHE BOOL "" FORCE)
 
-# The one pinned Luau version. Benchmarks record it with every measurement, so
-# it stays a single source of truth rather than a duplicated literal.
+
+
 set(LUNA_LUAU_VERSION "0.730")
 
 FetchContent_Declare(

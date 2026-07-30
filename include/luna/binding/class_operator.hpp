@@ -108,9 +108,6 @@ ClassOperatorProducesValue(ClassOperator Selected) noexcept {
   return Selected != ClassOperator::Assign;
 }
 
-// An iteration step publishes however many values one step of the loop
-// produced, so it is the one operator besides `Call` whose result count is
-// not fixed by the operator itself.
 [[nodiscard]] constexpr bool
 ClassOperatorPublishesPack(ClassOperator Selected) noexcept {
   return Selected == ClassOperator::Iterate;

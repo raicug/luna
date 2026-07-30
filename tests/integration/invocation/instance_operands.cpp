@@ -21,10 +21,6 @@ void Check(bool Condition, std::string_view Description) {
   std::cerr << "instance operand check failed: " << Description << '\n';
 }
 
-// Two separately registered classes. `Slot` takes a `Bead` operand, which is
-// the cross-class case: the operand's class is not the class declaring the
-// member, so its identity comes from what `RegisterClass<Bead>` recorded
-// rather than from the declaring builder's own key.
 struct Bead final {
   int Weight = 0;
 };
@@ -50,7 +46,6 @@ struct Slot final {
 
 } // namespace
 
-// The opt-in that makes a bare class name an instance operand.
 template <> struct Luna::RegisteredClassTrait<Bead> : std::true_type {};
 template <> struct Luna::RegisteredClassTrait<Slot> : std::true_type {};
 
@@ -72,9 +67,6 @@ namespace {
   Luna::BindingRegistry Registry = Owner.Bindings();
   Luna::NamespaceBuilder Studio = Registry.RegisterNamespace("Studio");
 
-  // Bead is staged before the members that name it as an operand. A plan is
-  // validated entry by entry in staging order, so an operand's class has to be
-  // declared by the time a member taking one of its instances is declared.
   Luna::ClassBuilder<Bead> Beads =
       Studio.RegisterClass<Bead>("Bead", BeadKey());
   Luna::ClassBuilder<Bead> &DeclaredBead =

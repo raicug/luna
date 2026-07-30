@@ -78,11 +78,9 @@ Manifest(std::string Identity, std::string_view VersionText,
   return Luna::TypeId::FromBytes(Bytes);
 }
 
-[[nodiscard]] LifecycleSymbol Symbol(Luna::SymbolKind Kind,
-                                     std::string QualifiedName,
-                                     std::string Signature,
-                                     std::uint8_t TypeSeed,
-                                     std::string Ownership = std::string()) {
+[[nodiscard]] LifecycleSymbol
+Symbol(Luna::SymbolKind Kind, std::string QualifiedName, std::string Signature,
+       std::uint8_t TypeSeed, std::string Ownership = std::string()) {
   LifecycleSymbol Declared;
   Declared.Kind = Kind;
   Declared.QualifiedName = std::move(QualifiedName);
@@ -113,8 +111,8 @@ Manifest(std::string Identity, std::string_view VersionText,
   Subject.LoadedModules.push_back(Manifest("studio.physics", "1.2.0"));
   Subject.LoadedModules.push_back(Manifest(
       "studio.gameplay", "2.0.0", {Requires("studio.physics", ">=1.2.0")}));
-  Subject.LoadedModules.push_back(Manifest(
-      "studio.ui", "1.0.0", {Requires("studio.gameplay", ">=2.0.0")}));
+  Subject.LoadedModules.push_back(
+      Manifest("studio.ui", "1.0.0", {Requires("studio.gameplay", ">=2.0.0")}));
 
   Subject.Symbols = PhysicsSymbols();
   LifecycleSymbol Foreign =
@@ -136,9 +134,11 @@ Manifest(std::string Identity, std::string_view VersionText,
 
   Subject.Caches.push_back(
       {LifecycleCacheKind::FrozenLookup, "Physics.Impulse"});
-  Subject.Caches.push_back({LifecycleCacheKind::FrozenLookup, "Gameplay.Spawn"});
+  Subject.Caches.push_back(
+      {LifecycleCacheKind::FrozenLookup, "Gameplay.Spawn"});
   Subject.Caches.push_back({LifecycleCacheKind::FrozenNamespace, "Physics"});
-  Subject.Caches.push_back({LifecycleCacheKind::FrozenModule, "studio.physics"});
+  Subject.Caches.push_back(
+      {LifecycleCacheKind::FrozenModule, "studio.physics"});
   Subject.Caches.push_back(
       {LifecycleCacheKind::LazyMemberValue, "<lazy member values>"});
 
@@ -206,26 +206,24 @@ DetailOf(const LifecycleAnalysis &Analysis, LifecycleAffectedKind Kind,
 
 void CheckCanonicalOrder(const LifecycleAnalysis &Analysis,
                          std::string_view Description) {
-  Check(std::is_sorted(Analysis.Blockers.begin(), Analysis.Blockers.end(),
-                       [](const LifecycleBlocker &Left,
-                          const LifecycleBlocker &Right) {
-                         return CompareBlocker(Left, Right) ==
-                                std::strong_ordering::less;
-                       }),
+  Check(std::is_sorted(
+            Analysis.Blockers.begin(), Analysis.Blockers.end(),
+            [](const LifecycleBlocker &Left, const LifecycleBlocker &Right) {
+              return CompareBlocker(Left, Right) == std::strong_ordering::less;
+            }),
         Description);
-  Check(std::is_sorted(Analysis.Affected.All().begin(),
-                       Analysis.Affected.All().end(),
-                       [](const LifecycleAffectedItem &Left,
-                          const LifecycleAffectedItem &Right) {
-                         return CompareAffected(Left, Right) ==
-                                std::strong_ordering::less;
-                       }),
+  Check(std::is_sorted(
+            Analysis.Affected.All().begin(), Analysis.Affected.All().end(),
+            [](const LifecycleAffectedItem &Left,
+               const LifecycleAffectedItem &Right) {
+              return CompareAffected(Left, Right) == std::strong_ordering::less;
+            }),
         Description);
 }
 void CheckUnloadClosureAndBlockers() {
   const LifecycleSubject Subject = LoadedSubject();
-  const LifecycleAnalysis Analysis = Luna::Detail::AnalyzeLifecycleRequest(
-      Unload("studio.physics"), Subject);
+  const LifecycleAnalysis Analysis =
+      Luna::Detail::AnalyzeLifecycleRequest(Unload("studio.physics"), Subject);
 
   Check(!Analysis.IsPermitted(), "an unload with blockers is refused");
   Check(!Analysis.HasBlocker(LifecycleBlockerKind::UnsupportedDynamicMode) &&
@@ -233,10 +231,14 @@ void CheckUnloadClosureAndBlockers() {
         "a loaded module of a dynamic State reaches closure analysis");
 
   const LifecycleAffectedKind Kinds[] = {
-      LifecycleAffectedKind::Function,        LifecycleAffectedKind::Namespace,
-      LifecycleAffectedKind::Type,            LifecycleAffectedKind::Userdata,
-      LifecycleAffectedKind::ReflectionRecord, LifecycleAffectedKind::Cache,
-      LifecycleAffectedKind::Closure,         LifecycleAffectedKind::DependentModule,
+      LifecycleAffectedKind::Function,
+      LifecycleAffectedKind::Namespace,
+      LifecycleAffectedKind::Type,
+      LifecycleAffectedKind::Userdata,
+      LifecycleAffectedKind::ReflectionRecord,
+      LifecycleAffectedKind::Cache,
+      LifecycleAffectedKind::Closure,
+      LifecycleAffectedKind::DependentModule,
       LifecycleAffectedKind::RootedReference,
       LifecycleAffectedKind::RetainedGeneration};
   for (const LifecycleAffectedKind Kind : Kinds) {
@@ -267,8 +269,8 @@ void CheckUnloadClosureAndBlockers() {
         "direct and transitive dependents join the closure");
   Check(Analysis.Affected.Contains(LifecycleAffectedKind::RetainedGeneration,
                                    "generation 4") &&
-            Analysis.Affected.Contains(LifecycleAffectedKind::RetainedGeneration,
-                                       "generation 3"),
+            Analysis.Affected.Contains(
+                LifecycleAffectedKind::RetainedGeneration, "generation 3"),
         "retained dispatch generations join the closure");
 
   Check(!Analysis.Affected.Contains(LifecycleAffectedKind::Function,
@@ -339,8 +341,9 @@ void CheckCompatibleReplacement() {
   const LifecycleAnalysis Analysis = Luna::Detail::AnalyzeLifecycleRequest(
       Replace("1.3.0", Replacement), Subject);
 
-  Check(Analysis.IsPermitted(),
-        "a compatible replacement with a declared userdata policy is permitted");
+  Check(
+      Analysis.IsPermitted(),
+      "a compatible replacement with a declared userdata policy is permitted");
   Check(Analysis.RemovedSubjects.empty() &&
             Analysis.RetainedSubjects.size() == 4,
         "a compatible replacement retains every module-owned symbol");
@@ -385,9 +388,9 @@ void CheckIncompatibleReplacement() {
   Check(!Analysis.IsPermitted(), "an incompatible replacement is refused");
   Check(Analysis.HasBlocker(LifecycleBlockerKind::IncompatibleType),
         "a changed canonical type identity is refused");
-  Check(Analysis.HasBlocker(
-            LifecycleBlockerKind::IncompatibleCallableSignature),
-        "a changed callable signature is refused");
+  Check(
+      Analysis.HasBlocker(LifecycleBlockerKind::IncompatibleCallableSignature),
+      "a changed callable signature is refused");
   Check(Analysis.HasBlocker(LifecycleBlockerKind::IncompatibleClassOwnership),
         "changed class ownership is refused");
   Check(Analysis.HasBlocker(LifecycleBlockerKind::IncompatibleDeclaration),
@@ -407,9 +410,9 @@ void CheckIncompatibleReplacement() {
   Subject.LiveUserdata[0].MigrationAvailable = true;
   const LifecycleAnalysis Migrating = Luna::Detail::AnalyzeLifecycleRequest(
       Replace("1.3.0", Replacement), Subject);
-  Check(!Migrating.HasBlocker(
-            LifecycleBlockerKind::UnavailableUserdataMigration),
-        "an available migration answers the userdata policy requirement");
+  Check(
+      !Migrating.HasBlocker(LifecycleBlockerKind::UnavailableUserdataMigration),
+      "an available migration answers the userdata policy requirement");
   Check(Migrating.HasBlocker(LifecycleBlockerKind::IncompatibleType),
         "migration never excuses an incompatible declaration");
 
@@ -526,7 +529,8 @@ struct LoadedState final {
 
 void CheckDescribedStateSubject() {
   LoadedState Loaded;
-  const LifecycleSubject Subject = Hooks::DescribeLifecycleSubject(Loaded.Owner);
+  const LifecycleSubject Subject =
+      Hooks::DescribeLifecycleSubject(Loaded.Owner);
 
   Check(Subject.FindLoaded("studio.physics") != nullptr,
         "the described subject lists the loaded module graph");

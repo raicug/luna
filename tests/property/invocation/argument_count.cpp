@@ -127,9 +127,9 @@ RegisterSignature(Luna::State &State, SignatureKind Signature, int &Calls) {
 } // namespace
 
 int RunWrongArgumentCountProperties() {
-  // clang-format off
+
   const bool Passed = rc::check(
-      // clang-format on
+
       "Wrong argument counts produce contextual failures",
       [](int GeneratedSignature, int GeneratedReceivedCount) {
         Luna::State State;

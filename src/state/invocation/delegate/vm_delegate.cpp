@@ -34,8 +34,6 @@ constexpr const char *DelegateRegistrySlot = "Luna.Delegates";
   return "the subscribed handler failed without a reason.";
 }
 
-// One handler the virtual machine owns, held through Luna's reference
-// mechanism. It never exposes the reference or the stack it came from.
 class VmDelegateTarget final : public DelegateTarget {
 public:
   VmDelegateTarget(std::shared_ptr<DelegateLink> Link, int Reference,
@@ -158,10 +156,7 @@ public:
     ReleasedValue = true;
 
     const std::lock_guard<std::mutex> Guard(LinkValue->Barrier);
-    // The reference slot number is reused once a mass invalidation unrefs
-    // it, so a target from an epoch that has already moved on must never
-    // touch `Outstanding` or unref by number again: that number may now name
-    // a completely different, still-live subscription.
+
     if (LinkValue->Epoch != EpochValue)
       return;
 
@@ -203,9 +198,7 @@ private:
 VmDelegateRegistry::VmDelegateRegistry()
     : LinkValue(std::make_shared<DelegateLink>()) {}
 
-VmDelegateRegistry::~VmDelegateRegistry() {
-  Retire();
-}
+VmDelegateRegistry::~VmDelegateRegistry() { Retire(); }
 
 void VmDelegateRegistry::Bind(lua_State *Root) noexcept {
   if (!LinkValue)

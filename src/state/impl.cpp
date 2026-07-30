@@ -2508,8 +2508,6 @@ Detail::LifecycleSubject State::Impl::DescribeLifecycleSubject() const {
   Sources.Identities = &Identities;
   Sources.Frozen = Lifecycle.IsFrozen();
 
-  // This milestone remains load-only: no module declares dynamic lifecycle
-  // support, so every unload or replacement request is refused before mutation.
   Sources.DynamicLifecycleEnabled = false;
   return Detail::DescribeLifecycleSubject(Sources);
 }

@@ -58,9 +58,9 @@ constexpr std::string_view MessageCharacters =
 } // namespace
 
 int RunStandardExceptionTranslationProperties() {
-  // clang-format off
+
   const bool Passed = rc::check(
-      // clang-format on
+
       "Standard exceptions are translated with context",
       [](const std::vector<int> &GeneratedName,
          const std::vector<int> &GeneratedMessage) {

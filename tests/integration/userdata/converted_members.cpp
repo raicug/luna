@@ -22,10 +22,6 @@ void Check(bool Condition, std::string_view Description) {
   std::cerr << "converted member check failed: " << Description << '\n';
 }
 
-// A plain aggregate with no relation to Luna's registered classes or enums:
-// its only connection to the type system is a Luna::TypeConverter<T>
-// specialization, the same boundary a consumer would write for their own
-// math or engine types.
 struct Vector3 final {
   double X = 0.0;
   double Y = 0.0;

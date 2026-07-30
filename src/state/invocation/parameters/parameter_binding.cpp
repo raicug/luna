@@ -309,11 +309,6 @@ BoundInvocation BindDeclaredParameters(lua_State *State,
           return Result;
         }
 
-        // The receiver gate is the whole access decision for a class value —
-        // origin State, metatable identity, payload liveness, borrowed
-        // lifetime, dynamic type, and const permission — so an operand of a
-        // registered class is refused with exactly a receiver's quality,
-        // before the native target runs.
         const ValidatedReceiver Bound = ValidateInstanceReceiver(
             State, CallableName, Types, TypeDescriptor::ForClass(*Key),
             Declared->RequiresMutation, StackIndex);
@@ -394,8 +389,6 @@ BoundInvocation BindDeclaredParameters(lua_State *State,
 
 namespace {
 
-// Copies the bound arguments into owned values so suspended work never keeps
-// an argument view or the stack it was read from.
 [[nodiscard]] ArgumentPack
 RetainedDeclaredArguments(const BoundArguments &Bound, int ArgumentBase) {
   ValuePack Owned;

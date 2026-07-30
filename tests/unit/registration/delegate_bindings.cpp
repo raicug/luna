@@ -32,8 +32,6 @@ void Check(bool Condition, std::string_view Description) {
   std::cerr << "delegate binding check failed: " << Description << '\n';
 }
 
-// One native event source shared by the registered callables. It owns every
-// subscribed handler as an ordinary delegate.
 struct Hub final {
   Luna::Signal<void(int)> Damage;
   Luna::Signal<bool(int)> Filter;
@@ -308,8 +306,6 @@ void CheckReentrantSubscriptionStaysSafe() {
           Registry.RegisterFunction("Subscribers", &Subscribers).IsSuccess(),
       "the reentrancy surface registers");
 
-  // The first handler unsubscribes itself and subscribes another handler
-  // while the emission is still running.
   Check(Owner
             .Execute("First = Subscribe(function(Amount)\n"
                      "  Record(Amount)\n"
@@ -352,13 +348,10 @@ void CheckLifecycleAndStateBoundariesInvalidateHandlers() {
               Hooks::OutstandingDelegateCount(Owner) == 1,
           "the handler is live before the lifecycle moves");
 
-    // Freezing closes registration but never retires a live handler.
     Check(Registry.Freeze().IsSuccess(), "the State freezes");
     Check(Local.Retained.IsValid() && Local.Damage.Emit(4).Delivered == 1,
           "a frozen State keeps delivering to its subscribed handlers");
 
-    // Replacing the lifecycle generation retires every handler subscribed
-    // through the generation that went away.
     Check(Hooks::AdvanceLifecycleGeneration(Owner),
           "the lifecycle generation advances");
     Check(!Local.Retained.IsValid() &&

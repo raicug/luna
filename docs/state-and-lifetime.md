@@ -5,7 +5,7 @@
 ```cpp
 Luna::State State;
 if (!State.IsReady()) {
-  // VM creation failed; registration and execution return diagnostics.
+
 }
 ```
 

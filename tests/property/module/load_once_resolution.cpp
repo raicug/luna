@@ -1050,10 +1050,9 @@ void VerifyLoad(Luna::State &Owner, Luna::BindingRegistry &Registry,
 } // namespace
 
 int RunLoadOnceModuleResolutionProperties() {
-  // clang-format off
-  // Feature: reflection-driven-binding-system, Property 23: Load-once module resolution follows the semantic-version transaction model
+
   const bool Passed = rc::check(
-      // clang-format on
+
       "Load-once module resolution follows the semantic-version transaction "
       "model",
       [](const std::vector<std::uint8_t> &Shape) {

@@ -51,12 +51,6 @@ ParameterFormText(ParameterForm Form) noexcept {
   return "required";
 }
 
-// A parameter whose declared type is not one of the four foundation scalars
-// converts through its own `Luna::TypeConverter<T>` specialization, the same
-// boundary a converted property or field value already uses. Nothing outside
-// the declaring callable ever looks this shape up by a stable key, so it
-// carries only the type-erased probe its viability check needs, mirroring
-// how `DelegateShape` carries a self-contained call shape rather than a key.
 struct ConvertedParameterShape final {
   using ProbeFunction = ConversionProbe (*)(ValueView Source,
                                             const ConversionContext &Context);
@@ -74,12 +68,6 @@ struct ConvertedParameterShape final {
   }
 };
 
-// One operand that is an instance of a registered class. The class is named
-// by a resolver rather than by a stored key so that a member declared before
-// the class it names — a factory in one class taking another, two classes
-// staged into the same plan in either order — still canonicalizes correctly:
-// the key is read when the plan is described, not when the member was
-// declared. `RequiresMutation` mirrors the receiver gate's const permission.
 struct InstanceParameterShape final {
   Detail::ClassKeyResolver Resolve = nullptr;
   bool RequiresMutation = false;
@@ -198,9 +186,6 @@ public:
     return InstanceValue ? &*InstanceValue : nullptr;
   }
 
-  // The registered class this operand names, resolved now. Invalid when the
-  // class was never registered, which is what the registration-time
-  // availability check reports.
   [[nodiscard]] const StableTypeKey *InstanceKey() const {
     if (!InstanceValue)
       return nullptr;
@@ -222,8 +207,6 @@ public:
 
   [[nodiscard]] bool Retains() const noexcept { return RetainsValue; }
 
-  // A delegate, converted, or instance parameter is always supplied, so none
-  // of them ever relaxes the shape.
   [[nodiscard]] bool IsOmittable() const noexcept {
     return FormValue != ParameterForm::Required &&
            FormValue != ParameterForm::Delegate &&
@@ -370,8 +353,7 @@ ValidateParameterShape(std::span<const ParameterDescriptor> Parameters) {
           Parameter.Retains())
         return ParameterShapeIssue{
             ParameterShapeStatus::UnregisteredInstanceClass, Position};
-      // A class that was never registered leaves its resolver's slot empty,
-      // which is exactly the operand this reports.
+
       if (!Declared->Class().IsValid())
         return ParameterShapeIssue{
             ParameterShapeStatus::UnregisteredInstanceClass, Position};

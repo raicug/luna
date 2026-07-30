@@ -161,7 +161,7 @@ TypeKindAcceptsChildCount(TypeKind Kind, std::size_t ChildCount) noexcept {
   case TypeKind::ReturnPack:
     return true;
   case TypeKind::Callable:
-    // The first child is the result type; the rest are the parameter types.
+
     return ChildCount >= 1;
   }
   return false;
@@ -188,10 +188,6 @@ public:
     return ForLeaf(TypeKind::Class, std::move(Key));
   }
 
-  // A user-supplied `Luna::TypeConverter<T>` leaf: identified by the same
-  // kind of stable key an enum or a class carries, but converted through the
-  // consumer-owned probe/read/write boundary rather than through Luna's own
-  // machinery.
   [[nodiscard]] static TypeDescriptor ForConverted(StableTypeKey Key) {
     return ForLeaf(TypeKind::Converted, std::move(Key));
   }

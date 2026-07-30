@@ -15,7 +15,15 @@
 
 namespace Luna {
 
-enum class ReturnDisposition { Value, Void, Suppress, Pack, Instance };
+enum class ReturnDisposition {
+  Value,
+  Void,
+  Suppress,
+  Pack,
+  Instance,
+  Owned,
+  OwnedPack
+};
 
 class ReturnMetadata {
 public:
@@ -42,14 +50,20 @@ public:
     return ReturnMetadata(ReturnDisposition::Pack, std::nullopt);
   }
 
+  [[nodiscard]] static ReturnMetadata ForOwnedValue() noexcept {
+    return ReturnMetadata(ReturnDisposition::Owned, std::nullopt);
+  }
+
+  [[nodiscard]] static ReturnMetadata ForOwnedPack() noexcept {
+    return ReturnMetadata(ReturnDisposition::OwnedPack, std::nullopt);
+  }
+
   [[nodiscard]] static ReturnMetadata ForInstance(StableTypeKey Class) {
     ReturnMetadata Metadata(ReturnDisposition::Instance, std::nullopt);
     Metadata.InstanceKeyValue = std::move(Class);
     return Metadata;
   }
 
-  // Asynchronous delivery keeps the awaited disposition, so reflection,
-  // validation, and return writing stay on the canonical paths.
   [[nodiscard]] static ReturnMetadata ForAsync(ReturnMetadata Awaited) {
     Awaited.AsynchronousValue = true;
     return Awaited;

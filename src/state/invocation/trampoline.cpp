@@ -36,9 +36,6 @@ struct InvocationResult final {
   std::string Diagnostic;
   std::unique_ptr<StartedAsyncCall> Suspension;
 
-  // Populated once a candidate is selected, so a profiling hook can report
-  // the same canonical identity reflection uses. Both stay invalid when
-  // validation failed before a candidate could be chosen.
   SymbolId Symbol;
   TypeId ReceiverType;
 
@@ -160,8 +157,6 @@ struct MemberDispatch final {
                          : Selected.Diagnostic);
     ErasedCallableDescriptor &Descriptor = Selected.Candidate->Descriptor;
 
-    // Captured once a candidate is selected, so every later return from this
-    // call can report the same canonical identity reflection uses.
     const SymbolId SelectedSymbol = Selected.Candidate->Identity;
     const TypeId SelectedReceiverType =
         Member.ExpectsReceiver()
@@ -287,9 +282,6 @@ struct MemberDispatch final {
   }
 }
 
-// Registers the started work and hands the executing chunk back to Luna's
-// owner-thread pump. Returns false when this call site cannot suspend, in
-// which case the started work is cancelled and no stack slot changes.
 [[nodiscard]] bool RegisterSuspension(
     lua_State *State, InvocationResult &Result, const DispatchEntry &Entry,
     std::shared_ptr<const TypeGeneration> Types, DispatchRetention &Retained,
@@ -411,6 +403,9 @@ int NativeTrampolineContinuation(lua_State *State, int Status) {
             break;
           case ReturnDisposition::Suppress:
           case ReturnDisposition::Instance:
+          case ReturnDisposition::Owned:
+          case ReturnDisposition::OwnedPack:
+
             Consistent = false;
             break;
           }

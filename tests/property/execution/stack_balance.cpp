@@ -47,9 +47,9 @@ enum class SourceKind : std::uint32_t {
 } // namespace
 
 int RunExecutionStackBalanceProperties() {
-  // clang-format off
+
   const bool Passed = rc::check(
-      // clang-format on
+
       "Execution preserves stack depth",
       [](int GeneratedDepth, int GeneratedSourceKind) {
         Luna::State State;

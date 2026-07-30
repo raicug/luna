@@ -23,6 +23,7 @@ enum class InvocationOutcomeKind {
   Value,
   Void,
   Values,
+  OwnedValues,
   Instance,
   Suspended,
   InternalFailure
@@ -44,6 +45,13 @@ public:
 
   [[nodiscard]] static InvocationOutcome Void() {
     return InvocationOutcome(InvocationOutcomeKind::Void, std::nullopt, {});
+  }
+
+  [[nodiscard]] static InvocationOutcome WithOwnedValues(ValuePack Produced) {
+    InvocationOutcome Outcome(InvocationOutcomeKind::OwnedValues, std::nullopt,
+                              {});
+    Outcome.OwnedStorage = std::move(Produced);
+    return Outcome;
   }
 
   [[nodiscard]] static InvocationOutcome
@@ -83,6 +91,10 @@ public:
     return ValuesStorage;
   }
 
+  [[nodiscard]] const ValuePack &ReturnedOwnedValues() const noexcept {
+    return OwnedStorage;
+  }
+
   [[nodiscard]] const Detail::ConstructedInstance *
   ProducedInstance() const noexcept {
     return InstanceStorage ? &*InstanceStorage : nullptr;
@@ -110,6 +122,7 @@ private:
   InvocationOutcomeKind KindValue;
   std::optional<Value> ValueValue;
   std::vector<Value> ValuesStorage;
+  ValuePack OwnedStorage;
   std::optional<Detail::ConstructedInstance> InstanceStorage;
   std::unique_ptr<Detail::PendingAsyncWork> SuspendedStorage;
   std::string FailureMessageValue;

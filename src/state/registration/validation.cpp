@@ -194,9 +194,6 @@ CheckTypeAvailability(const RegistrationValidationRequest &Request,
   for (const TypeRecord &Candidate : Entry->ParameterTypeConversions)
     Pending.push_back(Candidate);
 
-  // A delegate parameter is carried by Luna's own reference mechanism rather
-  // than by a value converter, so it is usable once every value kind in its
-  // declared call shape is usable.
   const auto DelegateIsUsable = [&Types](const TypeDescriptor &Type) {
     if (!IsCanonicalDelegateType(Type))
       return false;

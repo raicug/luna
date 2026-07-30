@@ -177,9 +177,27 @@ public:
   }
 
   template <class Target>
+  ClassBuilder &Method(std::string_view Name, Target Selected,
+                       OwnershipPolicy Policy) {
+    Detail::MethodRequest Request = Detail::MakeMethodRequest<Type>(
+        ClassKey, std::move(Selected), std::move(Policy));
+    Staging.StageMember(Name, std::move(Request));
+    return *this;
+  }
+
+  template <class Target>
   ClassBuilder &StaticMethod(std::string_view Name, Target Selected) {
     Detail::MethodRequest Request =
         Detail::MakeStaticMethodRequest(std::move(Selected));
+    Staging.StageMember(Name, std::move(Request));
+    return *this;
+  }
+
+  template <class Target>
+  ClassBuilder &StaticMethod(std::string_view Name, Target Selected,
+                             OwnershipPolicy Policy) {
+    Detail::MethodRequest Request =
+        Detail::MakeStaticMethodRequest(std::move(Selected), std::move(Policy));
     Staging.StageMember(Name, std::move(Request));
     return *this;
   }
@@ -234,10 +252,6 @@ public:
     return *this;
   }
 
-  // A property whose value type is not a foundation scalar (a `Vector3`,
-  // for instance) converts through the value type's own
-  // `Luna::TypeConverter<T>` specialization instead, named explicitly as
-  // `Property<Vector3>(Name, Getter, Setter)`.
   template <class Value, class Getter>
   ClassBuilder &Property(std::string_view Name, Getter Accessor) {
     const PropertyPolicy Policy = PropertyPolicy::ReadOnly();
@@ -286,10 +300,6 @@ public:
     return *this;
   }
 
-  // A property may declare an optional on-change callback, invoked with the
-  // owning instance and the newly written value after the setter above
-  // succeeds. This lets user code react to writes without interleaving that
-  // reaction into the setter itself.
   template <class Getter, class Setter, class OnChange>
   ClassBuilder &Property(std::string_view Name, Getter Accessor, Setter Mutator,
                          OnChange Handler) {
@@ -333,8 +343,6 @@ public:
     return *this;
   }
 
-  // A field may likewise declare an optional on-change callback, invoked
-  // after a successful write reaches the underlying data member.
   template <class Held, class OnChange>
     requires(!std::is_same_v<std::decay_t<OnChange>, FieldPolicy>)
   ClassBuilder &Field(std::string_view Name, Held Type::*Member,
@@ -357,9 +365,6 @@ public:
     return *this;
   }
 
-  // A field whose value type is not a foundation scalar converts through
-  // that type's own `Luna::TypeConverter<T>` specialization instead, named
-  // explicitly as `Field<Vector3>(Name, &Type::Member)`.
   template <class Value, class Held>
   ClassBuilder &Field(std::string_view Name, Held Type::*Member) {
     const FieldPolicy Policy;

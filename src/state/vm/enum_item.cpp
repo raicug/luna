@@ -32,9 +32,6 @@ constexpr const char *ProtectedMetatableMarker = "Luna.ProtectedMetatable";
   return 1;
 }
 
-// One enumerator object: userdata so that `typeof` reports the enumerator
-// kind rather than "table", carrying its own metatable with the readable
-// fields a script expects and no way to reach or replace either.
 [[nodiscard]] bool PushEnumItem(lua_State *State, const TypeId &Enumeration,
                                 std::int64_t Numeric,
                                 std::string_view EnumerationName,
@@ -100,13 +97,9 @@ const EnumItemPayload *InspectEnumItem(const void *Block,
   return Payload;
 }
 
-EnumItemRegistry::~EnumItemRegistry() {
-  Retire();
-}
+EnumItemRegistry::~EnumItemRegistry() { Retire(); }
 
-void EnumItemRegistry::Bind(lua_State *Root) noexcept {
-  Thread = Root;
-}
+void EnumItemRegistry::Bind(lua_State *Root) noexcept { Thread = Root; }
 
 const EnumItemRegistry::Interned *
 EnumItemRegistry::Find(const TypeId &Enumeration,

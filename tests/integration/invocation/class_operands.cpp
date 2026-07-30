@@ -22,10 +22,6 @@ void Check(bool Condition, std::string_view Description) {
   std::cerr << "class operand check failed: " << Description << '\n';
 }
 
-// A registered class that also declares its own converter, which is how a
-// class instance reaches an operand position: the operand is converted, and
-// the converter recovers the native object from the userdata value it is
-// handed rather than rebuilding one from a table.
 struct Vec final {
   double X = 0.0;
   double Y = 0.0;
@@ -38,8 +34,6 @@ struct Vec final {
   [[nodiscard]] double Combine(const Vec &Other) const { return Dot(Other); }
 };
 
-// A second registered class, used only to confirm that an instance of the
-// wrong class is refused rather than reinterpreted.
 struct Tag final {
   int Number = 0;
 };

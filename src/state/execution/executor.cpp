@@ -90,9 +90,6 @@ private:
                "source execution failed without a diagnostic."));
 }
 
-// Binds one disposable execution thread to Luna's suspended-call registry for
-// exactly as long as that thread can suspend, and cancels anything it leaves
-// pending.
 class PumpedExecutionThread final {
 public:
   PumpedExecutionThread(AsyncCallRegistry *Async, lua_State *Thread) noexcept
@@ -152,8 +149,6 @@ ExecutionResult ExecuteSource(lua_State *Root, std::string_view Source,
                    "compiler rejected the source."));
     }
 
-    // Suspended native calls hand the chunk back here, so execution resumes
-    // the same thread on the owner thread until nothing is suspended.
     const PumpedExecutionThread Pumped(Async, Thread);
     int Status = lua_resume(Thread, nullptr, 0);
     while (Status == LUA_YIELD) {

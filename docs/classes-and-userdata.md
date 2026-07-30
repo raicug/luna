@@ -24,13 +24,13 @@ The class is described, never discovered. The declared C++ shape your translatio
 Three kinds of construction candidate exist, and each is an ordinary callable candidate: same overload grouping, same parameter descriptors, same conversion registry, same transaction, same diagnostics. What they add is the result — exactly one value of the class.
 
 ```cpp
-// Sprite();
-// Sprite(std::string Name, double Width, double Height);
-// static Sprite Sprite::Square(std::string Name, double Side);
-// Sprite &ActiveSprite();
 
-Sprites.Constructor<std::string, double, double>()  // published as `New`
-    .Constructor<>("Empty")                         // an explicit name
+
+
+
+
+Sprites.Constructor<std::string, double, double>()
+    .Constructor<>("Empty")
     .Factory("Square", &Sprite::Square)
     .Singleton("Current", &ActiveSprite);
 ```
@@ -52,11 +52,11 @@ An object is published only after allocation, native construction, ownership est
 `LifetimeHandle` is how a borrowed object states its lifetime. While the handle is live, access to every value exposed through it is permitted; the moment the owner calls `Invalidate()`, every later access to every one of those values fails before any native code runs.
 
 ```cpp
-Luna::LifetimeHandle Lifetime;   // Sprite &ActiveSprite();
+Luna::LifetimeHandle Lifetime;
 Sprites.Singleton("Active", &ActiveSprite,
                   Luna::OwnershipPolicy::Borrowed(Lifetime));
 
-// Later, when the host object goes away:
+
 Lifetime.Invalidate();
 ```
 
@@ -235,8 +235,8 @@ Operators are documented, annotated, and exemplified by naming the operator rath
 A `Method`, `StaticMethod`, or `Operator` parameter is not limited to the four supported value types either: any type with its own `Luna::TypeConverter<T>` specialization may be an operand too, read through the same probe/read boundary a converted property or field value already uses (see [custom conversions](values-and-validation.md#custom-conversions)). No explicit template argument is needed — the parameter's own declared C++ type is enough, the same way a scalar parameter already is:
 
 ```cpp
-Sprites.Method("Dot", &Sprite::Dot)                    // double Dot(Vector3) const
-       .Operator(Luna::ClassOperator::Add, &Sprite::Offset);  // Vector3 Offset(const Vector3 &) const
+Sprites.Method("Dot", &Sprite::Dot)
+       .Operator(Luna::ClassOperator::Add, &Sprite::Offset);
 ```
 
 ```lua
@@ -244,7 +244,7 @@ local D = Hero:Dot({1, 0, 0})
 local Moved = Hero + {4, 0, 0}
 ```
 
-Diagnostics for a converted operand read the same way a converted member value's do: a value the operand's own `Probe` rejects is a caller error naming the operand position, reported before the native target runs. Publishing a converted *return* value is not yet supported — an operator or method still returns one of the four supported value types, a fixed or dynamic pack, an instance, or void.
+Diagnostics for a converted operand read the same way a converted member value's do: a value the operand's own `Probe` rejects is a caller error naming the operand position, reported before the native target runs. Publishing a converted *return* value is not yet supported — but a method that wants to hand back a table or an object says so directly, described under [returning instances and tables](#returning-instances-and-tables) below.
 
 ### Instance operands
 
@@ -255,8 +255,8 @@ template <> struct Luna::RegisteredClassTrait<Bead> : std::true_type {};
 
 struct Slot final {
   int Total = 0;
-  [[nodiscard]] int Measure(const Bead &Placed) const;   // reads the operand
-  void Absorb(Bead *Placed);                             // writes through it
+  [[nodiscard]] int Measure(const Bead &Placed) const;
+  void Absorb(Bead *Placed);
 };
 
 Slots.Method("Measure", &Slot::Measure).Method("Absorb", &Slot::Absorb);
@@ -299,6 +299,57 @@ A registered class also reaches a *converted* operand, which is useful when the 
 ```
 
 `UserdataClassName()` is the registered qualified name and `UserdataType()` is the canonical `TypeId`, so the converter confirms the identity before it casts — a value of a different class simply fails the check. `UserdataStorage()` yields null whenever handing the object out would be unsound: the capture has expired, the owning State has gone away, or the object is no longer published, which is the same stale-borrow refusal a receiver performs. `UserdataPermitsMutation()` reports whether the instance was exposed mutably, and `UserdataText()` carries whatever the class's `ToText` operator rendered.
+
+### Returning instances and tables
+
+A method, static method, or operator returns a registered class instance in any of the three ownership models a construction publishes:
+
+| Declared result | Ownership | Declaration |
+|---|---|---|
+| `T` by value | Lua-owned copy | nothing extra |
+| `std::shared_ptr<T>` | shared | nothing extra |
+| `T *` | borrowed | `OwnershipPolicy::Borrowed(Lifetime)` |
+
+```cpp
+struct Vector { double X, Y; [[nodiscard]] Vector Scaled(double By) const; };
+struct Game   { Http Service; [[nodiscard]] Http *GetService(std::string Name); };
+
+Vectors.Method("Scaled", &Vector::Scaled);
+Games.Method("GetService", &Game::GetService,
+             Luna::OwnershipPolicy::Borrowed(HostLifetime));
+```
+
+```lua
+local V = Studio.Vector.New()
+local S = V:Scaled(2.5)                       -- a new object, owned by Lua
+local http = game:GetService("HttpService")   -- the host's own object, borrowed
+```
+
+A borrowed result outlives the call, so it states the lifetime Luna checks on every later access — exactly what a borrowed singleton states. Declaring a pointer result without one is refused at registration rather than at the first call, and declaring a lifetime for a result that is not borrowed is refused too.
+
+Two objects must not share one native address. Luna caches userdata identity by address, so a member at offset zero of its owner would be the same identity as its owner.
+
+For a value whose shape the target decides at run time, return `Luna::OwnedValue` for one value or `Luna::ValuePack` for ordered multiple values. Both publish whatever category each value carries — a table, nested tables, a scalar, nil, or an instance the call itself received:
+
+```cpp
+[[nodiscard]] Luna::OwnedValue Http::Decode(std::string Text) const {
+  Luna::OwnedValue Decoded = Luna::OwnedValue::Table();
+  Decoded.SetField("enabled", Luna::OwnedValue::Boolean(true));
+  Luna::OwnedValue Names = Luna::OwnedValue::Table();
+  Names.Append(Luna::OwnedValue::Text("alpha"));
+  Decoded.SetField("names", std::move(Names));
+  return Decoded;
+}
+```
+
+```lua
+local decoded = http:Decode(encoded)
+print(decoded.enabled, decoded.names[1])
+```
+
+`ReturnPack` stays deliberately scalar-only. It is the *declared* multiple-return shape, and widening its element type would change what every existing `AppendNumber`/`AppendText` call site means. A target that needs a table inside a multiple return returns a `ValuePack` instead. An owned return states its reservation before publishing, so a value exceeding the invocation's string policy publishes nothing rather than a truncated prefix.
+
+One limit is worth naming: an `OwnedValue` carrying userdata holds a reference to an instance the call *received*, so a pack can pass an instance through but cannot manufacture a new one. A method returning a newly built object returns it directly rather than nesting it in a pack.
 
 ## Access from Luau
 

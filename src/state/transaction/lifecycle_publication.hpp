@@ -98,10 +98,11 @@ struct LifecyclePublicationObservation final {
   std::size_t LifecycleJournalRetainers = 0;
 };
 
-[[nodiscard]] LifecyclePublishStatus PublishLifecycle(
-    RegistrationTransaction &Transaction, const LifecyclePlan &Plan,
-    PreparedLifecycle &Prepared, const LifecyclePublicationTargets &Targets,
-    LifecyclePublicationObservation &Observed);
+[[nodiscard]] LifecyclePublishStatus
+PublishLifecycle(RegistrationTransaction &Transaction,
+                 const LifecyclePlan &Plan, PreparedLifecycle &Prepared,
+                 const LifecyclePublicationTargets &Targets,
+                 LifecyclePublicationObservation &Observed);
 
 struct LifecycleCommitAttempt final {
   LifecycleAttempt Staged;

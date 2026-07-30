@@ -157,6 +157,7 @@ struct GeneratedParameter final {
   case ParameterForm::Variadic:
   case ParameterForm::Delegate:
   case ParameterForm::Converted:
+  case ParameterForm::Instance:
     break;
   }
   return ParameterDescriptor::ForVariadic(From.Retains);
@@ -762,9 +763,7 @@ ModelRejection(ValueKind Kind, const ArgumentSample &Argument) {
     for (std::size_t Position = Arity.FixedCount + 1; Position <= Received;
          ++Position) {
       const ArgumentSample &Argument = Call.Arguments[Position - 1];
-      // A table variadic element is captured directly from the stack rather
-      // than read through the scalar TypeRecord::Read path, so it never
-      // records a committing argument read the way a scalar element does.
+
       if (Argument.Kind != SampleKind::Nil &&
           Argument.Kind != SampleKind::Table)
         ++Outcome.CommittingReads;
@@ -1207,10 +1206,9 @@ void VerifyGeneratedInvocation(ByteCursor &Calls, ByteCursor &Returns) {
 } // namespace
 
 int RunRichSignatureShapeProperties() {
-  // clang-format off
-  // Feature: reflection-driven-binding-system, Property 25: Optional, defaulted, variadic, and multiple-value calls follow their reflected shapes
+
   const bool Passed = rc::check(
-      // clang-format on
+
       "Optional, defaulted, variadic, and multiple-value calls follow their "
       "reflected shapes",
       [](const std::vector<std::uint8_t> &ShapeBytes,

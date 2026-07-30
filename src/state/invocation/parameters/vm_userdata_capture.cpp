@@ -18,9 +18,6 @@ namespace {
 
 constexpr const char *UserdataCaptureRegistrySlot = "Luna.UserdataCaptures";
 
-// One captured userdata value the virtual machine owns, held through Luna's
-// reference mechanism. It never exposes the reference or the stack it came
-// from, mirroring VmDelegateTarget exactly.
 class VmCapturedUserdataTarget final : public CapturedUserdataTarget {
 public:
   VmCapturedUserdataTarget(std::shared_ptr<UserdataCaptureLink> Link,
@@ -48,11 +45,6 @@ public:
     return DescribedValue.CapturedType;
   }
 
-  // Storage is never cached. Every request re-reads the header and runs the
-  // same access gate a receiver runs, so origin State, payload presence,
-  // borrowed lifetime, publication state, and const permission are all
-  // decided at the moment the object would be handed out — which is what
-  // makes a stale borrow refuse instead of yielding a dangling pointer.
   [[nodiscard]] void *Storage() const noexcept override {
     const UserdataAccessResult Access = InspectAccess(false);
     return Access.IsPermitted() ? Access.Storage : nullptr;
@@ -68,10 +60,7 @@ public:
     ReleasedValue = true;
 
     const std::lock_guard<std::mutex> Guard(LinkValue->Barrier);
-    // The reference slot number is reused once a mass invalidation unrefs
-    // it, so a target from an epoch that has already moved on must never
-    // touch `Outstanding` or unref by number again, the same reasoning
-    // VmDelegateTarget::Release already documents.
+
     if (LinkValue->Epoch != EpochValue)
       return;
 
@@ -124,9 +113,6 @@ private:
     if (Header == nullptr)
       return UserdataAccessResult();
 
-    // The identity request restates what the block itself reports: the
-    // consumer's own class check is the one that decides whether this value
-    // is the type it wanted, and it compares `CapturedType` for that.
     UserdataAccessRequest Request;
     Request.Origin = DescribedValue.Origin;
     Request.Metatable = Header->Metatable;
@@ -150,9 +136,7 @@ private:
 VmUserdataCaptureRegistry::VmUserdataCaptureRegistry()
     : LinkValue(std::make_shared<UserdataCaptureLink>()) {}
 
-VmUserdataCaptureRegistry::~VmUserdataCaptureRegistry() {
-  Retire();
-}
+VmUserdataCaptureRegistry::~VmUserdataCaptureRegistry() { Retire(); }
 
 void VmUserdataCaptureRegistry::Bind(lua_State *Root) noexcept {
   if (!LinkValue)

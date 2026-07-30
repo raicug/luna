@@ -1285,9 +1285,7 @@ ExpectedAnalysisOf(const Scenario &Case, const ScenarioModules &Graph,
 } // namespace
 namespace {
 
-[[nodiscard]] int Doubling(int Value) {
-  return Value * 2;
-}
+[[nodiscard]] int Doubling(int Value) { return Value * 2; }
 
 struct ModuleCallback final {
   std::size_t Index = 0;
@@ -1345,9 +1343,6 @@ struct PlanPaths final {
   return false;
 }
 
-// A staged plan declares continued validity for policy 1 and 3, an available
-// migration for policy 2 and 3, and policy 4 declares neither so that staging
-// must refuse the live value.
 [[nodiscard]] bool PolicyRemainsValid(const Scenario &Case) {
   return Case.PlanUserdataPolicy == 1 || Case.PlanUserdataPolicy == 3;
 }
@@ -1428,9 +1423,6 @@ PlanCaches(const Scenario &Case) {
   return Name == "Physics" || Name.compare(0, 8, "Physics.") == 0;
 }
 
-// Every qualified name a publication must keep: the root
-// registrations, the symbols of every other loaded module, and each
-// retained path with all of the scopes it needs to stay reachable.
 [[nodiscard]] std::vector<std::string>
 SurvivingNames(const ScenarioModules &Graph, const PlanPaths &Paths) {
   std::vector<std::string> Names{"Baseline"};
@@ -1801,9 +1793,6 @@ namespace {
   if (Observed.Staging.Status == LifecycleStageStatus::ValidationFailure)
     RC_ASSERT(Observed.Staging.Staged.empty());
 
-  // Complete staging records exactly one action per declared live value, keeps
-  // the previous type generation when the plan removes no type, and derives one
-  // successor generation when it does.
   if (Stage == LifecycleStageStatus::Prepared) {
     const std::size_t Policies = Case.PlanUserdataPolicy != 0 ? 1 : 0;
     RC_ASSERT(Observed.Staging.StagedUserdataActions == Policies);
@@ -1824,8 +1813,6 @@ namespace {
                 Observed.Staging.StagedTypeGeneration);
   }
 
-  // A refusal that never reached the injected stage leaves that fault pending,
-  // so it is drained before the State is asked to keep working.
   if (FaultPool[Case.Fault].Injected) {
     const StateFaultPoint Point = FaultPool[Case.Fault].Point;
     while (Hooks::PendingFaults(Owner, Point) > 0)
@@ -1845,10 +1832,9 @@ namespace {
 } // namespace
 
 int RunDynamicModuleLifecycleProperties() {
-  // clang-format off
-  // Feature: reflection-driven-binding-system, Property 31: Module lifecycle publication follows the retained-generation state machine
+
   const bool Passed = rc::check(
-      // clang-format on
+
       "Module lifecycle publication follows the retained-generation state "
       "machine",
       [](const std::vector<std::uint8_t> &Shape) {

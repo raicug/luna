@@ -98,8 +98,6 @@ PublishLifecycle(RegistrationTransaction &Transaction,
                   Refusal(ErrorCategory::Internal, Plan,
                           "the lifecycle publication has no complete State."));
 
-  // A State or module without dynamic lifecycle support stays load-only: the
-  // request is refused deterministically and nothing is published.
   if (!Plan.DynamicLifecycleEnabled)
     return Refuse(
         LifecyclePublishStatus::UnsupportedDynamicMode,
@@ -145,8 +143,6 @@ PublishLifecycle(RegistrationTransaction &Transaction,
 
   const std::uint64_t SupersededDispatch = Dispatch.Generation();
 
-  // Affected caches are invalidated before the replacement becomes visible, so
-  // no cached lookup can answer from a generation that is about to be retired.
   for (const LifecycleCacheEntry &Entry : Prepared.InvalidatedCaches) {
     Observed.InvalidatedCaches.push_back(
         std::string(LifecycleCacheKindText(Entry.Kind))
@@ -184,24 +180,17 @@ PublishLifecycle(RegistrationTransaction &Transaction,
   Observed.InvalidatedCachesBeforePublication =
       Dispatch.Generation() == SupersededDispatch;
 
-  // The staged graph is already validated, so only an allocation failure can
-  // refuse here, and it refuses before the module registry changes at all.
   if (!Targets.Modules->Publish(Prepared.ModuleGraph))
     return Refuse(LifecyclePublishStatus::ModuleFailure,
                   Refusal(ErrorCategory::Internal, Plan,
                           "the new module graph could not be published."));
 
-  // The database and the candidate generation set share one immutable
-  // reflection generation, so no later query can observe two of them.
   if (!Targets.Reflection->Publish(Prepared.Candidate->Reflection()))
     return Refuse(LifecyclePublishStatus::ReflectionFailure,
                   Refusal(ErrorCategory::Internal, Plan,
                           "the new reflection generation could not be "
                           "published."));
 
-  // Publishing the dispatch generation retires the previous one without
-  // reclaiming it: an invocation, userdata cleanup, or lifecycle journal that
-  // still retains it keeps every target and cleanup record it needs alive.
   if (!Dispatch.Publish(Prepared.Dispatch))
     return Refuse(LifecyclePublishStatus::DispatchFailure,
                   Refusal(ErrorCategory::Internal, Plan,
@@ -221,9 +210,6 @@ PublishLifecycle(RegistrationTransaction &Transaction,
       Observed.RetainedSlots.push_back(Path);
   }
 
-  // Every removed table path leaves the virtual machine only after the new
-  // generation is published, so a stale closure held by script code resolves
-  // an immutable unavailable entry instead of a retired record.
   std::vector<std::string> Removed = Prepared.RemovedPaths;
   std::sort(Removed.begin(), Removed.end(), std::greater<std::string>());
   for (const std::string &Path : Removed) {

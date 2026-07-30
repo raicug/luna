@@ -85,9 +85,7 @@ ConversionFrame::ConversionFrame(Luna::ConversionDirection Direction,
   Frames.Frames.emplace(TokenValue, this);
 }
 
-ConversionFrame::~ConversionFrame() {
-  Deactivate();
-}
+ConversionFrame::~ConversionFrame() { Deactivate(); }
 
 void ConversionFrame::Deactivate() noexcept {
   if (!ActiveValue)
@@ -102,9 +100,7 @@ ValueView ConversionFrame::Open(const OwnedValue &Source) {
   return Root();
 }
 
-ValueView ConversionFrame::Root() const noexcept {
-  return ViewOf(0);
-}
+ValueView ConversionFrame::Root() const noexcept { return ViewOf(0); }
 
 ConversionContext ConversionFrame::CommitContext() const noexcept {
   return ConversionContext(TokenValue, 0, false);
@@ -492,9 +488,7 @@ ConversionFrame *FindConversionFrame(std::uint64_t Token) noexcept {
   return Found->second;
 }
 
-void RecordExpiredConversionAccess() noexcept {
-  ++Table().ExpiredAccessCount;
-}
+void RecordExpiredConversionAccess() noexcept { ++Table().ExpiredAccessCount; }
 
 void RecordConversionProbeViolation(std::string_view Reason) noexcept {
   FrameTable &Frames = Table();

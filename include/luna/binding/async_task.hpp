@@ -21,9 +21,6 @@
 
 namespace Luna {
 
-// One suspended native call is always in exactly one of these stages. The
-// stage only ever moves from Pending to a settled stage, and the first
-// settlement wins.
 enum class AsyncStage { Pending, Ready, Failed, Cancelled };
 
 [[nodiscard]] constexpr std::string_view
@@ -43,9 +40,6 @@ AsyncStageText(AsyncStage Stage) noexcept {
 
 namespace Detail {
 
-// Owning, virtual-machine-free state shared by the host that produces a
-// result and the owner thread that resumes the suspended call. It never
-// stores a stack, a view, or a conversion context.
 class AsyncSharedState final {
 public:
   AsyncSharedState() = default;
@@ -103,8 +97,6 @@ public:
     return MessageValue;
   }
 
-  // Waits on the owner thread until the host settles the work. Requesting
-  // cancellation also wakes the wait so the caller can settle it.
   [[nodiscard]] AsyncStage WaitUntilSettled() {
     std::unique_lock<std::mutex> Guard(Barrier);
     Settled.wait(Guard, [this] {
@@ -164,8 +156,6 @@ template <class Result, class... Produced>
 
 } // namespace Detail
 
-// The value a bound callable returns when its work finishes after the call
-// that started it. The task owns only the shared completion state.
 template <class Result> class AsyncTask final {
 public:
   using ResultType = Result;
@@ -190,8 +180,6 @@ private:
   std::shared_ptr<Detail::AsyncSharedState> SharedValue;
 };
 
-// The host side of one suspended call. Copies share one completion state, so
-// a worker can settle the work after the native call already returned.
 template <class Result> class AsyncCompletionSource final {
 public:
   using ResultType = Result;
@@ -233,8 +221,6 @@ private:
 
 namespace Detail {
 
-// Type-erased suspended work. Luna polls it on the owner thread only and
-// never lets it observe the virtual machine.
 class PendingAsyncWork {
 public:
   PendingAsyncWork() = default;

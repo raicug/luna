@@ -7,14 +7,14 @@ Two calls make up the surface. `ProvideModule` makes a definition *available* to
 ```cpp
 Luna::BindingRegistry Registry = State.Bindings();
 
-// Two versions of the dependency become available, so resolution has a choice.
+
 const Luna::RegistrationResult Older =
     Registry.ProvideModule(UnitsManifest("1.0.0"), &ConfigureUnits);
 const Luna::RegistrationResult Newer =
     Registry.ProvideModule(UnitsManifest("1.2.0"), &ConfigureUnits);
 
-// The load resolves `studio.units >=1.0.0` to the highest available version,
-// then runs every callback dependency-first inside one transaction.
+
+
 const Luna::RegistrationResult Loaded =
     Registry.RegisterModule(RenderManifest(), &ConfigureRender);
 ```
@@ -106,7 +106,7 @@ Every symbol published by a module carries its origin. In reflection, `Reflectio
 const Luna::ReflectionRecord Record = Snapshot.Find("Render.Describe");
 if (Record.HasModule()) {
   const Luna::ModuleRecord Module = Record.Module();
-  // Module.Identity() == "studio.render", Module.Version() == "2.1.0"
+
 }
 ```
 

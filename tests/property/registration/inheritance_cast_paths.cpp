@@ -1146,10 +1146,9 @@ void VerifyRegistrationSlice(ByteCursor &Cursor) {
 } // namespace
 
 int RunInheritanceAndCastPathProperties() {
-  // clang-format off
-  // Feature: reflection-driven-binding-system, Property 29: Inheritance and casts agree with unique accessible paths
+
   const bool Passed = rc::check(
-      // clang-format on
+
       "Inheritance and casts agree with unique accessible paths",
       [](const std::vector<std::uint8_t> &GraphBytes,
          const std::vector<std::uint8_t> &RegistrationBytes) {

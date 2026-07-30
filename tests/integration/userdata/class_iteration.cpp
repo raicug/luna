@@ -29,9 +29,6 @@ int StepCalls = 0;
 struct Roster final {
   std::vector<std::string> Names{"first", "second", "third"};
 
-  // One step of the loop. The control operand is the value the previous step
-  // published first, and is omitted on the first step, so an empty pack ends
-  // the loop exactly the way Luau's generic for expects.
   [[nodiscard]] Luna::ReturnPack Step(std::optional<int> Control) const {
     ++StepCalls;
     const int Next = Control ? *Control + 1 : 1;

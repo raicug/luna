@@ -225,16 +225,9 @@ using MemberReadOperation =
 using MemberWriteOperation =
     std::function<MemberWriteOutcome(void *Object, const Value &Incoming)>;
 
-// Invoked after a property or field successfully writes a new value; this
-// notifies user code of the change but never itself refuses the write.
 using MemberChangeOperation =
     std::function<void(void *Object, const Value &Updated)>;
 
-// A member whose declared value type is not one of the four foundation
-// scalars converts through a consumer-supplied `Luna::TypeConverter<T>`
-// instead: the same probe/read/write boundary documented for parameters and
-// returns. These two operations are what a converted property or field
-// getter and setter compile down to.
 struct MemberConvertedOutcome final {
   bool Succeeded = false;
   std::string Refusal;

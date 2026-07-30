@@ -12,8 +12,6 @@
 
 namespace Luna {
 
-// What one emission delivered. Skipped counts subscribers a handler removed
-// or released while the emission was in flight.
 struct SignalEmission final {
   std::size_t Delivered = 0;
   std::size_t Skipped = 0;
@@ -23,14 +21,6 @@ struct SignalEmission final {
   [[nodiscard]] bool IsComplete() const noexcept { return Failed == 0; }
 };
 
-// A native event source. It owns subscribed handlers as ordinary delegates,
-// so subscribing, unsubscribing, and emitting stay ordinary reflected
-// callables rather than a parallel callback system.
-//
-// Emitting takes one snapshot of its subscribers, so a handler may subscribe
-// or unsubscribe while the emission runs: a handler removed during the
-// emission is never called, a handler added during the emission is delivered
-// by the next emission, and no handler is called twice.
 template <class Signature> class Signal;
 
 template <class Return, class... Parameters>
@@ -45,8 +35,6 @@ public:
   Signal(Signal &&) noexcept = default;
   Signal &operator=(Signal &&) noexcept = default;
 
-  // Returns the subscription token, or zero when the handler names no live
-  // subscriber or the token space is exhausted.
   [[nodiscard]] int Subscribe(HandlerType Handler) {
     if (!Handler.IsValid())
       return 0;
@@ -58,9 +46,6 @@ public:
     return Token;
   }
 
-  // Releases the handler's own virtual-machine reference before dropping the
-  // subscription, so every copy of the unsubscribed handler observes the
-  // release and a later call through any of them reports it deterministically.
   [[nodiscard]] bool Unsubscribe(int Token) {
     for (std::size_t Index = 0; Index < EntriesValue.size(); ++Index) {
       if (EntriesValue[Index].Token != Token)
@@ -96,7 +81,6 @@ public:
 
   [[nodiscard]] std::size_t EmitDepth() const noexcept { return DepthValue; }
 
-  // Releases every subscribed handler's own reference before dropping it.
   void Clear() noexcept {
     for (Entry &Subscribed : EntriesValue)
       Subscribed.Handler.Release();

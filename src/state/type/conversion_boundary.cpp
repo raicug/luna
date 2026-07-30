@@ -48,9 +48,7 @@ ValueCategory ValueView::Kind() const noexcept {
   return Frame ? Frame->CategoryOf(NodeIndexValue) : ValueCategory::None;
 }
 
-bool ValueView::IsNil() const noexcept {
-  return Kind() == ValueCategory::Nil;
-}
+bool ValueView::IsNil() const noexcept { return Kind() == ValueCategory::Nil; }
 
 bool ValueView::IsTable() const noexcept {
   return Kind() == ValueCategory::Table;
@@ -195,9 +193,7 @@ ConversionDirection ConversionContext::Direction() const noexcept {
   return Frame ? Frame->Direction() : ConversionDirection::Read;
 }
 
-bool ConversionContext::IsProbing() const noexcept {
-  return ProbingValue;
-}
+bool ConversionContext::IsProbing() const noexcept { return ProbingValue; }
 
 ValueCategory ConversionContext::Kind() const noexcept {
   const Detail::ConversionFrame *Frame = ResolveFrame(FrameTokenValue);

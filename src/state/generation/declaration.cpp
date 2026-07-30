@@ -264,8 +264,7 @@ private:
     case TypeKind::Class:
       return MapClass(Type, Where, Out);
     case TypeKind::Converted:
-      // A converted value's Luau shape is whatever its TypeConverter<T>
-      // publishes, which Luna's generator cannot see statically.
+
       Out = "any";
       return true;
     case TypeKind::Pointer:
@@ -311,8 +310,7 @@ private:
       return true;
     }
     case TypeKind::Callable: {
-      // A delegate declares an ordinary Luau function type: its first child
-      // is the result and the remaining children are its parameters.
+
       if (Type.ChildCount() < 1)
         return Writer.Refuse(GenerationStatus::InconsistentMetadata, Where);
       const std::span<const TypeDescriptor> Children = Type.Children();

@@ -71,9 +71,9 @@ FailureOrder(int GeneratedOrder) noexcept {
 } // namespace
 
 int RunExecutionRecoveryProperties() {
-  // clang-format off
+
   const bool Passed = rc::check(
-      // clang-format on
+
       "Execution failures do not poison the State",
       [](int GeneratedOrder, int GeneratedValue) {
         Luna::State State;

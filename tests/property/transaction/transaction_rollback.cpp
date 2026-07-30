@@ -552,10 +552,9 @@ void VerifyCallbackAttempt(const CallbackObservation &Observed,
 } // namespace
 
 int RunGeneralizedTransactionRollbackProperties() {
-  // clang-format off
-  // Feature: reflection-driven-binding-system, Property 21: Outermost registration transactions publish all changes or none
+
   const bool Passed = rc::check(
-      // clang-format on
+
       "Outermost registration transactions publish all changes or none",
       [](const std::vector<std::uint8_t> &PlanShape,
          const std::vector<std::uint8_t> &FailureShape) {

@@ -6,6 +6,7 @@
 
 #include "state/testing/fault_injector.hpp"
 #include "state/type/conversion_outcome.hpp"
+#include "state/type/owned_value_bridge.hpp"
 #include "state/type/type_generation.hpp"
 #include "state/type/type_record.hpp"
 #include "state/userdata/construction.hpp"
@@ -138,6 +139,52 @@ PublishReturnPack(lua_State *State, int EntryDepth,
           .ReturnCount = PublishedCount};
 }
 
+[[nodiscard]] ReturnWriteResult
+PublishOwnedValues(lua_State *State, int EntryDepth, bool IsSingleValue,
+                   const InvocationOutcome &Outcome, FaultInjector &Faults) {
+  if (Outcome.Kind() != InvocationOutcomeKind::OwnedValues)
+    return Failure(State, EntryDepth,
+                   "Owned return metadata did not match callable outcome.");
+
+  const ValuePack &Produced = Outcome.ReturnedOwnedValues();
+  if (IsSingleValue && Produced.Size() != 1)
+    return Failure(State, EntryDepth,
+                   "A single owned return published " +
+                       std::to_string(Produced.Size()) +
+                       " values instead of one.");
+  if (Produced.Size() >
+      static_cast<std::size_t>(std::numeric_limits<int>::max()))
+    return Failure(State, EntryDepth,
+                   "Returned pack publishes more values than one call can "
+                   "carry.");
+
+  const std::size_t LargestString = Produced.LargestStringByteCount();
+  if (LargestString > MaximumInvocationStringBytes)
+    return Failure(State, EntryDepth,
+                   "A returned string exceeds the " +
+                       std::to_string(MaximumInvocationStringBytes) +
+                       "-byte maximum.");
+
+  const int PublishedCount = static_cast<int>(Produced.Size());
+  if (Faults.Consume(StateFaultPoint::ReturnStackCapacity) ||
+      !lua_checkstack(State, PublishedCount + 1))
+    return Failure(State, EntryDepth,
+                   "Could not reserve stack capacity for " +
+                       std::to_string(PublishedCount) + " return values.");
+
+  for (std::size_t Index = 0; Index < Produced.Size(); ++Index) {
+    if (!PushOwnedValueToStack(State, Produced.At(Index)))
+      return Failure(State, EntryDepth,
+                     ReturnPositionText(Index + 1) + "could not be published.");
+  }
+  if (Faults.Consume(StateFaultPoint::ReturnWrite))
+    return Failure(State, EntryDepth,
+                   "Injected internal return-writer failure.");
+  return {.Status = IsSingleValue ? ReturnWriteStatus::ValueWritten
+                                  : ReturnWriteStatus::PackPublished,
+          .ReturnCount = PublishedCount};
+}
+
 } // namespace
 
 ReturnWriteResult WriteInvocationReturn(lua_State *State,
@@ -202,6 +249,16 @@ ReturnWriteResult WriteInvocationReturn(lua_State *State,
         return Failure(State, EntryDepth,
                        "Injected internal return-writer failure.");
       return {.Status = ReturnWriteStatus::ValueWritten, .ReturnCount = 1};
+    }
+
+    case ReturnDisposition::Owned:
+    case ReturnDisposition::OwnedPack: {
+      if (!State)
+        return Failure(State, EntryDepth,
+                       "Return writer has no invocation stack.");
+      return PublishOwnedValues(
+          State, EntryDepth, Metadata.Disposition() == ReturnDisposition::Owned,
+          Outcome, Faults);
     }
 
     case ReturnDisposition::Instance: {

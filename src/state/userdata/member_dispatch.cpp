@@ -541,9 +541,7 @@ std::string_view MemberDispatchStageText(MemberDispatchStage Stage) noexcept {
   return "request";
 }
 
-void MemberDispatchRecorder::Clear() noexcept {
-  LastObservation.reset();
-}
+void MemberDispatchRecorder::Clear() noexcept { LastObservation.reset(); }
 
 void MemberDispatchRecorder::Record(MemberDispatchObservation Observed) {
   LastObservation = std::move(Observed);

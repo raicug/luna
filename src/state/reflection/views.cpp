@@ -591,9 +591,7 @@ std::size_t ReflectionSnapshot::Size() const noexcept {
   return Resolve(StorageValue)->RecordCount();
 }
 
-bool ReflectionSnapshot::IsEmpty() const noexcept {
-  return Size() == 0;
-}
+bool ReflectionSnapshot::IsEmpty() const noexcept { return Size() == 0; }
 
 ReflectionRecord ReflectionSnapshot::Find(SymbolId Id) const {
   if (!StorageValue)

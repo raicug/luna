@@ -44,9 +44,6 @@ struct RegisteredMember final {
   MemberWriteOperation Write;
   MemberChangeOperation Change;
 
-  // Set instead of Read/Write when the declared value type converts through
-  // a consumer's own `Luna::TypeConverter<T>` specialization rather than
-  // through one of the four foundation scalars.
   MemberConvertedReadOperation ConvertedRead;
   MemberConvertedWriteOperation ConvertedWrite;
 
@@ -123,9 +120,6 @@ struct MemberReadResult final {
 
   Value Produced;
 
-  // Set instead of `Produced` when the member's value converts through a
-  // consumer `Luna::TypeConverter<T>` rather than through one foundation
-  // scalar.
   std::optional<OwnedValue> ConvertedValue;
 
   bool ServedFromCache = false;

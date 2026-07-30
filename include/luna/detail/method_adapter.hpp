@@ -186,8 +186,10 @@ template <class Type, class Shape, class Return, class... Parameters,
 class MethodAdapter<Type, Shape, Return(Parameters...), Stored> {
 public:
   template <class Target>
-  explicit MethodAdapter(Target &&Selected)
-      : TargetValue(std::forward<Target>(Selected)) {}
+  explicit MethodAdapter(Target &&Selected,
+                         OwnershipPolicy Declared = UndeclaredOwnershipPolicy())
+      : TargetValue(std::forward<Target>(Selected)),
+        PolicyValue(std::move(Declared)) {}
 
   [[nodiscard]] bool HasTarget() const noexcept {
     if constexpr (std::is_pointer_v<Stored> || std::is_member_pointer_v<Stored>)
@@ -262,10 +264,12 @@ private:
                     std::index_sequence<Indices...>) {
     if (!HasTarget())
       return InvocationOutcome::InternalFailure("Callable target is null.");
-    return CaptureReturn<Return>([&] {
-      return Shape::Call(TargetValue, Object,
-                         std::get<Parameters>(Arguments[Indices])...);
-    });
+    return CaptureReturn<Return>(
+        [&] {
+          return Shape::Call(TargetValue, Object,
+                             std::get<Parameters>(Arguments[Indices])...);
+        },
+        PolicyValue);
   }
 
   template <std::size_t... Indices>
@@ -281,15 +285,39 @@ private:
                       std::index_sequence<Indices...>) {
     if (!HasTarget())
       return InvocationOutcome::InternalFailure("Callable target is null.");
-    return CaptureReturn<Return>([&] {
-      return Shape::Call(
-          TargetValue, Object,
-          ParameterArgumentFor<Parameters>(Arguments, Indices)...);
-    });
+    return CaptureReturn<Return>(
+        [&] {
+          return Shape::Call(
+              TargetValue, Object,
+              ParameterArgumentFor<Parameters>(Arguments, Indices)...);
+        },
+        PolicyValue);
   }
 
   Stored TargetValue;
+  OwnershipPolicy PolicyValue = UndeclaredOwnershipPolicy();
 };
+
+template <class Return>
+[[nodiscard]] std::string
+ClassifyInstanceReturnPolicy(const OwnershipPolicy &Declared) {
+  if constexpr (IsInstanceReturnType<Return>) {
+    if constexpr (InstanceReturnTrait<Return>::RequiresLifetime) {
+      if (Declared.Ownership() != ConstructionOwnership::Borrowed ||
+          !Declared.IsCoherent())
+        return "returning a class instance by pointer is a borrowed result, so "
+               "the declaration states Luna::OwnershipPolicy::Borrowed with "
+               "one declared lifetime.";
+      return std::string();
+    } else if (Declared.Lifetime().IsDeclared()) {
+      return "a lifetime is declared for a result that is not borrowed; only a "
+             "pointer result borrows.";
+    }
+  } else {
+    static_cast<void>(Declared);
+  }
+  return std::string();
+}
 
 template <class Type, class Shape, class Signature>
 struct MethodCandidateBuilder;
@@ -297,8 +325,9 @@ struct MethodCandidateBuilder;
 template <class Type, class Shape, class Return, class... Parameters>
 struct MethodCandidateBuilder<Type, Shape, Return(Parameters...)> final {
   template <class Target>
-  [[nodiscard]] static MethodRequest Build(const StableTypeKey &Class,
-                                           Target &&Selected) {
+  [[nodiscard]] static MethodRequest
+  Build(const StableTypeKey &Class, Target &&Selected,
+        OwnershipPolicy Declared = UndeclaredOwnershipPolicy()) {
     static_assert(SupportedReturn<Return>,
                   "A Luna method declares only a supported return type.");
     static_assert((SupportedParameter<Parameters> && ...),
@@ -321,15 +350,17 @@ struct MethodCandidateBuilder<Type, Shape, Return(Parameters...)> final {
     Request.Kind = SymbolKind::Method;
     Request.DeclaresReceiver = true;
     Request.ReceiverIsConst = Shape::ReceiverIsConst;
-    Adapter Erased(std::forward<Target>(Selected));
+    Request.Refusal = ClassifyInstanceReturnPolicy<Return>(Declared);
+    Adapter Erased(std::forward<Target>(Selected), std::move(Declared));
     Request.Callable.emplace(std::move(Metadata), std::move(Erased));
     return Request;
   }
 };
 
 template <class Type, class Target>
-[[nodiscard]] MethodRequest MakeMethodRequest(const StableTypeKey &Class,
-                                              Target &&Selected) {
+[[nodiscard]] MethodRequest
+MakeMethodRequest(const StableTypeKey &Class, Target &&Selected,
+                  OwnershipPolicy Declared = UndeclaredOwnershipPolicy()) {
   using Shape = MethodTargetShape<Type, std::decay_t<Target>>;
   static_assert(Shape::IsSupported,
                 "A Luna method declares a member function pointer of the "
@@ -337,24 +368,38 @@ template <class Type, class Target>
                 "parameter is a reference or pointer to it.");
 
   using Builder = MethodCandidateBuilder<Type, Shape, typename Shape::Declared>;
-  return Builder::Build(Class, std::forward<Target>(Selected));
+  return Builder::Build(Class, std::forward<Target>(Selected),
+                        std::move(Declared));
 }
 
 template <class Target>
-[[nodiscard]] MethodRequest MakeStaticMethodRequest(Target &&Selected) {
+[[nodiscard]] MethodRequest MakeStaticMethodRequest(Target &&Selected,
+                                                    OwnershipPolicy Declared) {
   static_assert(SupportedCallable<Target>,
                 "A Luna static method declares an ordinary supported callable: "
                 "a free function, a function pointer, a lambda, a functor, or "
                 "an explicit overload selection.");
 
+  using Signature =
+      typename CallableSignature<std::remove_cvref_t<Target>>::Type;
+
   MethodRequest Request;
   Request.Kind = SymbolKind::StaticMethod;
   Request.DeclaresReceiver = false;
   Request.ReceiverIsConst = false;
-  ErasedCallableDescriptor Erased =
-      MakeErasedCallableDescriptor(std::forward<Target>(Selected));
+  Request.Refusal =
+      ClassifyInstanceReturnPolicy<typename CallableReturnOf<Signature>::Type>(
+          Declared);
+  ErasedCallableDescriptor Erased = MakeErasedCallableDescriptor(
+      std::forward<Target>(Selected), std::move(Declared));
   Request.Callable.emplace(std::move(Erased));
   return Request;
+}
+
+template <class Target>
+[[nodiscard]] MethodRequest MakeStaticMethodRequest(Target &&Selected) {
+  return MakeStaticMethodRequest(std::forward<Target>(Selected),
+                                 UndeclaredOwnershipPolicy());
 }
 
 } // namespace Luna::Detail

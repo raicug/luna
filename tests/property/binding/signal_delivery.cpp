@@ -17,9 +17,6 @@ namespace {
 
 using Hooks = Luna::Detail::StateTestHooks;
 
-// One generated action against a single signal and its subscribers. The
-// argument selects which subscriber a subscribe/unsubscribe acts on when that
-// is meaningful, modulo the count ever subscribed at the time it runs.
 enum class SignalActionKind : std::uint32_t {
   Subscribe,
   Unsubscribe,
@@ -39,25 +36,12 @@ struct GeneratedAction final {
   int Argument = 0;
 };
 
-// One subscription's independent state. `Tracked` mirrors whether the
-// subscription is still present in the signal's own list; `Live` mirrors
-// whether the handler still holds its native virtual-machine reference.
-// A signal only drops an untracked, invalid entry lazily, when an emission
-// finishes, so the two can disagree for a while: a handler invalidated by a
-// lifecycle-generation replacement stays tracked (and therefore still
-// unsubscribable by token) until the next emission or explicit unsubscribe
-// removes it.
 struct ModelHandler final {
   int Token = 0;
   bool Tracked = true;
   bool Live = true;
 };
 
-// The independent state machine. It predicts, for every generated action,
-// exactly what a correct signal must do: whether a subscribe or unsubscribe
-// call succeeds, how many deliveries one emission produces, and how many
-// native references stay outstanding after a lifecycle-generation replaces
-// every handler it invalidates.
 struct SignalModel final {
   std::vector<ModelHandler> Handlers;
   int NextToken = 1;
@@ -79,9 +63,6 @@ struct SignalModel final {
     return Token;
   }
 
-  // Finds the handler at the requested ordinal among every handler ever
-  // subscribed. Unsubscribing succeeds only while that handler is still
-  // tracked by the signal, whether or not it is still callable.
   [[nodiscard]] bool Unsubscribe(int Position) {
     if (Handlers.empty())
       return false;
@@ -95,10 +76,6 @@ struct SignalModel final {
     return true;
   }
 
-  // An emission delivers to every handler that is both tracked and live at
-  // the moment it runs. Afterward, any handler the emission found tracked but
-  // no longer live is dropped from tracking, the way a signal lazily forgets
-  // an invalidated subscriber once it finishes emitting.
   [[nodiscard]] std::size_t Emit() {
     std::size_t Delivered = 0;
     for (ModelHandler &Handler : Handlers) {
@@ -113,9 +90,6 @@ struct SignalModel final {
     return Delivered;
   }
 
-  // Replacing the lifecycle generation invalidates every handler that still
-  // holds a live native reference. It never removes a subscription from the
-  // signal's own list by itself.
   void AdvanceGeneration() {
     for (ModelHandler &Handler : Handlers) {
       if (Handler.Live)
@@ -151,17 +125,14 @@ void Deliver() {
     ++Active->Deliveries;
 }
 
-[[nodiscard]] int Trailing(int Value) {
-  return Value + 1;
-}
+[[nodiscard]] int Trailing(int Value) { return Value + 1; }
 
 } // namespace
 
 int RunSignalDeliveryProperties() {
-  // clang-format off
-  // Feature: reflection-driven-binding-system, Property 33: Signal subscription and delivery follow the retained-generation handler model
+
   const bool Passed = rc::check(
-      // clang-format on
+
       "Signal subscription and delivery follow the retained-generation "
       "handler model",
       [](const std::vector<int> &GeneratedKinds,
@@ -230,17 +201,11 @@ int RunSignalDeliveryProperties() {
             break;
           }
 
-          // Every action leaves the entry stack depth exactly restored, and
-          // the outstanding native reference count matches the model's live
-          // count, whatever mix of subscriptions, releases, and lifecycle
-          // replacements produced it.
           RC_ASSERT(Hooks::ObserveRootStackDepth(Owner) == EntryDepth);
           RC_ASSERT(Hooks::OutstandingDelegateCount(Owner) ==
                     Model.LiveCount());
         }
 
-        // The State stays reusable after every generated sequence, through an
-        // unrelated callable that touches no signal.
         RC_ASSERT(Registry.RegisterFunction("Trailing", &Trailing).IsSuccess());
         RC_ASSERT(Owner.Execute("assert(Trailing(1) == 2)").IsSuccess());
 

@@ -77,9 +77,7 @@ struct Body final {
   }
 };
 
-[[nodiscard]] int Impulse(int Magnitude) {
-  return Magnitude * 2;
-}
+[[nodiscard]] int Impulse(int Magnitude) { return Magnitude * 2; }
 
 void ConfigureSurface(Luna::NamespaceBuilder &Builder) {
   Luna::NamespaceBuilder Physics = Builder.RegisterNamespace("Physics");

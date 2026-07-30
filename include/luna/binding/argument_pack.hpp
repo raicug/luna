@@ -113,7 +113,6 @@ public:
     return Slot;
   }
 
-  // One subscribed handler the caller supplied for a delegate parameter.
   [[nodiscard]] static ArgumentSlot
   SuppliedHandler(std::shared_ptr<Detail::DelegateTarget> Handler) {
     ArgumentSlot Slot;
@@ -121,19 +120,12 @@ public:
     return Slot;
   }
 
-  // The raw value the caller supplied for a parameter whose declared type
-  // converts through its own `Luna::TypeConverter<T>` specialization. The
-  // native value is only produced later, once the templated call site knows
-  // the concrete C++ type to read it as.
   [[nodiscard]] static ArgumentSlot SuppliedConverted(OwnedValue Source) {
     ArgumentSlot Slot;
     Slot.ConvertedStorage = std::move(Source);
     return Slot;
   }
 
-  // One registered class instance the caller supplied for an instance
-  // operand, already through the same access gate a receiver passes, so the
-  // templated call site receives storage it may use without re-checking.
   [[nodiscard]] static ArgumentSlot SuppliedInstance(InstanceReceiver Bound) {
     ArgumentSlot Slot;
     Slot.InstanceStorage = Bound;

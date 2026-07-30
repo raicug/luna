@@ -168,9 +168,9 @@ InvocationSource(const std::array<ReceivedKind, Arity> &Received) {
 } // namespace
 
 int RunIncompatibleArgumentTypesProperties() {
-  // clang-format off
+
   const bool Passed = rc::check(
-      // clang-format on
+
       "Incompatible argument types identify the first mismatch",
       [](std::uint8_t GeneratedSignature, std::uint8_t GeneratedMismatchMask,
          std::uint32_t GeneratedReceivedTypes) {

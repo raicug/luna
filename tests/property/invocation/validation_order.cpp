@@ -307,9 +307,9 @@ ObserveTrace(const Scenario &Case, const std::vector<Input> &Inputs) {
 } // namespace
 
 int RunValidationShortCircuitingProperties() {
-  // clang-format off
+
   const bool Passed = rc::check(
-      // clang-format on
+
       "Validation agrees with the short-circuit reference model",
       [](std::uint32_t GeneratedPermutation, std::uint32_t GeneratedValues,
          std::uint32_t GeneratedCount, std::uint8_t GeneratedCombination,

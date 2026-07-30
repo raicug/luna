@@ -123,8 +123,7 @@ private:
     bool Boolean = false;
     double Number = 0.0;
     std::string Text;
-    // A userdata node keeps the class name in `Text` and the value's own
-    // rendered text here, so neither displaces the other on the way back out.
+
     std::string UserdataText;
     std::shared_ptr<CapturedUserdataTarget> Userdata;
     std::vector<std::uint32_t> Elements;
