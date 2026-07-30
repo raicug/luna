@@ -9,6 +9,7 @@
 #include "state/freeze/cache.hpp"
 #include "state/invocation/async/suspended_call.hpp"
 #include "state/invocation/delegate/vm_delegate.hpp"
+#include "state/invocation/parameters/vm_userdata_capture.hpp"
 #include "state/module/load.hpp"
 #include "state/module/registry.hpp"
 #include "state/module/resolution.hpp"
@@ -207,6 +208,7 @@ public:
     Lifecycle.AdvanceGeneration();
     AccessContext.DispatchGeneration = Lifecycle.Generation();
     static_cast<void>(Delegates.InvalidateEverything());
+    static_cast<void>(UserdataCaptures.InvalidateEverything());
   }
 
   [[nodiscard]] Detail::VmDelegateRegistry &SubscribedHandlers() noexcept {
@@ -216,6 +218,16 @@ public:
   [[nodiscard]] const Detail::VmDelegateRegistry &
   SubscribedHandlers() const noexcept {
     return Delegates;
+  }
+
+  [[nodiscard]] Detail::VmUserdataCaptureRegistry &
+  CapturedUserdataValues() noexcept {
+    return UserdataCaptures;
+  }
+
+  [[nodiscard]] const Detail::VmUserdataCaptureRegistry &
+  CapturedUserdataValues() const noexcept {
+    return UserdataCaptures;
   }
 
   // Installing or clearing the profiling hook is owner-thread-only, exactly
@@ -410,6 +422,7 @@ private:
   Detail::FaultInjector Faults;
   Detail::AsyncCallRegistry AsyncCalls;
   Detail::VmDelegateRegistry Delegates;
+  Detail::VmUserdataCaptureRegistry UserdataCaptures;
   Detail::ProfilingRegistry ProfilingHooks;
   Detail::VirtualMachineOwner VirtualMachine;
 };

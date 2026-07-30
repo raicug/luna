@@ -80,6 +80,20 @@ std::string Join(Luna::ArgumentView Arguments) {
 }
 ```
 
+A variadic element may also be a registered class instance — passed directly, or nested inside a table — carried as `Luna::OwnedValue::Kind() == ValueCategory::Userdata`. Its `UserdataClassName()` names the registered class whether or not the concrete C++ type is known to the reading code, and `UserdataIsLive()` reports whether the underlying object is still valid; the value itself is retained through Luna's own reference mechanism, so it stays usable for the remainder of the call even though the `ArgumentView`/`ArgumentPack` frame it came through is not the object's owner.
+
+```cpp
+int CountLiveInstances(Luna::ArgumentView Arguments) {
+  int Count = 0;
+  for (std::size_t Index = 0; Index < Arguments.Size(); ++Index) {
+    const Luna::OwnedValue Element = Arguments.At(Index);
+    if (Element.Kind() == Luna::ValueCategory::Userdata && Element.UserdataIsLive())
+      ++Count;
+  }
+  return Count;
+}
+```
+
 ## Returns
 
 A callable publishes returns in exactly one of three shapes:

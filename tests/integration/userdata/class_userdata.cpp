@@ -473,20 +473,16 @@ void CheckAccessFailsBeforeNativeCode() {
   Check(RestoredCheckpoint(Owner),
         "a refused scalar conversion restores the callback checkpoint");
 
-  const std::string Variadic =
-      Failure(Owner, "return Studio.Describe(1, Studio.Sample)");
-  Check(Contains(Variadic, "Studio.Describe") &&
-            Contains(Variadic, "argument 2") && Contains(Variadic, "userdata"),
-        "a class value in the variadic tail names its first call position");
-  Check(DescribeCalls == 0,
-        "a refused variadic conversion invokes no native code");
-  Check(RestoredCheckpoint(Owner),
-        "a refused variadic conversion restores the callback checkpoint");
+  DescribeCalls = 0;
+  Check(ScriptResult(Owner, "Result = Studio.Describe(1, Studio.Sample)") == 2,
+        "a class value in the variadic tail is captured directly, not "
+        "refused");
+  Check(DescribeCalls == 1,
+        "a variadic call receiving a class value invokes native code once");
 
-  Check(Failure(Owner, "return Studio.Scale(Studio.Sample)") == Scalar &&
-            Failure(Owner, "return Studio.Describe(1, Studio.Sample)") ==
-                Variadic,
-        "one failure family reports one identical deterministic message");
+  Check(Failure(Owner, "return Studio.Scale(Studio.Sample)") == Scalar,
+        "a class-value scalar refusal reports one identical deterministic "
+        "message");
 
   Luna::State Permuted;
   Check(Permuted.IsReady() && RegisterPermutedModel(Permuted),
@@ -502,7 +498,7 @@ void CheckAccessFailsBeforeNativeCode() {
   Check(Succeeds(Owner, "assert(Studio.Scale(4) == 8, 'scalar')\n"
                         "assert(Studio.Describe(1, 2, 3) == 3, 'variadic')\n"),
         "the State stays reusable after every refused conversion");
-  Check(ScaleCalls == 1 && DescribeCalls == 1,
+  Check(ScaleCalls == 1 && DescribeCalls == 2,
         "each recovered call invokes its target exactly once");
   Check(ReadValue(Owner, "Studio.Sample", &Object).DeliveredExpectedObject,
         "the exposed value still reaches native code after every refusal");

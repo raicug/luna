@@ -115,6 +115,8 @@ private:
     return "number " + NumberText(Element.ToNumber().value_or(0.0));
   case Luna::ValueCategory::String:
     return "string " + Element.ToText().value_or(std::string());
+  case Luna::ValueCategory::Table:
+    return "table";
   default:
     break;
   }
@@ -714,6 +716,8 @@ ModelRejection(ValueKind Kind, const ArgumentSample &Argument) {
     return "string " + Argument.TextValue;
   case SampleKind::Flag:
     return "boolean " + FlagText(Argument.Flag);
+  case SampleKind::Table:
+    return "table";
   default:
     break;
   }
@@ -758,13 +762,11 @@ ModelRejection(ValueKind Kind, const ArgumentSample &Argument) {
     for (std::size_t Position = Arity.FixedCount + 1; Position <= Received;
          ++Position) {
       const ArgumentSample &Argument = Call.Arguments[Position - 1];
-      if (Argument.Kind == SampleKind::Table) {
-        Outcome.Diagnostic = Subject + " argument " + std::to_string(Position) +
-                             " expected a boolean, number, string, or nil "
-                             "variadic value but received table.";
-        return Outcome;
-      }
-      if (Argument.Kind != SampleKind::Nil)
+      // A table variadic element is captured directly from the stack rather
+      // than read through the scalar TypeRecord::Read path, so it never
+      // records a committing argument read the way a scalar element does.
+      if (Argument.Kind != SampleKind::Nil &&
+          Argument.Kind != SampleKind::Table)
         ++Outcome.CommittingReads;
       Outcome.Variadic.push_back(std::to_string(Position) + ":" +
                                  ModelElementText(Argument));

@@ -6,6 +6,7 @@
 #include <concepts>
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -18,7 +19,27 @@ namespace Luna {
 
 namespace Detail {
 class ConversionFrame;
-}
+
+// A registered class instance captured from the Luau stack, retained the
+// same way a subscribed delegate handler is: through Luna's own reference
+// mechanism, never through a raw pointer or stack index. Nothing about the
+// owning virtual machine appears here — the concrete implementation, and
+// the only code that ever pushes one back onto a stack, lives entirely in
+// internal state code.
+class CapturedUserdataTarget {
+public:
+  CapturedUserdataTarget() = default;
+  virtual ~CapturedUserdataTarget() = default;
+
+  CapturedUserdataTarget(const CapturedUserdataTarget &) = delete;
+  CapturedUserdataTarget &operator=(const CapturedUserdataTarget &) = delete;
+
+  [[nodiscard]] virtual bool IsLive() const noexcept = 0;
+  [[nodiscard]] virtual std::string_view ClassName() const noexcept = 0;
+  virtual void Release() noexcept = 0;
+};
+
+} // namespace Detail
 
 class ConversionContext;
 class OwnedValue;
@@ -243,6 +264,21 @@ public:
     return Result;
   }
 
+  // A registered class instance captured from the Luau stack — directly, or
+  // nested inside a table — retained through `Target` the same way a
+  // subscribed delegate handler is retained. `ClassName` is available even
+  // when the concrete C++ type is unknown, so a consumer without it can
+  // still describe what was received.
+  [[nodiscard]] static OwnedValue
+  Userdata(std::shared_ptr<Detail::CapturedUserdataTarget> Target,
+           std::string ClassName) {
+    OwnedValue Result;
+    Result.CategoryValue = ValueCategory::Userdata;
+    Result.UserdataTargetValue = std::move(Target);
+    Result.TextValue = std::move(ClassName);
+    return Result;
+  }
+
   [[nodiscard]] static OwnedValue FromValue(const Value &Source) {
     if (const bool *SourceBoolean = std::get_if<bool>(&Source))
       return OwnedValue::Boolean(*SourceBoolean);
@@ -299,6 +335,27 @@ public:
 
   [[nodiscard]] std::string_view TextBytes() const noexcept {
     return TextValue;
+  }
+
+  [[nodiscard]] bool IsUserdata() const noexcept {
+    return CategoryValue == ValueCategory::Userdata;
+  }
+
+  // The registered class name of a captured userdata value, valid whether
+  // or not the concrete C++ type is known to the caller.
+  [[nodiscard]] std::string_view UserdataClassName() const noexcept {
+    return CategoryValue == ValueCategory::Userdata ? TextValue
+                                                    : std::string_view();
+  }
+
+  [[nodiscard]] bool UserdataIsLive() const noexcept {
+    return CategoryValue == ValueCategory::Userdata && UserdataTargetValue &&
+           UserdataTargetValue->IsLive();
+  }
+
+  [[nodiscard]] const std::shared_ptr<Detail::CapturedUserdataTarget> &
+  UserdataTarget() const noexcept {
+    return UserdataTargetValue;
   }
 
   [[nodiscard]] std::size_t Size() const noexcept {
@@ -393,7 +450,8 @@ public:
   }
 
   [[nodiscard]] std::size_t TotalByteCount() const {
-    std::size_t Total = TextValue.size();
+    std::size_t Total =
+        CategoryValue == ValueCategory::Userdata ? 0 : TextValue.size();
     for (const std::string &Name : FieldNamesValue)
       Total += Name.size();
     for (const OwnedValue &Element : ElementsValue)
@@ -404,7 +462,8 @@ public:
   }
 
   [[nodiscard]] std::size_t LargestStringByteCount() const {
-    std::size_t Largest = TextValue.size();
+    std::size_t Largest =
+        CategoryValue == ValueCategory::Userdata ? 0 : TextValue.size();
     for (const std::string &Name : FieldNamesValue) {
       if (Name.size() > Largest)
         Largest = Name.size();
@@ -422,6 +481,15 @@ public:
     return Largest;
   }
 
+  [[nodiscard]] std::size_t TotalUserdataCount() const {
+    std::size_t Total = CategoryValue == ValueCategory::Userdata ? 1 : 0;
+    for (const OwnedValue &Element : ElementsValue)
+      Total += Element.TotalUserdataCount();
+    for (const OwnedValue &Field : FieldValuesValue)
+      Total += Field.TotalUserdataCount();
+    return Total;
+  }
+
   [[nodiscard]] ValueReservation RequiredReservation() const {
     ValueReservation Required;
     Required.ValueCount = TotalValueCount();
@@ -429,6 +497,7 @@ public:
     Required.FieldCount = TotalFieldCount();
     Required.TableCount = TotalTableCount();
     Required.ByteCount = TotalByteCount();
+    Required.UserdataCount = TotalUserdataCount();
     return Required;
   }
 
@@ -443,6 +512,8 @@ public:
       return Left.NumberValue == Right.NumberValue;
     case ValueCategory::String:
       return Left.TextValue == Right.TextValue;
+    case ValueCategory::Userdata:
+      return Left.UserdataTargetValue == Right.UserdataTargetValue;
     default:
       break;
     }
@@ -473,6 +544,7 @@ private:
   std::vector<OwnedValue> ElementsValue;
   std::vector<std::string> FieldNamesValue;
   std::vector<OwnedValue> FieldValuesValue;
+  std::shared_ptr<Detail::CapturedUserdataTarget> UserdataTargetValue;
 };
 
 class ValuePack final {

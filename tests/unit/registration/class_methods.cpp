@@ -381,8 +381,8 @@ void CheckOrdinaryArgumentsFollowTheReceiver() {
   Check(ScriptResult(Owner, "local V = Vector3.New(1, 0, 0)\n"
                             "Result = V:Tally(2, 3, 4)") == 10,
         "a variadic member consumes the positions after its receiver");
-  const std::string Variadic =
-      Refusal(Owner, "local V = Vector3.New(1, 0, 0)\nV:Tally(2, {}, 4)");
+  const std::string Variadic = Refusal(
+      Owner, "local V = Vector3.New(1, 0, 0)\nV:Tally(2, function() end, 4)");
   Check(Contains(Variadic, "argument 2"),
         "a variadic member names the first failing ordinary position");
 }

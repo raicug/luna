@@ -214,14 +214,14 @@ void CheckRefusedCallsAndRecovery() {
         "no default is materialized and no target runs for a refused call");
 
   const std::string FirstVariadic =
-      ExecutionFailure(Owner, "return Sum(1, {}, {})");
+      ExecutionFailure(Owner, "return Sum(1, function() end, 3)");
   Check(FirstVariadic.find("argument 2") != std::string::npos &&
-            FirstVariadic.find("received table") != std::string::npos,
+            FirstVariadic.find("received") != std::string::npos,
         "a variadic refusal names the first failing one-based call position");
   Check(SumCalls == 0, "a refused variadic call never invokes the target");
 
   const std::string LaterVariadic =
-      ExecutionFailure(Owner, "return Join('-', 'a', {})");
+      ExecutionFailure(Owner, "return Join('-', 'a', function() end)");
   Check(LaterVariadic.find("argument 3") != std::string::npos,
         "the variadic tail is numbered by its call position, not by its index");
   Check(JoinCalls == 0, "a refused pack call never invokes the target");

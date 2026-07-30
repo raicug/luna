@@ -24,6 +24,7 @@ class ProfilingRegistry;
 class StateTestHooks;
 class TypeGeneration;
 class VmDelegateRegistry;
+class VmUserdataCaptureRegistry;
 enum class ClosureInstallationStatus;
 struct NativeIdentity;
 struct UserdataAccessContext;
@@ -49,6 +50,8 @@ public:
   PublishAsyncCallRegistry(AsyncCallRegistry *Async) noexcept;
   [[nodiscard]] bool
   PublishDelegateRegistry(VmDelegateRegistry *Handlers) noexcept;
+  [[nodiscard]] bool
+  PublishUserdataCaptureRegistry(VmUserdataCaptureRegistry *Captures) noexcept;
   [[nodiscard]] bool
   PublishProfilingRegistry(ProfilingRegistry *Profiling) noexcept;
   [[nodiscard]] ClosureInstallationStatus

@@ -4,6 +4,7 @@
 #include "state/execution/executor.hpp"
 #include "state/invocation/async/suspended_call.hpp"
 #include "state/invocation/delegate/vm_delegate.hpp"
+#include "state/invocation/parameters/vm_userdata_capture.hpp"
 #include "state/testing/test_control.hpp"
 #include "state/tooling/profiling_registry.hpp"
 #include "state/userdata/collection.hpp"
@@ -88,6 +89,13 @@ bool VirtualMachineOwner::PublishDelegateRegistry(
   if (Handlers)
     Handlers->Bind(Handle);
   return Luna::Detail::PublishDelegateRegistry(Handle, Handlers);
+}
+
+bool VirtualMachineOwner::PublishUserdataCaptureRegistry(
+    VmUserdataCaptureRegistry *Captures) noexcept {
+  if (Captures)
+    Captures->Bind(Handle);
+  return Luna::Detail::PublishUserdataCaptureRegistry(Handle, Captures);
 }
 
 bool VirtualMachineOwner::PublishProfilingRegistry(

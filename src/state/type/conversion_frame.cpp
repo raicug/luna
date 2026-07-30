@@ -124,7 +124,10 @@ std::uint32_t ConversionFrame::Insert(const OwnedValue &Source,
     Created.Category = Source.Kind();
     Created.Boolean = Source.ToBoolean().value_or(false);
     Created.Number = Source.ToNumber().value_or(0.0);
-    Created.Text = std::string(Source.TextBytes());
+    Created.Text = Source.Kind() == ValueCategory::Userdata
+                       ? std::string(Source.UserdataClassName())
+                       : std::string(Source.TextBytes());
+    Created.Userdata = Source.UserdataTarget();
     Created.Parent = Parent;
     Created.Segment = std::move(Segment);
   }
@@ -293,6 +296,9 @@ OwnedValue ConversionFrame::OwnedFrom(std::uint32_t Node) const {
     break;
   case ValueCategory::Table:
     Copied = OwnedValue::Table();
+    break;
+  case ValueCategory::Userdata:
+    Copied = OwnedValue::Userdata(Found->Userdata, Found->Text);
     break;
   default:
     return OwnedValue();

@@ -128,6 +128,17 @@ ShapeIsConsistent(std::span<const ParameterDescriptor> Parameters,
     return true;
   }
 
+  if (Received == LUA_TTABLE || Received == LUA_TUSERDATA) {
+    if (InjectInspectionFailure) {
+      Validation.RecordInternalFailure(
+          "Internal error while inspecting " + SubjectText(Named) +
+          " argument " + std::to_string(Position) + " for validation.");
+      return false;
+    }
+    Element = BuildOwnedValueFromStack(State, StackIndex);
+    return true;
+  }
+
   ValueKind Expected = ValueKind::String;
   switch (Received) {
   case LUA_TBOOLEAN:
@@ -143,8 +154,8 @@ ShapeIsConsistent(std::span<const ParameterDescriptor> Parameters,
     const char *Name = lua_typename(State, Received);
     Validation.RecordCallerFailure(
         SubjectText(Named) + " argument " + std::to_string(Position) +
-        " expected a boolean, number, string, or nil variadic value but "
-        "received " +
+        " expected a boolean, number, string, table, userdata, or nil "
+        "variadic value but received " +
         std::string(Name ? Name : "unknown") + ".");
     return false;
   }

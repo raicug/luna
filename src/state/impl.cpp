@@ -466,6 +466,8 @@ State::Impl::Impl()
   AsyncCalls.BindOrigin(Lifecycle.Identity(), Lifecycle.Generation());
   static_cast<void>(VirtualMachine.PublishAsyncCallRegistry(&AsyncCalls));
   static_cast<void>(VirtualMachine.PublishDelegateRegistry(&Delegates));
+  static_cast<void>(
+      VirtualMachine.PublishUserdataCaptureRegistry(&UserdataCaptures));
   static_cast<void>(VirtualMachine.PublishProfilingRegistry(&ProfilingHooks));
 }
 
@@ -474,6 +476,7 @@ State::Impl::~Impl() {
 
   AsyncCalls.CancelEverything("the State that suspended it is gone");
   Delegates.Retire();
+  UserdataCaptures.Retire();
 
   FrozenCaches.reset();
 

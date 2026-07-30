@@ -5,6 +5,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -115,6 +116,7 @@ private:
     bool Boolean = false;
     double Number = 0.0;
     std::string Text;
+    std::shared_ptr<CapturedUserdataTarget> Userdata;
     std::vector<std::uint32_t> Elements;
     std::vector<std::string> FieldNames;
     std::vector<std::uint32_t> FieldValues;

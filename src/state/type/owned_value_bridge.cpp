@@ -1,6 +1,12 @@
 // clang-format off
 #include "state/type/owned_value_bridge.hpp"
 
+#include "state/invocation/parameters/vm_userdata_capture.hpp"
+#include "state/userdata/access.hpp"
+#include "state/userdata/class_registry.hpp"
+#include "state/userdata/exposure.hpp"
+#include "state/userdata/header.hpp"
+
 #include <lua.h>
 
 #include <cstddef>
@@ -11,6 +17,35 @@
 
 namespace Luna::Detail {
 namespace {
+
+[[nodiscard]] std::string CapturedUserdataClassName(lua_State *State,
+                                                    int StackIndex) {
+  const void *Block = lua_touserdata(State, StackIndex);
+  const auto ByteCount =
+      static_cast<std::size_t>(lua_objlen(State, StackIndex));
+  const UserdataHeader *Header = InspectUserdataHeader(Block, ByteCount);
+  if (Header == nullptr)
+    return std::string();
+
+  const UserdataAccessContext *Context = ObserveUserdataAccessContext(State);
+  const RegisteredClass *Registered =
+      Context && Context->Classes ? Context->Classes->Find(Header->DynamicType)
+                                  : nullptr;
+  return Registered ? Registered->QualifiedName : std::string();
+}
+
+[[nodiscard]] OwnedValue CaptureUserdata(lua_State *State, int StackIndex) {
+  std::string ClassName = CapturedUserdataClassName(State, StackIndex);
+  VmUserdataCaptureRegistry *Captures = ObserveUserdataCaptureRegistry(State);
+  if (!Captures)
+    return OwnedValue();
+
+  std::shared_ptr<CapturedUserdataTarget> Target =
+      Captures->Adopt(State, StackIndex, ClassName);
+  if (!Target)
+    return OwnedValue();
+  return OwnedValue::Userdata(std::move(Target), std::move(ClassName));
+}
 
 constexpr int MaximumBridgeDepth = 64;
 
@@ -64,6 +99,8 @@ constexpr int MaximumBridgeDepth = 64;
     }
     return Table;
   }
+  case LUA_TUSERDATA:
+    return CaptureUserdata(State, StackIndex);
   default:
     break;
   }
@@ -111,7 +148,12 @@ bool PushTo(lua_State *State, const OwnedValue &Source, int Depth) {
     }
     return true;
   }
-  case ValueCategory::Userdata:
+  case ValueCategory::Userdata: {
+    const auto &Target = Source.UserdataTarget();
+    if (!Target)
+      return false;
+    return PushCapturedUserdataValue(State, *Target);
+  }
   case ValueCategory::Function:
     return false;
   }
