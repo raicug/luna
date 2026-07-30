@@ -38,6 +38,7 @@ int RunConversionRegistryIntegrationTests();
 int RunConversionReturnValidationFaultEdgeCaseTests();
 int RunConvertedOperandTests();
 int RunClassOperandTests();
+int RunInstanceOperandTests();
 int RunVariadicUserdataTests();
 int RunDeclarationGenerationTests();
 int RunDeclaredParameterIntegrationTests();
@@ -213,6 +214,8 @@ int main() {
                RunConvertedOperandTests},
       TestCase{"registered class instances as method and operator operands",
                RunClassOperandTests},
+      TestCase{"native instance operands across registered classes",
+               RunInstanceOperandTests},
       TestCase{"variadic parameters receiving userdata directly and nested "
                "inside tables",
                RunVariadicUserdataTests},

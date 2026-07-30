@@ -3,6 +3,7 @@
 // clang-format off
 #include <luna/binding/conversion.hpp>
 #include <luna/binding/delegate.hpp>
+#include <luna/binding/instance_receiver.hpp>
 #include <luna/binding/value.hpp>
 
 #include <cstddef>
@@ -130,6 +131,15 @@ public:
     return Slot;
   }
 
+  // One registered class instance the caller supplied for an instance
+  // operand, already through the same access gate a receiver passes, so the
+  // templated call site receives storage it may use without re-checking.
+  [[nodiscard]] static ArgumentSlot SuppliedInstance(InstanceReceiver Bound) {
+    ArgumentSlot Slot;
+    Slot.InstanceStorage = Bound;
+    return Slot;
+  }
+
   [[nodiscard]] bool HasValue() const noexcept {
     return ValueStorage.has_value();
   }
@@ -140,6 +150,14 @@ public:
 
   [[nodiscard]] bool HasConvertedValue() const noexcept {
     return ConvertedStorage.has_value();
+  }
+
+  [[nodiscard]] bool HasInstance() const noexcept {
+    return InstanceStorage.IsBound();
+  }
+
+  [[nodiscard]] const InstanceReceiver &Instance() const noexcept {
+    return InstanceStorage;
   }
 
   [[nodiscard]] const Value *Get() const noexcept {
@@ -159,6 +177,7 @@ private:
   std::optional<Value> ValueStorage;
   std::shared_ptr<Detail::DelegateTarget> HandlerStorage;
   std::optional<OwnedValue> ConvertedStorage;
+  InstanceReceiver InstanceStorage;
 };
 
 class InvocationArguments final {

@@ -158,6 +158,13 @@ MakeParameterDescriptor(const Value *Default) {
     return ParameterDescriptor::ForConverted(
         ConvertedParameterKeyFor<Native>(),
         ConvertedParameterShapeOf<Parameter>());
+  } else if constexpr (IsInstanceParameterType<Parameter>) {
+    static_cast<void>(Default);
+    using Declared = InstanceParameterTrait<Parameter>;
+    Luna::InstanceParameterShape Shape;
+    Shape.Resolve = ClassKeyResolverFor<typename Declared::Native>();
+    Shape.RequiresMutation = Declared::RequiresMutation;
+    return ParameterDescriptor::ForInstance(Shape);
   } else if constexpr (IsOptionalValueParameter<Parameter>::value) {
     using Inner = typename OptionalParameterInner<Parameter>::Type;
     constexpr ValueKind Kind = ValueKindFor<Inner>();
@@ -198,6 +205,14 @@ template <class Parameter>
   } else if constexpr (IsConvertedParameterType<Parameter>) {
     const ArgumentSlot *Slot = Arguments.At(Position);
     return Slot != nullptr && Slot->HasConvertedValue();
+  } else if constexpr (IsInstanceParameterType<Parameter>) {
+    const ArgumentSlot *Slot = Arguments.At(Position);
+    if (!Slot || !Slot->HasInstance())
+      return false;
+    if constexpr (InstanceParameterTrait<Parameter>::RequiresMutation)
+      return Slot->Instance().PermitsMutation();
+    else
+      return true;
   } else {
     const ArgumentSlot *Slot = Arguments.At(Position);
     if (!Slot)
@@ -236,6 +251,18 @@ ParameterArgumentFor(const InvocationArguments &Arguments,
     ConversionResult<Native> Read = ReadConvertedArgument<Native>(
         Source ? *Source : OwnedValue(), std::string_view(), Position);
     return Read.ConvertedValue ? std::move(*Read.ConvertedValue) : Native();
+  } else if constexpr (IsInstanceParameterType<Parameter>) {
+    using Declared = InstanceParameterTrait<Parameter>;
+    using Native = typename Declared::Native;
+    const ArgumentSlot *Slot = Arguments.At(Position);
+    auto *const Object =
+        static_cast<Native *>(Slot ? Slot->Instance().Storage() : nullptr);
+    if constexpr (Declared::IsPointer)
+      return Object;
+    else if constexpr (Declared::IsCopied)
+      return Native(*Object);
+    else
+      return static_cast<Parameter>(*Object);
   } else if constexpr (IsOptionalValueParameter<Parameter>::value) {
     using Inner = typename OptionalParameterInner<Parameter>::Type;
     const ArgumentSlot *Slot = Arguments.At(Position);

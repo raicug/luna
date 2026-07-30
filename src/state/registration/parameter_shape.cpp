@@ -32,6 +32,13 @@ DeclaredParameterType(const ParameterDescriptor &Parameter) {
     return CanonicalDelegateType(*Declared);
   if (const StableTypeKey *Key = Parameter.ConvertedKey())
     return TypeDescriptor::ForConverted(*Key);
+  if (Parameter.IsInstance()) {
+    // An instance operand is the registered class itself, so it is the very
+    // canonical type a receiver of that class already carries.
+    if (const StableTypeKey *Key = Parameter.InstanceKey())
+      return TypeDescriptor::ForClass(*Key);
+    return TypeDescriptor::Unsupported();
+  }
   return TypeDescriptor::ForFixed(FixedTypeKey::Value);
 }
 
@@ -53,6 +60,10 @@ DispositionOf(const ParameterDescriptor &Parameter) {
   case ParameterForm::Converted:
     // A converted operand is always supplied, exactly like a delegate
     // parameter; its call shape lives in its canonical converted type.
+    return ParameterDisposition::Required;
+  case ParameterForm::Instance:
+    // An instance operand is likewise always supplied, and its identity lives
+    // in its canonical class type.
     return ParameterDisposition::Required;
   }
   return ParameterDisposition::Required;
@@ -96,6 +107,11 @@ DispositionOf(const ParameterDescriptor &Parameter) {
     return "parameter " + Position +
            " declares a converted operand without a canonical converted "
            "type.";
+  case ParameterShapeStatus::UnregisteredInstanceClass:
+    return "parameter " + Position +
+           " declares an instance of a class that was never registered with "
+           "RegisterClass; register the class before declaring a member that "
+           "takes one of its instances.";
   case ParameterShapeStatus::Valid:
     break;
   }

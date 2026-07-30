@@ -67,6 +67,7 @@ public:
   template <class Type>
   [[nodiscard]] ClassBuilder<Type> RegisterClass(std::string_view Name,
                                                  StableTypeKey Key) {
+    Detail::RecordClassKey<Type>(Key);
     Detail::ClassStaging Staged = Detail::StageRootClassDeclaration(
         *Owner, Name, Key, Detail::ClassPolicyFor<Type>());
     return ClassBuilder<Type>(std::move(Staged), std::move(Key));

@@ -246,7 +246,40 @@ local Moved = Hero + {4, 0, 0}
 
 Diagnostics for a converted operand read the same way a converted member value's do: a value the operand's own `Probe` rejects is a caller error naming the operand position, reported before the native target runs. Publishing a converted *return* value is not yet supported — an operator or method still returns one of the four supported value types, a fixed or dynamic pack, an instance, or void.
 
-A registered *class* has no dedicated operand form of its own, but it no longer requires conversion on the Luau side either. A class instance arriving at a converted operand is visible to that operand's `TypeConverter<T>` as a userdata value, and `ValueView` exposes everything needed to recover the native object from it:
+### Instance operands
+
+A registered class is an operand type in its own right. The class opts in once, and then a bare `T`, `const T &`, `T &`, `T *`, or `const T *` in any method, static method, operator, constructor, factory, or singleton signature names one instance of it:
+
+```cpp
+template <> struct Luna::RegisteredClassTrait<Bead> : std::true_type {};
+
+struct Slot final {
+  int Total = 0;
+  [[nodiscard]] int Measure(const Bead &Placed) const;   // reads the operand
+  void Absorb(Bead *Placed);                             // writes through it
+};
+
+Slots.Method("Measure", &Slot::Measure).Method("Absorb", &Slot::Absorb);
+```
+
+```lua
+local S, B = Studio.Slot.New(), Studio.Bead.New()
+B.Weight = 7
+print(S:Measure(B))   -- an instance of another class as the operand
+S:Absorb(B)           -- and the caller's own object is what was written
+```
+
+The opt-in is deliberate rather than automatic. Treating every class type as an operand would silently turn long-standing compile-time refusals — `std::string_view`, `Luna::ReturnPack`, a `std::function` of an unsupported shape, a native event source — into registration-time failures, so a class states its own participation instead.
+
+The operand's class identity comes from what `RegisterClass<T>` recorded for that C++ type, so an operand may be an instance of any registered class, not only of the class declaring the member. The first registration of a C++ type wins: registering the same type under a second key later keeps the original identity rather than changing what earlier declarations meant.
+
+A mutable operand — `T &` or `T *` — requires a mutable instance, exactly as a non-const receiver does; a `const` spelling accepts either. Every operand passes the receiver gate before the native target runs, so origin State, metatable identity, payload liveness, borrowed lifetime, dynamic type, and const permission all produce a receiver-quality refusal at the operand's own position. An operand of the wrong class, a scalar, or an omitted operand is a caller error.
+
+One ordering rule applies: a plan is validated entry by entry in staging order, so a class has to be registered before a member that takes one of its instances is declared. Declaring them the other way round is refused with a diagnostic naming the operand position and the unregistered class.
+
+### Converted operands carrying instances
+
+A registered class also reaches a *converted* operand, which is useful when the native signature wants a value type rather than a handle. A class instance arriving at a converted operand is visible to that operand's `TypeConverter<T>` as a userdata value, and `ValueView` exposes everything needed to recover the native object from it:
 
 ```cpp
 [[nodiscard]] ConversionResult<Vector3> Read(Luna::ValueView Source,

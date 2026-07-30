@@ -165,6 +165,22 @@ ProbeConvertedPosition(lua_State *State, const ParameterDescriptor &Parameter,
   return Probe;
 }
 
+// An instance operand probes exactly as a value of its registered class does,
+// which is what makes an overload taking one distinguishable from an overload
+// taking a table or a scalar at the same position.
+[[nodiscard]] ArgumentProbe
+ProbeInstancePosition(const TypeGeneration &Types, lua_State *State,
+                      const ParameterDescriptor &Parameter, int StackIndex) {
+  const StableTypeKey *Key = Parameter.InstanceKey();
+  if (!Key || !Key->IsValid()) {
+    ArgumentProbe Probe;
+    Probe.Rejection = "names no registered class";
+    return Probe;
+  }
+  return ProbeArgument(Types, State, StackIndex,
+                       TypeDescriptor::ForClass(*Key));
+}
+
 [[nodiscard]] ArgumentProbe
 ProbeDeclaredPosition(const TypeGeneration &Types, lua_State *State,
                       const DeclaredShape &Shape, std::size_t FixedCount,
@@ -174,6 +190,8 @@ ProbeDeclaredPosition(const TypeGeneration &Types, lua_State *State,
     const ParameterDescriptor &Parameter = Shape.Parameters[Position];
     if (Parameter.IsConverted())
       return ProbeConvertedPosition(State, Parameter, StackIndex);
+    if (Parameter.IsInstance())
+      return ProbeInstancePosition(Types, State, Parameter, StackIndex);
     const ValueKind *Kind = Parameter.Kind();
     if (!Kind) {
       ArgumentProbe Probe;

@@ -70,6 +70,10 @@ public:
   template <class Type>
   [[nodiscard]] ClassBuilder<Type> RegisterClass(std::string_view Name,
                                                  StableTypeKey Key) {
+    // Recording the key against the C++ type is what lets a later
+    // declaration name an instance of this class as an operand or a result
+    // without restating the key.
+    Detail::RecordClassKey<Type>(Key);
     Detail::ClassStaging Staged = Detail::StageClassDeclaration(
         Plan, Scope, Name, Key, Detail::ClassPolicyFor<Type>());
     return ClassBuilder<Type>(std::move(Staged), std::move(Key));

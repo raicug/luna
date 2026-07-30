@@ -54,7 +54,8 @@ IDE, autocomplete, debug-UI, and profiling integrations are available, and delib
 
 A few current limitations are worth knowing before you design a surface:
 
-- A `Method`, `StaticMethod`, `Operator`, `Constructor`, `Factory`, or `Singleton` parameter may be any type with its own `Luna::TypeConverter<T>` specialization, read through the same probe/read boundary a converted property or field value already uses. A *registered class* has no dedicated operand form, but `SpriteA + SpriteB` works: `ValueView` reports a class instance's registered name, canonical type, and native storage, so a converter recovers the object rather than rebuilding it from a table.
+- A `Method`, `StaticMethod`, `Operator`, `Constructor`, `Factory`, or `Singleton` parameter may be any type with its own `Luna::TypeConverter<T>` specialization, read through the same probe/read boundary a converted property or field value already uses.
+- A **registered class** is also an operand type, spelled `T`, `const T &`, `T &`, `T *`, or `const T *`, once the class opts in with `Luna::RegisteredClassTrait`. The class must be registered before a member taking one of its instances is declared.
 - Publishing a converted **return** value is not yet supported: an operator or method still returns one of the four supported value types, a fixed or dynamic pack, an instance, or void. Only `Constructor`, `Factory`, and `Singleton` produce an instance.
 - A variadic `ArgumentView`/`ArgumentPack` element may be a registered class instance, passed directly or nested inside a table, carried as `OwnedValue::Kind() == ValueCategory::Userdata` and carrying whatever its class's `ToText` operator rendered.
 - Inherited **fields** are not reachable through a derived class. Reach them through a value of the class that declared them.

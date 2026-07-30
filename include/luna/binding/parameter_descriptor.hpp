@@ -26,7 +26,8 @@ enum class ParameterForm {
   Defaulted,
   Variadic,
   Delegate,
-  Converted
+  Converted,
+  Instance
 };
 
 [[nodiscard]] constexpr std::string_view
@@ -44,6 +45,8 @@ ParameterFormText(ParameterForm Form) noexcept {
     return "delegate";
   case ParameterForm::Converted:
     return "converted";
+  case ParameterForm::Instance:
+    return "instance";
   }
   return "required";
 }
@@ -67,6 +70,33 @@ struct ConvertedParameterShape final {
 
   [[nodiscard]] friend bool operator!=(const ConvertedParameterShape &Left,
                                        const ConvertedParameterShape &Right) {
+    return !(Left == Right);
+  }
+};
+
+// One operand that is an instance of a registered class. The class is named
+// by a resolver rather than by a stored key so that a member declared before
+// the class it names — a factory in one class taking another, two classes
+// staged into the same plan in either order — still canonicalizes correctly:
+// the key is read when the plan is described, not when the member was
+// declared. `RequiresMutation` mirrors the receiver gate's const permission.
+struct InstanceParameterShape final {
+  Detail::ClassKeyResolver Resolve = nullptr;
+  bool RequiresMutation = false;
+
+  [[nodiscard]] const StableTypeKey &Class() const {
+    static const StableTypeKey Undeclared;
+    return Resolve ? Resolve() : Undeclared;
+  }
+
+  [[nodiscard]] friend bool operator==(const InstanceParameterShape &Left,
+                                       const InstanceParameterShape &Right) {
+    return Left.Resolve == Right.Resolve &&
+           Left.RequiresMutation == Right.RequiresMutation;
+  }
+
+  [[nodiscard]] friend bool operator!=(const InstanceParameterShape &Left,
+                                       const InstanceParameterShape &Right) {
     return !(Left == Right);
   }
 };
@@ -133,6 +163,14 @@ public:
     return Descriptor;
   }
 
+  [[nodiscard]] static ParameterDescriptor
+  ForInstance(InstanceParameterShape Declared) {
+    ParameterDescriptor Descriptor;
+    Descriptor.FormValue = ParameterForm::Instance;
+    Descriptor.InstanceValue = std::move(Declared);
+    return Descriptor;
+  }
+
   [[nodiscard]] ParameterForm Form() const noexcept { return FormValue; }
 
   [[nodiscard]] const ValueKind *Kind() const noexcept {
@@ -151,6 +189,24 @@ public:
     return FormValue == ParameterForm::Converted;
   }
 
+  [[nodiscard]] bool IsInstance() const noexcept {
+    return FormValue == ParameterForm::Instance;
+  }
+
+  [[nodiscard]] const InstanceParameterShape *
+  InstanceSignature() const noexcept {
+    return InstanceValue ? &*InstanceValue : nullptr;
+  }
+
+  // The registered class this operand names, resolved now. Invalid when the
+  // class was never registered, which is what the registration-time
+  // availability check reports.
+  [[nodiscard]] const StableTypeKey *InstanceKey() const {
+    if (!InstanceValue)
+      return nullptr;
+    return &InstanceValue->Class();
+  }
+
   [[nodiscard]] const DelegateShape *DelegateSignature() const noexcept {
     return DelegateValue ? &*DelegateValue : nullptr;
   }
@@ -166,12 +222,13 @@ public:
 
   [[nodiscard]] bool Retains() const noexcept { return RetainsValue; }
 
-  // A delegate or converted parameter is always supplied, so neither ever
-  // relaxes the shape.
+  // A delegate, converted, or instance parameter is always supplied, so none
+  // of them ever relaxes the shape.
   [[nodiscard]] bool IsOmittable() const noexcept {
     return FormValue != ParameterForm::Required &&
            FormValue != ParameterForm::Delegate &&
-           FormValue != ParameterForm::Converted;
+           FormValue != ParameterForm::Converted &&
+           FormValue != ParameterForm::Instance;
   }
 
   [[nodiscard]] bool AcceptsNil() const noexcept { return AcceptsNilValue; }
@@ -193,7 +250,8 @@ public:
            Left.RetainsValue == Right.RetainsValue &&
            Left.DelegateValue == Right.DelegateValue &&
            Left.ConvertedKeyValue == Right.ConvertedKeyValue &&
-           Left.ConvertedValue == Right.ConvertedValue;
+           Left.ConvertedValue == Right.ConvertedValue &&
+           Left.InstanceValue == Right.InstanceValue;
   }
 
   [[nodiscard]] friend bool operator!=(const ParameterDescriptor &Left,
@@ -208,6 +266,7 @@ private:
   std::optional<DelegateShape> DelegateValue;
   StableTypeKey ConvertedKeyValue;
   std::optional<ConvertedParameterShape> ConvertedValue;
+  std::optional<InstanceParameterShape> InstanceValue;
   bool AcceptsNilValue = false;
   bool RetainsValue = false;
 };
@@ -220,7 +279,8 @@ enum class ParameterShapeStatus {
   MisplacedDefault,
   DefaultTypeMismatch,
   MalformedDelegate,
-  MalformedConverted
+  MalformedConverted,
+  UnregisteredInstanceClass
 };
 
 [[nodiscard]] constexpr std::string_view
@@ -242,6 +302,8 @@ ParameterShapeStatusText(ParameterShapeStatus Status) noexcept {
     return "malformed_delegate";
   case ParameterShapeStatus::MalformedConverted:
     return "malformed_converted";
+  case ParameterShapeStatus::UnregisteredInstanceClass:
+    return "unregistered_instance_class";
   }
   return "valid";
 }
@@ -301,9 +363,30 @@ ValidateParameterShape(std::span<const ParameterDescriptor> Parameters) {
       continue;
     }
 
+    if (Parameter.IsInstance()) {
+      const InstanceParameterShape *Declared = Parameter.InstanceSignature();
+      if (Declared == nullptr || Parameter.Kind() != nullptr ||
+          Parameter.HasDefault() || Parameter.AcceptsNil() ||
+          Parameter.Retains())
+        return ParameterShapeIssue{
+            ParameterShapeStatus::UnregisteredInstanceClass, Position};
+      // A class that was never registered leaves its resolver's slot empty,
+      // which is exactly the operand this reports.
+      if (!Declared->Class().IsValid())
+        return ParameterShapeIssue{
+            ParameterShapeStatus::UnregisteredInstanceClass, Position};
+      if (SawRelaxed)
+        return ParameterShapeIssue{ParameterShapeStatus::RequiredAfterRelaxed,
+                                   Position};
+      continue;
+    }
+
     if (Parameter.DelegateSignature() != nullptr)
       return ParameterShapeIssue{ParameterShapeStatus::MalformedDelegate,
                                  Position};
+    if (Parameter.InstanceSignature() != nullptr)
+      return ParameterShapeIssue{
+          ParameterShapeStatus::UnregisteredInstanceClass, Position};
     if (Parameter.ConvertedSignature() != nullptr)
       return ParameterShapeIssue{ParameterShapeStatus::MalformedConverted,
                                  Position};

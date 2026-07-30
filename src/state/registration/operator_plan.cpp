@@ -92,7 +92,8 @@ ValidateStagedOperator(const StagedOperator &Declaration) {
       Declaration.Selected == ClassOperator::Iterate;
   for (const ParameterDescriptor &Parameter : Declared) {
     if (Parameter.Form() == ParameterForm::Required ||
-        Parameter.Form() == ParameterForm::Converted)
+        Parameter.Form() == ParameterForm::Converted ||
+        Parameter.Form() == ParameterForm::Instance)
       continue;
     if (AcceptsOmittedOperand && (Parameter.Form() == ParameterForm::Optional ||
                                   Parameter.Form() == ParameterForm::Defaulted))

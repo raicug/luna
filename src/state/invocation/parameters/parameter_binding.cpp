@@ -7,6 +7,7 @@
 #include "state/invocation/conversion/argument_reader.hpp"
 #include "state/invocation/conversion/return_writer.hpp"
 #include "state/invocation/delegate/vm_delegate.hpp"
+#include "state/invocation/members/receiver.hpp"
 #include "state/invocation/parameters/argument_frame.hpp"
 #include "state/invocation/validation/validator.hpp"
 #include "state/testing/fault_injector.hpp"
@@ -75,6 +76,13 @@ ShapeIsConsistent(std::span<const ParameterDescriptor> Parameters,
       const StableTypeKey *Key = Parameter.ConvertedKey();
       if (!Key || !Key->IsValid() ||
           !Types.IsAvailableForRead(TypeDescriptor::ForConverted(*Key)))
+        return false;
+      continue;
+    }
+    if (Parameter.IsInstance()) {
+      const StableTypeKey *Key = Parameter.InstanceKey();
+      if (!Key || !Key->IsValid() ||
+          !Types.IsAvailableForRead(TypeDescriptor::ForClass(*Key)))
         return false;
       continue;
     }
@@ -287,6 +295,40 @@ BoundInvocation BindDeclaredParameters(lua_State *State,
         }
         Result.Arguments.Fixed[Index] =
             ArgumentSlot::SuppliedConverted(std::move(Converted));
+        continue;
+      }
+
+      if (Parameter.IsInstance()) {
+        const StableTypeKey *Key = Parameter.InstanceKey();
+        const InstanceParameterShape *Declared = Parameter.InstanceSignature();
+        if (!Declared || !Key || !Key->IsValid() || InjectInspectionFailure) {
+          Result.Validation.RecordInternalFailure(
+              "Internal error: callable metadata is inconsistent for " +
+              ContextText(Named) + ".");
+          Result.Arguments = BoundArguments();
+          return Result;
+        }
+
+        // The receiver gate is the whole access decision for a class value —
+        // origin State, metatable identity, payload liveness, borrowed
+        // lifetime, dynamic type, and const permission — so an operand of a
+        // registered class is refused with exactly a receiver's quality,
+        // before the native target runs.
+        const ValidatedReceiver Bound = ValidateInstanceReceiver(
+            State, CallableName, Types, TypeDescriptor::ForClass(*Key),
+            Declared->RequiresMutation, StackIndex);
+        if (!Bound.IsBound()) {
+          if (Bound.Status == ReceiverStatus::UnavailableClass)
+            Result.Validation.RecordInternalFailure(Bound.Diagnostic);
+          else
+            Result.Validation.RecordCallerFailure(
+                SubjectText(Named) + " argument " + std::to_string(Index + 1) +
+                " " + Bound.Diagnostic);
+          Result.Arguments = BoundArguments();
+          return Result;
+        }
+        Result.Arguments.Fixed[Index] =
+            ArgumentSlot::SuppliedInstance(Bound.Bound);
         continue;
       }
 
