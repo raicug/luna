@@ -85,15 +85,39 @@ ValidateStagedOperator(const StagedOperator &Declaration) {
                      " operand(s) beyond its receiver, but the declaration "
                      "takes " +
                      std::to_string(Declared.size()) + ".");
+  // One iteration step receives the loop's control value, which the loop has
+  // not produced yet on its first step, so that one operand is the single
+  // operand shape Luna declares as omittable.
+  const bool AcceptsOmittedOperand =
+      Declaration.Selected == ClassOperator::Iterate;
   for (const ParameterDescriptor &Parameter : Declared) {
-    if (Parameter.Form() != ParameterForm::Required &&
-        Parameter.Form() != ParameterForm::Converted)
-      return MalformedMetadataDiagnostic(
-          Subject, "every operand of this operator is always supplied, so it "
-                   "cannot be declared optional, defaulted, or variadic.");
+    if (Parameter.Form() == ParameterForm::Required ||
+        Parameter.Form() == ParameterForm::Converted)
+      continue;
+    if (AcceptsOmittedOperand && (Parameter.Form() == ParameterForm::Optional ||
+                                  Parameter.Form() == ParameterForm::Defaulted))
+      continue;
+    return MalformedMetadataDiagnostic(
+        Subject, AcceptsOmittedOperand
+                     ? "an iteration step receives one control operand, which "
+                       "is either required, optional, or defaulted, and never "
+                       "variadic."
+                     : "every operand of this operator is always supplied, so "
+                       "it cannot be declared optional, defaulted, or "
+                       "variadic.");
   }
 
   const ReturnDisposition Returns = Metadata.ReturnType().Disposition();
+  if (Declaration.Selected == ClassOperator::Iterate) {
+    if (Returns != ReturnDisposition::Pack ||
+        Metadata.ReturnType().HasDeclaredPackShape())
+      return MalformedMetadataDiagnostic(
+          Subject, "an iteration step publishes however many values that one "
+                   "step produced, so its target returns a Luna::ReturnPack; "
+                   "an empty pack ends the loop.");
+    return std::nullopt;
+  }
+
   if (Declaration.Selected == ClassOperator::Assign) {
     if (Returns != ReturnDisposition::Void &&
         Returns != ReturnDisposition::Suppress)

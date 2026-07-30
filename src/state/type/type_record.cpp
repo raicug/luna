@@ -26,6 +26,18 @@ bool EnumerationDomain::Accepts(std::int64_t Candidate) const noexcept {
 }
 
 std::string_view
+EnumerationDomain::NameOf(std::int64_t Candidate) const noexcept {
+  const auto Found = std::lower_bound(Values.begin(), Values.end(), Candidate);
+  if (Found == Values.end() || *Found != Candidate)
+    return {};
+  const auto Position =
+      static_cast<std::size_t>(std::distance(Values.begin(), Found));
+  if (Position >= Names.size())
+    return {};
+  return Names[Position];
+}
+
+std::string_view
 LuauRepresentationText(LuauRepresentation Representation) noexcept {
   switch (Representation) {
   case LuauRepresentation::None:

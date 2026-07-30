@@ -195,11 +195,38 @@ Sprites.Operator(Luna::ClassOperator::Add, &Sprite::Padded)
                    "Sprite + padding is the padded area.");
 ```
 
-`ClassOperator` covers `Call`, `Length`, `Equal`, `Less`, `LessEqual`, `Add`, `Subtract`, `Multiply`, `Divide`, `Modulo`, `Power`, `Negate`, `Concatenate`, `ToText`, `Index`, and `Assign`. The target states its receiver exactly the way an instance method does, and every operand after that receiver is an ordinary parameter. So the receiver is rank position zero of an operator call too, validated before one operand is inspected, and the candidate resolves through the same canonical overload rules.
+`ClassOperator` covers `Call`, `Length`, `Equal`, `Less`, `LessEqual`, `Add`, `Subtract`, `Multiply`, `Divide`, `Modulo`, `Power`, `Negate`, `Concatenate`, `ToText`, `Index`, `Assign`, and `Iterate`. The target states its receiver exactly the way an instance method does, and every operand after that receiver is an ordinary parameter. So the receiver is rank position zero of an operator call too, validated before one operand is inspected, and the candidate resolves through the same canonical overload rules.
 
 The operand count of each operator is fixed, and a declaration taking a different number of them — or taking one optionally — is refused transactionally. `Call` is the exception: it forwards whatever the call site supplied.
 
 `Index` and `Assign` keep Luna's own metamethods. The declaration is the behavior Luna consults for a name the class declares nothing for, never a replacement of Luna's reserved dispatch.
+
+### Iteration
+
+`Iterate` makes a class usable in a Luau generic `for` loop. Its target is one step of the loop rather than an iterator object: it receives the control value the previous step published first — omitted on the first step — and returns a `Luna::ReturnPack` of everything that step produced. An empty pack ends the loop.
+
+```cpp
+Luna::ReturnPack Roster::Step(std::optional<int> Control) const {
+  const int Next = Control ? *Control + 1 : 1;
+  if (Next > static_cast<int>(Names.size()))
+    return Luna::ReturnPack::Empty();
+  Luna::ReturnPack Produced;
+  Produced.AppendInteger(Next).AppendText(Names[Next - 1]);
+  return Produced;
+}
+```
+
+```cpp
+Rosters.Operator(Luna::ClassOperator::Iterate, &Roster::Step);
+```
+
+```lua
+for Position, Name in Roster do
+  HostLog(Position, Name)
+end
+```
+
+Luna supplies the loop's iterator itself, so the step never has to produce a Luau function: `Iterate` is the one operator whose control operand may be optional or defaulted, and the one besides `Call` whose result count the call decides rather than the operator. A step that publishes a single scalar instead of a pack is refused transactionally.
 
 Operators are documented, annotated, and exemplified by naming the operator rather than the Luna-owned segment it is published under: `Documentation(ClassOperator, Text)`, `Attribute(ClassOperator, Name, Value)`, `Example(ClassOperator, Text)`.
 

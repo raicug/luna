@@ -89,6 +89,36 @@ local Mask = bit32.bor(Studio.Access.Read, Studio.Access.Write)
 HostLog(Studio.DescribeAccess(Mask))
 ```
 
+### Enumerator objects
+
+By default every enumerator reaches a script as its bare number, so `Studio.Channel.Info == 20`. `AsObjects()` publishes each enumerator as one interned enumerator object instead:
+
+```cpp
+Channels.AsObjects()
+    .Value("Debug", Channel::Debug)
+    .Value("Info", Channel::Info)
+    .Alias("Default", "Info");
+```
+
+```lua
+local Chosen = Studio.Channel.Info
+assert(typeof(Chosen) == "EnumItem")
+assert(Chosen.Name == "Info")
+assert(Chosen.Value == 20)
+assert(Chosen.EnumName == "Studio.Channel")
+assert(tostring(Chosen) == "Studio.Channel.Info")
+assert(Studio.Channel.Default == Studio.Channel.Info)
+```
+
+What the opt-in changes:
+
+- Each enumerator is created once per State and retained, so reading the same enumerator twice yields one value. Equality is therefore identity: two enumerators of one enumeration are never equal, and an alias reads the very object its canonical enumerator publishes.
+- An enumerator object is immutable and its metatable is protected, exactly like the enumeration table that holds it. Writing a field, adding one, or replacing the metatable each fail deterministically.
+- The enumeration's canonical Luau representation becomes userdata rather than number, so a bare number is no longer a value of it. A constant declared of the enumeration publishes the same interned object, whichever of the two installed first.
+- The opt-in is per enumeration. An enumeration that does not ask for objects keeps its numeric representation unchanged.
+
+Generated Luau declarations still describe an enumerator by its numeric value, so an object-mode enumeration's generated type is `number` rather than an enumerator type.
+
 At root scope, `BindingRegistry::RegisterEnum` stages the enumeration in a plan of its own, so call `Commit()` on the returned builder.
 
 ## Annotations

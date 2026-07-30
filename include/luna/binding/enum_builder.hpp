@@ -70,6 +70,7 @@ public:
   void StageAlias(std::string_view AliasName, std::string_view CanonicalName);
   void StageBitflags(bool HasDeclaredMask, std::int64_t SupportedBits);
   void StageUnscopedOptIn();
+  void StageObjectRepresentation();
 
   void StageDocumentation(std::string_view Member, std::string_view Text);
   void StageAttribute(std::string_view Member, std::string_view Name,
@@ -143,6 +144,15 @@ public:
 
   EnumBuilder &AllowUnscoped() {
     Staging.StageUnscopedOptIn();
+    return *this;
+  }
+
+  // Publishes each enumerator as one interned enumerator object rather than
+  // as its bare number. An object reports `typeof` as "EnumItem", carries
+  // `Name`, `Value`, and `EnumName`, and compares equal only to itself, so a
+  // script can never hand a bare number where the enumeration is declared.
+  EnumBuilder &AsObjects() {
+    Staging.StageObjectRepresentation();
     return *this;
   }
 

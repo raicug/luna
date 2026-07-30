@@ -32,6 +32,8 @@ constexpr ClassOperatorDescriptor Supported[] = {
      true},
     {ClassOperator::Index, "__LunaOperatorIndex", "", 1, false, true},
     {ClassOperator::Assign, "__LunaOperatorAssign", "", 2, false, false},
+    {ClassOperator::Iterate, "__LunaOperatorIterate", "__iter", 1, false, true,
+     true, true},
 };
 
 constexpr ReservedMetamethod Reserved[] = {

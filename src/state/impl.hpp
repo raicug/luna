@@ -10,6 +10,7 @@
 #include "state/invocation/async/suspended_call.hpp"
 #include "state/invocation/delegate/vm_delegate.hpp"
 #include "state/invocation/parameters/vm_userdata_capture.hpp"
+#include "state/vm/enum_item.hpp"
 #include "state/module/load.hpp"
 #include "state/module/registry.hpp"
 #include "state/module/resolution.hpp"
@@ -423,6 +424,7 @@ private:
   Detail::AsyncCallRegistry AsyncCalls;
   Detail::VmDelegateRegistry Delegates;
   Detail::VmUserdataCaptureRegistry UserdataCaptures;
+  Detail::EnumItemRegistry EnumItems;
   Detail::ProfilingRegistry ProfilingHooks;
   Detail::VirtualMachineOwner VirtualMachine;
 };

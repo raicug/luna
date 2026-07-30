@@ -130,15 +130,28 @@ DescriptorPlanEntry MakeConstantPlanEntry(const StagedConstant &Declaration,
 EnumerationDomain MakeEnumerationDomain(const StagedEnumeration &Declaration) {
   EnumerationDomain Domain;
   Domain.IsBitflags = Declaration.IsBitflags;
+  Domain.PublishesObjects = Declaration.PublishesObjects;
+
+  std::vector<std::pair<std::int64_t, std::string>> Named;
   for (const StagedEnumerator &Enumerator : Declaration.Enumerators) {
     if (Enumerator.IsAlias)
       continue;
-    Domain.Values.push_back(Enumerator.Numeric);
+    Named.emplace_back(Enumerator.Numeric, Enumerator.Segment);
     Domain.SupportedBits |= Enumerator.Numeric;
   }
-  std::sort(Domain.Values.begin(), Domain.Values.end());
-  Domain.Values.erase(std::unique(Domain.Values.begin(), Domain.Values.end()),
-                      Domain.Values.end());
+  std::sort(Named.begin(), Named.end(),
+            [](const std::pair<std::int64_t, std::string> &Left,
+               const std::pair<std::int64_t, std::string> &Right) {
+              return Left.first < Right.first;
+            });
+  for (const auto &[Numeric, Name] : Named) {
+    if (!Domain.Values.empty() && Domain.Values.back() == Numeric)
+      continue;
+    Domain.Values.push_back(Numeric);
+    Domain.Names.push_back(Name);
+  }
+  if (!Declaration.PublishesObjects)
+    Domain.Names.clear();
 
   if (Declaration.HasDeclaredMask)
     Domain.SupportedBits = Declaration.SupportedBits;

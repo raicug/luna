@@ -468,6 +468,7 @@ State::Impl::Impl()
   static_cast<void>(VirtualMachine.PublishDelegateRegistry(&Delegates));
   static_cast<void>(
       VirtualMachine.PublishUserdataCaptureRegistry(&UserdataCaptures));
+  static_cast<void>(VirtualMachine.PublishEnumItemRegistry(&EnumItems));
   static_cast<void>(VirtualMachine.PublishProfilingRegistry(&ProfilingHooks));
 }
 
@@ -477,6 +478,7 @@ State::Impl::~Impl() {
   AsyncCalls.CancelEverything("the State that suspended it is gone");
   Delegates.Retire();
   UserdataCaptures.Retire();
+  EnumItems.Retire();
 
   FrozenCaches.reset();
 

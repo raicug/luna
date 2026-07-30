@@ -11,6 +11,7 @@
 #include "state/userdata/exposure.hpp"
 #include "state/userdata/value_exposure.hpp"
 #include "state/vm/closure_installer.hpp"
+#include "state/vm/enum_item.hpp"
 #include "state/vm/namespace_table.hpp"
 #include "state/vm/saved_value.hpp"
 #include "state/vm/stack_checkpoint.hpp"
@@ -96,6 +97,13 @@ bool VirtualMachineOwner::PublishUserdataCaptureRegistry(
   if (Captures)
     Captures->Bind(Handle);
   return Luna::Detail::PublishUserdataCaptureRegistry(Handle, Captures);
+}
+
+bool VirtualMachineOwner::PublishEnumItemRegistry(
+    EnumItemRegistry *Items) noexcept {
+  if (Items)
+    Items->Bind(Handle);
+  return Luna::Detail::PublishEnumItemRegistry(Handle, Items);
 }
 
 bool VirtualMachineOwner::PublishProfilingRegistry(

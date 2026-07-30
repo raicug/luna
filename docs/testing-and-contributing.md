@@ -63,6 +63,8 @@ Asynchronous invocation is available for namespace and root functions: a callabl
 
 Delegates and signals are available: `Delegate<Signature>` is an ordinary reflected parameter carrying one subscribed Luau function, and `Signal<Signature>` owns a list of them through `Subscribe`, `Unsubscribe`, and `Emit`, using the same canonical type registry and transaction as everything else.
 
+Generic-for iteration of a class is available through the `Iterate` operator, whose target is one step of the loop rather than an iterator object. Enumerator objects are available through `EnumBuilder::AsObjects()`, which publishes each enumerator as one interned userdata value instead of its bare number; generated Luau declarations still describe such an enumerator by its numeric value.
+
 Not implemented at all, and absent rather than partial:
 
 - annotation helper macros

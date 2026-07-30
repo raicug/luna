@@ -65,6 +65,22 @@ constexpr int ForwardsEveryArgument = -1;
   return Results;
 }
 
+// Luau asks `__iter` for the loop's step function, its state, and its first
+// control value. Luna answers with the declared iteration step, the receiver
+// the loop is iterating, and no control value, so the first step observes an
+// omitted control exactly the way its declared optional operand describes.
+[[nodiscard]] int PublishClassIterator(lua_State *State) {
+  if (State == nullptr)
+    return 0;
+  if (lua_gettop(State) < 1 || !lua_checkstack(State, 4))
+    return RaiseOperatorRefusal(State);
+
+  lua_pushvalue(State, lua_upvalueindex(1));
+  lua_pushvalue(State, 1);
+  lua_pushnil(State);
+  return 3;
+}
+
 } // namespace
 
 bool InstallClassOperatorDispatch(
@@ -84,9 +100,10 @@ bool InstallClassOperatorDispatch(
     const int Forwarded = Described->ForwardsEveryArgument
                               ? ForwardsEveryArgument
                               : static_cast<int>(Described->OperandCount) + 1;
-    const int Results = Described->ForwardsEveryArgument
-                            ? LUA_MULTRET
-                            : (Described->ProducesValue ? 1 : 0);
+    const int Results =
+        Described->ForwardsEveryArgument || Described->PublishesPack
+            ? LUA_MULTRET
+            : (Described->ProducesValue ? 1 : 0);
     const std::string Metamethod(Described->Metamethod);
 
     lua_pushvalue(State, ClassTableIndex);
@@ -94,6 +111,8 @@ bool InstallClassOperatorDispatch(
     lua_pushinteger(State, Forwarded);
     lua_pushinteger(State, Results);
     lua_pushcclosure(State, ForwardClassOperator, "Luna.ClassOperator", 4);
+    if (Described->PublishesIterator)
+      lua_pushcclosure(State, PublishClassIterator, "Luna.ClassIterator", 1);
     lua_rawsetfield(State, MetatableIndex, Metamethod.c_str());
   }
   return true;

@@ -23,7 +23,8 @@ enum class ClassOperator {
   Concatenate,
   ToText,
   Index,
-  Assign
+  Assign,
+  Iterate
 };
 
 [[nodiscard]] constexpr std::string_view
@@ -61,6 +62,8 @@ ClassOperatorText(ClassOperator Selected) noexcept {
     return "index";
   case ClassOperator::Assign:
     return "assign";
+  case ClassOperator::Iterate:
+    return "iterate";
   }
   return "call";
 }
@@ -89,6 +92,7 @@ ClassOperatorOperandCount(ClassOperator Selected) noexcept {
   case ClassOperator::Power:
   case ClassOperator::Concatenate:
   case ClassOperator::Index:
+  case ClassOperator::Iterate:
     return 1;
   }
   return 1;
@@ -102,6 +106,14 @@ ClassOperatorForwardsEveryArgument(ClassOperator Selected) noexcept {
 [[nodiscard]] constexpr bool
 ClassOperatorProducesValue(ClassOperator Selected) noexcept {
   return Selected != ClassOperator::Assign;
+}
+
+// An iteration step publishes however many values one step of the loop
+// produced, so it is the one operator besides `Call` whose result count is
+// not fixed by the operator itself.
+[[nodiscard]] constexpr bool
+ClassOperatorPublishesPack(ClassOperator Selected) noexcept {
+  return Selected == ClassOperator::Iterate;
 }
 
 [[nodiscard]] constexpr bool

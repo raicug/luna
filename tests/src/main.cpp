@@ -22,6 +22,7 @@ int RunClassConstructionFaultTests();
 int RunClassConstructionTests();
 int RunClassMemberAccessTests();
 int RunClassMemberBoundaryTests();
+int RunClassIterationTests();
 int RunClassMemberIntegrationTests();
 int RunConvertedMemberTests();
 int RunClassMemberTests();
@@ -47,6 +48,7 @@ int RunDispatchSlotIndirectionTests();
 int RunDocumentationGenerationTests();
 int RunDynamicModuleLifecycleProperties();
 int RunEndToEndRegistrationInvocationMatrixTests();
+int RunEnumeratorObjectTests();
 int RunExecutionRecoveryProperties();
 int RunExecutionStackBalanceProperties();
 int RunFailedRegistrationTransactionsProperties();
@@ -214,6 +216,8 @@ int main() {
       TestCase{
           "inheritance, casts, and operators through the real virtual machine",
           RunInheritanceOperatorIntegrationTests},
+      TestCase{"generic-for iteration of a class through its declared step",
+               RunClassIterationTests},
       TestCase{"explicit function registration and overload selection",
                RunFunctionRegistrationTests},
       TestCase{"canonical overload sets and Pareto resolution",
@@ -250,6 +254,8 @@ int main() {
                RunConversionRegistryEdgeCaseTests},
       TestCase{"canonical conversion registry integration",
                RunConversionRegistryIntegrationTests},
+      TestCase{"enumerators published as interned enumerator objects",
+               RunEnumeratorObjectTests},
       TestCase{"semantic-version manifests and module resolution",
                RunModuleResolutionTests},
       TestCase{"transactional module loading", RunModuleLoadingTests},

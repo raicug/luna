@@ -56,6 +56,7 @@ struct StagedEnumeration final {
   bool UnscopedIsAllowed = false;
   bool IsBitflags = false;
   bool HasDeclaredMask = false;
+  bool PublishesObjects = false;
   std::int64_t SupportedBits = 0;
 
   std::string Documentation;

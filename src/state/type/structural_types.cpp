@@ -17,6 +17,7 @@
 #include "state/userdata/member_diagnostics.hpp"
 #include "state/userdata/ownership.hpp"
 #include "state/userdata/value_exposure.hpp"
+#include "state/vm/enum_item.hpp"
 
 #include <lua.h>
 
@@ -854,13 +855,83 @@ RejectEnumerator(const ConversionScope &Scope, const TypeRecord &Record,
          !Record.Enumeration->Accepts(static_cast<std::int64_t>(Candidate));
 }
 
+[[nodiscard]] bool PublishesEnumeratorObjects(const TypeRecord &Record) {
+  return Record.Enumeration && Record.Enumeration->PublishesObjects;
+}
+
+// An enumeration that publishes objects accepts exactly its own enumerator
+// objects: a bare number, a foreign userdata, and an enumerator of another
+// enumeration are each an ordinary type mismatch.
+[[nodiscard]] StructuredReadResult
+ReadEnumeratorObject(ConversionScope &Scope, const TypeRecord &Record,
+                     int StackIndex) {
+  lua_State *State = Scope.State();
+  if (!State)
+    return StructuredReadResult::Reject(Internal(Scope, Record));
+
+  const int Index = AbsoluteIndex(State, StackIndex);
+  const int Received = lua_type(State, Index);
+  if (Received == LUA_TNONE)
+    return StructuredReadResult::Reject(
+        Scope.Reject(StructuredFailure::MissingElement, Record));
+  if (Received != LUA_TUSERDATA)
+    return StructuredReadResult::Reject(Mismatch(Scope, Record, Received));
+
+  const void *Block = lua_touserdata(State, Index);
+  const std::size_t ByteCount =
+      Block ? static_cast<std::size_t>(lua_objlen(State, Index)) : 0;
+  const EnumItemPayload *Payload = InspectEnumItem(Block, ByteCount);
+  if (Payload == nullptr) {
+    StructuredDiagnostic Diagnostic =
+        Scope.Reject(StructuredFailure::ForeignUserdata, Record);
+    Diagnostic.ReceivedType = "userdata";
+    return StructuredReadResult::Reject(std::move(Diagnostic));
+  }
+  if (!(Payload->Enumeration == Record.Identity)) {
+    StructuredDiagnostic Diagnostic =
+        Scope.Reject(StructuredFailure::UserdataTypeMismatch, Record);
+    Diagnostic.ReceivedType = std::string(EnumItemTypeName);
+    return StructuredReadResult::Reject(std::move(Diagnostic));
+  }
+
+  const auto Candidate = static_cast<int>(Payload->Numeric);
+  if (RefusesEnumerator(Record, Candidate))
+    return StructuredReadResult::Reject(
+        RejectEnumerator(Scope, Record, Candidate));
+  return StructuredReadResult::Accept(
+      StructuredValue::Scalar(Value(Candidate)));
+}
+
+[[nodiscard]] StructuredWriteResult
+WriteEnumeratorObject(ConversionScope &Scope, const TypeRecord &Record,
+                      int Candidate) {
+  lua_State *State = Scope.State();
+  EnumItemRegistry *Items = ObserveEnumItemRegistry(State);
+  if (!State || Items == nullptr)
+    return StructuredWriteResult::Reject(Internal(Scope, Record));
+  if (!Reserve(State, 8))
+    return StructuredWriteResult::Reject(Unreserved(Scope, Record, 8));
+
+  const std::string_view Name =
+      Record.Enumeration->NameOf(static_cast<std::int64_t>(Candidate));
+  if (!Items->Publish(State, Record.Identity,
+                      static_cast<std::int64_t>(Candidate), Record.PublicName,
+                      Name))
+    return StructuredWriteResult::Reject(
+        Scope.Reject(StructuredFailure::UnavailableConversion, Record));
+  return StructuredWriteResult::Accept(1);
+}
+
 [[nodiscard]] StructuredReadResult ReadEnumeration(ConversionScope &Scope,
                                                    const TypeRecord &Record,
                                                    int StackIndex) {
   lua_State *State = Scope.State();
-  const TypeRecord *Integer = IntegerRecordOf(Scope);
   if (!State)
     return StructuredReadResult::Reject(Internal(Scope, Record));
+  if (PublishesEnumeratorObjects(Record))
+    return ReadEnumeratorObject(Scope, Record, StackIndex);
+
+  const TypeRecord *Integer = IntegerRecordOf(Scope);
   if (!Integer || !Integer->Read)
     return StructuredReadResult::Reject(
         Scope.Reject(StructuredFailure::UnavailableType, Record));
@@ -882,18 +953,21 @@ RejectEnumerator(const ConversionScope &Scope, const TypeRecord &Record,
 WriteEnumeration(ConversionScope &Scope, const TypeRecord &Record,
                  const StructuredValue &Source) {
   lua_State *State = Scope.State();
-  const TypeRecord *Integer = IntegerRecordOf(Scope);
   const Value *Scalar = Source.ScalarValue();
   if (!State || !Scalar || !std::holds_alternative<int>(*Scalar))
     return StructuredWriteResult::Reject(Internal(Scope, Record));
-  if (!Integer || !Integer->Write)
-    return StructuredWriteResult::Reject(
-        Scope.Reject(StructuredFailure::UnavailableType, Record));
 
   const int Candidate = std::get<int>(*Scalar);
   if (RefusesEnumerator(Record, Candidate))
     return StructuredWriteResult::Reject(
         RejectEnumerator(Scope, Record, Candidate));
+  if (PublishesEnumeratorObjects(Record))
+    return WriteEnumeratorObject(Scope, Record, Candidate);
+
+  const TypeRecord *Integer = IntegerRecordOf(Scope);
+  if (!Integer || !Integer->Write)
+    return StructuredWriteResult::Reject(
+        Scope.Reject(StructuredFailure::UnavailableType, Record));
   if (!Reserve(State, 1))
     return StructuredWriteResult::Reject(Unreserved(Scope, Record, 1));
   if (!Integer->Write(State, *Scalar))
@@ -1294,7 +1368,9 @@ DeclareEnumerationTypeRecord(const StableTypeKey &Key, std::string PublicName,
   DeclarationTraits Traits;
   Traits.Read = &ReadEnumeration;
   Traits.Write = &WriteEnumeration;
-  Traits.Representation = LuauRepresentation::Number;
+  Traits.Representation = Domain && Domain->PublishesObjects
+                              ? LuauRepresentation::Userdata
+                              : LuauRepresentation::Number;
   Traits.Rank = ConversionRankCategory::Exact;
   Traits.Mapping = ValueKind::Integer;
   TypeRecord Record = Declare(TypeDescriptor::ForEnumeration(Key),

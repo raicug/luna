@@ -48,11 +48,22 @@ using TypeWriteFunction = bool (*)(lua_State *State, const Value &Source);
 struct EnumerationDomain final {
   std::vector<std::int64_t> Values;
 
+  // The canonical enumerator name of each value, in the same order. Only an
+  // enumeration that publishes objects needs them, since an enumerator
+  // object names itself; a numeric enumeration leaves them empty.
+  std::vector<std::string> Names;
+
   bool IsBitflags = false;
+
+  // Set when each enumerator reaches a script as one interned enumerator
+  // object rather than as its bare number.
+  bool PublishesObjects = false;
 
   std::int64_t SupportedBits = 0;
 
   [[nodiscard]] bool Accepts(std::int64_t Candidate) const noexcept;
+
+  [[nodiscard]] std::string_view NameOf(std::int64_t Candidate) const noexcept;
 
   [[nodiscard]] friend bool
   operator==(const EnumerationDomain &Left,

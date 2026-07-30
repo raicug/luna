@@ -556,6 +556,12 @@ void NamespaceBuilderState::StageUnscopedOptIn(std::size_t EnumerationNode) {
     Declaration->UnscopedIsAllowed = true;
 }
 
+void NamespaceBuilderState::StageObjectRepresentation(
+    std::size_t EnumerationNode) {
+  if (StagedEnumeration *Declaration = EnumerationAt(EnumerationNode))
+    Declaration->PublishesObjects = true;
+}
+
 StagedAnnotationTarget
 NamespaceBuilderState::EnumerationAnnotationTarget(std::size_t EnumerationNode,
                                                    std::string_view Member) {
@@ -1080,6 +1086,11 @@ void EnumStaging::StageBitflags(bool HasDeclaredMask,
 void EnumStaging::StageUnscopedOptIn() {
   if (Plan)
     Plan->StageUnscopedOptIn(Node);
+}
+
+void EnumStaging::StageObjectRepresentation() {
+  if (Plan)
+    Plan->StageObjectRepresentation(Node);
 }
 
 void EnumStaging::StageDocumentation(std::string_view Member,

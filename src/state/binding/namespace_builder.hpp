@@ -121,6 +121,7 @@ public:
   void StageBitflags(std::size_t EnumerationNode, bool HasDeclaredMask,
                      std::int64_t SupportedBits);
   void StageUnscopedOptIn(std::size_t EnumerationNode);
+  void StageObjectRepresentation(std::size_t EnumerationNode);
 
   void StageEnumerationDocumentation(std::size_t EnumerationNode,
                                      std::string_view Member,
