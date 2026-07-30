@@ -203,7 +203,7 @@ foreach(CONSUMER_FILE IN LISTS LUNA_CONSUMER_FILES)
     file(READ "${LUNA_SOURCE_DIR}/${CONSUMER_FILE}" CONSUMER_CONTENT)
     string(TOLOWER "${CONSUMER_CONTENT}" LOWERCASE_CONTENT)
     if(LOWERCASE_CONTENT MATCHES
-       "
+       "#[ \t]*include[ \t]*[<\"][^>\"\r\n]*(luau|lua\\.h|lualib\\.h)")
         luna_policy_failure("consumer-facing file includes Luau directly: ${CONSUMER_FILE}")
     endif()
     if(LOWERCASE_CONTENT MATCHES "lua_state|lua_[a-z0-9_]+|luau_[a-z0-9_]+")

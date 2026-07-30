@@ -48,7 +48,7 @@ Snapshot queries:
 
 `SymbolKind` covers `Namespace`, `Module`, `OverloadSet`, `FunctionCandidate`, `Constant`, `Enumeration`, `Enumerator`, `EnumeratorAlias`, `Class`, `Constructor`, `Factory`, `Method`, `StaticMethod`, `Property`, `Field`, `Operator`, and `Type`. An overload set is one symbol; each candidate under it is its own record naming the set through `OverloadSet()`.
 
-A `ReflectionRecord` reports its identity (`Id`, `Name`, `QualifiedName`, `Signature`, `Scope`, `Declaration`), its type (`Type`, `Descriptor`), its return shape (`Returns`), and its declared annotations (`Documentation`, `ExampleCount`/`Example`, `AttributeCount`/`Attribute`). Parameters, returns, and type relations are exposed by count and index — `ParameterCount`/`Parameter`, `ReturnCount`/`Return`, `RelationCount`/`Relation` — so no returned view or string ever outlives the generation that owns it.
+A `ReflectionRecord` reports its identity (`Id`, `Name`, `QualifiedName`, `Signature`, `Scope`, `Declaration`), its type (`Type`, `Descriptor`), its return shape (`Returns`, `IsAsynchronous`), its module provenance (`HasModule`/`Module`), and its declared annotations (`Documentation`, `ExampleCount`/`Example`, `AttributeCount`/`Attribute`). Parameters, returns, and type relations are exposed by count and index — `ParameterCount`/`Parameter`, `ReturnCount`/`Return`, `RelationCount`/`Relation` — so no returned view or string ever outlives the generation that owns it.
 
 Kind-specific groups answer only for the symbols they apply to. A constant, enumerator, or alias reports `HasValue()` and `ValueText()`. A construction candidate reports `OwnershipResult()` and `AllocatorPolicy()`. A member reports `Receiver()`, `ReceiverPermitsConst()`, `IsReadable()`, `IsWritable()`, `AccessPolicy()`, `Evaluation()`, and `MemberOwnershipPolicy()`. Everything else reports empty views for those.
 
@@ -65,11 +65,14 @@ Identity is content-derived. `TypeId` and `SymbolId` are 256-bit digests of cano
 `BindingRegistry::InstallProfilingHook(Luna::ProfilingHook)` installs one hook that observes invocation stages live, using exactly the identity a snapshot would already give you:
 
 ```cpp
-Registry.InstallProfilingHook([](const Luna::ProfilingEvent &Event) {
-  std::cout << Luna::ProfilingEventKindText(Event.Kind) << ' '
-            << Event.QualifiedName << '\n';
-});
+static_cast<void>(
+    Registry.InstallProfilingHook([](const Luna::ProfilingEvent &Event) {
+      std::cout << Luna::ProfilingEventKindText(Event.Kind) << ' '
+                << Event.QualifiedName << '\n';
+    }));
 ```
+
+`InstallProfilingHook` and `ClearProfilingHook` both return a `RegistrationResult`, so check it or discard it explicitly.
 
 `ProfilingEvent` reports `Kind` (`Completed`, `Failed`, `Suspended`, `Resumed`, or `Cancelled`), the same canonical `Symbol` a `ReflectionRecord` publishes, `ReceiverType` for a member call (invalid otherwise), and the owning `QualifiedName` text. Nothing here is a private duplicate schema: it is the identity you would find by looking the symbol up in a snapshot.
 

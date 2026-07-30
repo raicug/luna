@@ -4,7 +4,7 @@ Luna has two layers here, and it helps to keep them apart. The **supported value
 
 ## Supported value types
 
-These are the types a registered signature uses for parameters and returns. A property or field value, and a `Method`/`StaticMethod`/`Operator`/`Constructor`/`Factory`/`Singleton` parameter, may additionally be any type with its own `Luna::TypeConverter<T>` specialization — see [custom conversions](#custom-conversions) below and [classes and userdata](classes-and-userdata.md#custom-value-types). Publishing a converted *return* value is not yet supported; a target that needs to hand back a table returns an `OwnedValue` instead.
+These are the types a registered signature uses for parameters and returns. A property or field value, and any parameter of a registered callable — root, namespaced, or a `Method`/`StaticMethod`/`Operator`/`Constructor`/`Factory`/`Singleton` — may additionally be any type with its own `Luna::TypeConverter<T>` specialization — see [custom conversions](#custom-conversions) below and [classes and userdata](classes-and-userdata.md#custom-value-types). Publishing a converted *return* value is not yet supported; a target that needs to hand back a table returns an `OwnedValue` instead.
 
 | C++ type | Luau value | Notes |
 |---|---|---|
@@ -14,7 +14,7 @@ These are the types a registered signature uses for parameters and returns. A pr
 | `std::string` | string | Byte-preserving, including embedded NUL bytes |
 | `void` | no return | Return type only |
 
-Parameters may additionally be a trailing `std::optional<T>` of one of these, or one final variadic `ArgumentView` / `ArgumentPack`. Returns may additionally be `std::pair`, `std::tuple`, or `ReturnPack` of these; a registered class instance; or `OwnedValue` / `ValuePack` for a value whose shape the target decides at run time. See [registering functions](registering-functions.md) for the declared shapes and [classes and userdata](classes-and-userdata.md#returning-instances-and-tables) for instance and table results.
+Parameters may additionally be a trailing `std::optional<T>` of one of these, a delegate (`Delegate<Signature>` or `std::function<Signature>`), a converted operand, a registered class instance, or one final variadic `ArgumentView` / `ArgumentPack`. Returns may additionally be `std::pair`, `std::tuple`, or `ReturnPack` of these; a registered class instance; or `OwnedValue` / `ValuePack` for a value whose shape the target decides at run time. See [registering functions](registering-functions.md) for the declared shapes and [classes and userdata](classes-and-userdata.md#returning-instances-and-tables) for instance and table results.
 
 Luna does not coerce strings to numbers, numbers to booleans, or other near matches. The Luau type must agree with the declared C++ type.
 
@@ -24,11 +24,11 @@ Every declaration is described by a `TypeDescriptor`: an immutable normalized va
 
 Fixed Luna-owned leaves are named by `FixedTypeKey`: `Void`, `Boolean`, `Int32`, `Float`, `Double`, `String`, `StringView`, `CString`, `Null`, `Value`, `ValuePack`. Their canonical names live under the reserved `luna.` prefix, so a consumer type can never claim one.
 
-Type constructors are named by `TypeKind`: `Fixed`, `Enumeration`, `Class`, `Pointer`, `Array`, `Optional`, `Sequence`, `Map`, `Pair`, `Tuple`, `SharedOwnership`, `BorrowedReference`, `ArgumentPack`, `ReturnPack`, plus `Unsupported`. Each constructor has a fixed canonical arity; a tuple or pack accepts any child count.
+Type constructors are named by `TypeKind`: `Fixed`, `Enumeration`, `Class`, `Converted`, `Pointer`, `Array`, `Optional`, `Sequence`, `Map`, `Pair`, `Tuple`, `SharedOwnership`, `BorrowedReference`, `ArgumentPack`, `ReturnPack`, `Callable`, plus `Unsupported`. `Converted` is the leaf a `TypeConverter<T>` operand canonicalizes to, and `Callable` is a delegate's declared call shape. Each constructor has a fixed canonical arity; a tuple or pack accepts any child count and a callable accepts at least one child.
 
 A descriptor hashes and compares structurally, and it never mixes in an address, a registration order, or a process-random seed. That is what makes `TypeId` and `SymbolId` — 256-bit content-derived digests — portable across States, executions, and generated artifacts.
 
-The model is wider than what a function signature accepts today. `Float`, `StringView`, `CString`, sequences, maps, and fixed arrays are canonical types Luna identifies and reflects, and constants normalize through them, but a registered function parameter is still one of the supported value types above.
+The model is wider than what a function signature accepts today. `Float`, `StringView`, `CString`, sequences, maps, and fixed arrays are canonical types Luna identifies and reflects — a class property or field may name them — while a registered constant normalizes only to `luna.bool`, `luna.int32`, `luna.float64`, `luna.string`, or an enumeration, and a callable parameter is one of the declared parameter forms above.
 
 ## Stable keys for your own types
 
@@ -139,6 +139,8 @@ public:
 }
 ```
 
+Every value on this boundary reports its category through `ValueCategory` — `None`, `Nil`, `Boolean`, `Number`, `String`, `Table`, `Userdata`, `Function` — with `ValueCategoryText` for the text form.
+
 Three types carry the boundary. `ValueView` is a transient token naming one value inside the current conversion frame: it exposes shape only, carries no pointer or stack index, and becomes inert when its frame ends, so retaining one can never reach released VM storage. `OwnedValue` and `ValuePack` are owning values that outlive any frame — `ToOwned()` is how you keep something. `ConversionContext` is the frame itself: it reports the shape under conversion, the callable name, the one-based position, and the complete nested path such as `argument 2[4].Key`, and `Describe` turns a reason into one deterministic diagnostic carrying all of it.
 
 The same specialization is what makes `AppColor` usable as a property or field value (`Property<AppColor>(...)`, `Field<AppColor>(...)`) and as a `Method`, `StaticMethod`, `Operator`, `Constructor`, `Factory`, or `Singleton` operand — declared with no explicit template argument there, since the parameter's own C++ type already names it:
@@ -161,7 +163,7 @@ A registered class is a parameter type in its own right — see [instance operan
 }
 ```
 
-Writers state everything they need through `ValueReservation` before publishing, and publication is refused unless the complete value fits the reservation. `OwnedValue::RequiredReservation()` computes exactly what one publication needs.
+Writers state everything they need through `ValueReservation` before publishing, and publication is refused unless the complete value fits the reservation. `OwnedValue::RequiredReservation()` computes exactly what one publication needs, and `ConversionContext::Publish` publishes one value while `PublishPack` publishes an ordered `ValuePack`.
 
 ---
 

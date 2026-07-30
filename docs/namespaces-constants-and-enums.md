@@ -68,7 +68,7 @@ The enumeration is checked, not guessed:
 
 ### Bitflags
 
-`Bitflags()` declares bitflag behavior with the supported-bit mask computed from the declared enumerators. `Bitflags(SupportedBits)` declares it with an explicit mask — every declared enumerator must be a subset of it, and a converted value carrying any other bit is rejected whole rather than masked down.
+`Bitflags()` declares bitflag behavior with the supported-bit mask computed from the declared enumerators. `Bitflags(SupportedBits)` — taking either an enumerator or a `std::int64_t` mask — declares it with an explicit mask — every declared enumerator must be a subset of it, and a converted value carrying any other bit is rejected whole rather than masked down.
 
 ```cpp
 enum class Access : unsigned int { Read = 1, Write = 2, Execute = 4 };
@@ -91,9 +91,11 @@ HostLog(Studio.DescribeAccess(Mask))
 
 ### Enumerator objects
 
-By default every enumerator reaches a script as its bare number, so `Studio.Channel.Info == 20`. `AsObjects()` publishes each enumerator as one interned enumerator object instead:
+By default every enumerator reaches a script as its bare number, so `Studio.Channel.Info == 20`. `AsObjects()` publishes each enumerator as one interned enumerator object instead. It is one more call in the enumeration's own chain, staged once alongside its enumerators:
 
 ```cpp
+Luna::EnumBuilder<Channel> Channels =
+    Studio.RegisterEnum<Channel>("Channel", ChannelKey());
 Channels.AsObjects()
     .Value("Debug", Channel::Debug)
     .Value("Info", Channel::Info)

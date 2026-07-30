@@ -2,7 +2,7 @@
 
 A module is a named, versioned unit of registration. Luna loads each one at most once per State, resolves its dependency graph by semantic version, and publishes the whole resolved graph as one outermost transaction.
 
-Two calls make up the surface. `ProvideModule` makes a definition *available* to resolution without loading it — no callback runs, nothing is installed, nothing is published. `RegisterModule` loads the graph rooted at a manifest.
+Two registry calls make up the surface. `ProvideModule` makes a definition *available* to resolution without loading it — no callback runs, nothing is installed, nothing is published. Providing the same identity and version twice is idempotent when the normalized manifests compare equal, and a conflict otherwise. `RegisterModule` loads the graph rooted at a manifest.
 
 ```cpp
 Luna::BindingRegistry Registry = State.Bindings();
@@ -90,7 +90,7 @@ Any callable satisfying `ModuleConfiguration` — invocable with `NamespaceBuild
 One load resolves the whole graph before anything runs:
 
 1. Accumulate every constraint reaching each required identity.
-2. Select, for each identity, the **highest** available version satisfying all of them.
+2. Select, for each identity, the **highest** available version satisfying all of them — except an identity already loaded in the State, which stays pinned to its loaded version. A loaded version that violates an accumulated constraint refuses the load as a conflict naming the path.
 3. Run every not-yet-loaded dependency callback plus the root callback dependency-first, in canonical order, inside one transaction.
 4. Publish the selected graph, its exports, VM values, types, reflection records, and dispatch targets atomically — or none of it.
 

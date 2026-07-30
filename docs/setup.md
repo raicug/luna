@@ -14,7 +14,7 @@ include(FetchContent)
 FetchContent_Declare(
     Luna
     GIT_REPOSITORY https://github.com/raicug/luna.git
-    GIT_TAG 09e52ac978017a30ed9938e2c1c369bc68d2ac73
+    GIT_TAG c17e22c7198fc18eb6abdd36d5e0dfc48a1c1c32
 )
 FetchContent_MakeAvailable(Luna)
 
@@ -23,7 +23,7 @@ target_compile_features(MyApp PRIVATE cxx_std_20)
 target_link_libraries(MyApp PRIVATE Luna::Luna)
 ```
 
-The commit hash keeps your build repeatable. Change it when you want to update Luna.
+The commit hash keeps your build repeatable. Pin the commit that matches the documentation you are reading; this one is refreshed whenever these pages are.
 
 ## Option 2: Local copy
 
@@ -47,6 +47,8 @@ int main() {
 ```
 
 `<luna/luna.hpp>` is the single entry point: every consumer-facing type is reachable from it. Build normally with CMake. Do not add Luau include paths or link Luau yourself; `Luna::Luna` keeps the VM and compiler as private, link-only dependencies.
+
+Set `BUILD_TESTING=OFF` if you want the library alone. Luna calls `include(CTest)`, so with testing left on it also fetches RapidCheck and configures its own test targets. The small `LunaTestApp` smoke executable is always added.
 
 ## Options you may want
 

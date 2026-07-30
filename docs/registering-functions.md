@@ -15,7 +15,7 @@ const Luna::RegistrationResult Result = State.Bindings().RegisterFunction(
 
 Luna accepts free functions, function pointers, concrete lambdas with one unambiguous call operator, functors, static member functions, and explicit member wrappers. Capturing and move-only callables are supported when they can be stored from the value passed to `Register`.
 
-Generic lambdas, C-style variadics, references, and unsupported parameter or return types fail at compile time. A null function pointer has a valid signature but fails registration with `NullCallable`.
+Generic lambdas, C-style variadics, a reference to a supported value type (`int &`, `const std::string &`), and unsupported parameter or return types fail at compile time. A reference is accepted only where the parameter form itself uses one: a variadic view or pack, a delegate, a converted operand, or a registered class instance. A null function pointer has a valid signature but fails registration with `NullCallable`.
 
 ## Overload sets
 
@@ -43,7 +43,10 @@ Beyond the plain supported value types, a parameter may be:
 
 - **Optional.** A trailing `std::optional<T>` maps both omission and an explicit `nil` to the empty value; a present non-nil value converts as its ordinary type.
 - **Defaulted.** `WithDefaults` attaches immutable default values to the trailing parameters. Each default is validated at registration and materialized only when its parameter is omitted. An explicit `nil` is a supplied value, so it follows the parameter's ordinary conversion instead of selecting the default.
-- **Variadic.** One final parameter of `Luna::ArgumentView` or `Luna::ArgumentPack` consumes every remaining call argument.
+- **Variadic.** One final parameter of `Luna::ArgumentView` or `Luna::ArgumentPack` — or a `const` reference to either — consumes every remaining call argument.
+- **A delegate.** `Luna::Delegate<Signature>`, or the equivalent `std::function<Signature>`, carries one subscribed Luau function. See [delegates and signals](#delegates-and-signals).
+- **Converted.** Any type with its own `Luna::TypeConverter<T>` specialization, declared as `T` or `const T &`. Its probe runs before the native target. See [custom conversions](values-and-validation.md#custom-conversions).
+- **A registered class instance.** `T`, `const T &`, `T &`, `T *`, or `const T *`, once the class opts in with `Luna::RegisteredClassTrait` and is registered before the declaration. See [instance operands](classes-and-userdata.md#instance-operands).
 
 ```cpp
 std::string Greet(std::string Name, std::optional<std::string> Title);
@@ -58,6 +61,8 @@ const Luna::RegistrationResult Defaulted =
 A required parameter may not follow an optional or defaulted one, a variadic parameter must be final, and there is at most one. Each of those is a deterministic refusal naming the offending one-based position.
 
 ### Variadic arguments
+
+A variadic element is a boolean, number, string, table, userdata, or nil. Any other Luau value — a function included — is refused with a deterministic caller diagnostic naming the position.
 
 `ArgumentView` is callback-lifetime only. It names the argument frame Luna opened for the current invocation, reports the one-based call position of every element, and becomes inert once the invocation returns. `ToOwned()` is the documented way to keep the arguments; it yields an owning `ArgumentPack`. Declaring the parameter as `ArgumentPack` asks Luna for the owning form directly.
 
@@ -96,14 +101,18 @@ int CountLiveInstances(Luna::ArgumentView Arguments) {
 
 ## Returns
 
-A callable publishes returns in exactly one of three shapes:
+A callable publishes returns in one of these declared shapes:
 
 | Return type | Published values |
 |---|---|
 | `void` | zero |
 | one supported value | exactly one |
 | `std::pair`, `std::tuple` | ordered, count fixed by the signature |
-| `Luna::ReturnPack` | ordered, count decided by the invocation |
+| `Luna::ReturnPack` | ordered, count decided by the invocation, scalar elements only |
+| `Luna::OwnedValue` | exactly one, of whatever category the target built |
+| `Luna::ValuePack` | ordered, count decided by the invocation, any category |
+| a registered class instance — `T`, `std::shared_ptr<T>`, `T *` | exactly one, see [returning instances and tables](classes-and-userdata.md#returning-instances-and-tables) |
+| `Luna::AsyncTask<T>`, `std::future<T>` | the awaited shape, see [asynchronous results](#asynchronous-results) |
 
 ```cpp
 std::tuple<int, int, std::string> Analyze(std::string Text);
@@ -150,7 +159,7 @@ Two boundaries are deliberate. Only the chunk `Execute` is running can suspend, 
 
 ## Delegates and signals
 
-A parameter declared as `Luna::Delegate<Signature>` accepts one subscribed Luau function. It is an ordinary reflected parameter of a canonical callable type; no macro, annotation, or parallel callback path is involved:
+A parameter declared as `Luna::Delegate<Signature>` — or the equivalent `std::function<Signature>` — accepts one subscribed Luau function. It is an ordinary reflected parameter of a canonical callable type; no macro, annotation, or parallel callback path is involved:
 
 ```cpp
 int Subscribe(Luna::Delegate<void(int)> Handler) {
@@ -178,6 +187,7 @@ Registry.RegisterFunction("Raise", [&Alarm](int Level) {
 
 What Luna guarantees:
 
+- `Subscribe` returns a positive token, or `0` when the handler is already released, so `0` is never a live subscription.
 - Unsubscribing releases the handler's native reference immediately, for every copy of that delegate — a later call through any of them reports `DelegateStatus::Released`.
 - Emitting takes one snapshot of the current subscribers, so a handler may subscribe or unsubscribe while the emission is running: a handler removed during the emission is never called by it, one added during the emission is delivered starting with the next emission, and no handler is ever called twice by the same emission.
 - A handler that raises a Luau error does not fail the emission; `SignalEmission` reports how many delivered, how many were skipped, how many failed, and the first failure's message.

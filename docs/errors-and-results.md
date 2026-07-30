@@ -13,15 +13,17 @@ Both `RegistrationResult` and `ExecutionResult` follow the same invariant: succe
 
 Every builder `Commit()`, `BindingRegistry::Freeze()`, `ProvideModule`, and `RegisterModule` returns a `RegistrationResult` too, so one shape covers the whole registration surface.
 
+One deliberate exception exists. `Delegate<Signature>::operator()` throws `Luna::DelegateFailure` when the subscribed handler refuses; `Delegate::Invoke` is the value-returning form and reports a `DelegateCallResult`, while `Signal::Emit` reports a `SignalEmission` count rather than failing.
+
 ## Categories
 
 `ErrorCategory` has seven values:
 
 | Category | Meaning |
 |---|---|
-| `StateNotReady` | The State has no VM, usually after failed creation or a move |
+| `StateNotReady` | The State cannot accept the operation: no VM after failed creation or a move, a frozen State, a stale builder or captured scope, or a call from a thread other than the owner thread |
 | `InvalidGlobalName` | A name segment failed the ASCII identifier grammar |
-| `DuplicateGlobalName` | The State already has a Luna binding with that name |
+| `DuplicateGlobalName` | The name is already taken — an existing Luna binding, a Luna-owned member, an already declared enumerator value, or a path Luna does not own as that symbol |
 | `NullCallable` | A registered function pointer was null |
 | `Compilation` | Source could not be compiled or loaded |
 | `Runtime` | Protected Luau execution failed, including native caller errors |
@@ -39,7 +41,7 @@ Several subsystems expose their own deterministic status enum alongside the diag
 |---|---|
 | `StableTypeKeyStatus` | validity of a user-defined leaf key |
 | `ParameterShapeStatus` | a declared parameter shape, with the offending one-based position |
-| `ConstantValueStatus` | normalization of a declared constant |
+| `Luna::Detail::ConstantValueStatus` (internal) | normalization of a declared constant |
 | `ConversionStatus`, `WriteStatus` | a committing read, a reservation or publication |
 | `SemanticVersionStatus`, `VersionConstraintStatus`, `ModuleManifestStatus` | module metadata parsing and validation |
 | `GenerationStatus` | a documentation or declaration generation attempt |
@@ -51,7 +53,7 @@ Generation and publication carry their status *and* an `ErrorDiagnostic`, throug
 
 ## Diagnostic precedence
 
-When more than one problem exists, Luna reports one deterministic result rather than the first one it happened to notice. Root-scope callable registration orders its refusals as: invalid name, State not ready, null callable, duplicate name.
+When more than one problem exists, Luna reports one deterministic result rather than the first one it happened to notice. Root-scope callable registration orders its refusals as: invalid name, foreign thread, State not ready, frozen State, null callable, duplicate name.
 
 Invocation orders its refusals by the validation sequence in [values and validation](values-and-validation.md): metadata, then the receiver for a member, then arity, then candidate selection, then arguments left to right. So a bad receiver is always reported as a receiver refusal, never as a shifted argument.
 

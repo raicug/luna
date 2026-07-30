@@ -58,7 +58,7 @@ Getting a fresh registry at each registration site is cheap and avoids lifetime 
 
 `NamespaceBuilder`, `EnumBuilder<T>`, and `ClassBuilder<T>` own a *pending plan* rather than anything installed. Destroying one uncommitted has no effect on the VM, on reflection, or on dispatch.
 
-Each builder also carries the logical State identity, the owner-object epoch, the scope, and the lifecycle generation it was created with. Using one after the implementation moves to another owner object, after the owner is destroyed, after freeze, or after its scope disappears fails with one deterministic stale-builder diagnostic instead of touching the VM. So a builder is a short-lived local, staged and committed in one place.
+Each builder also carries the logical State identity, the owner-object epoch, the scope, and the lifecycle generation it was created with. Using one after the implementation moves to another owner object, after the owner is destroyed, or after its scope's lifecycle generation is replaced fails with one deterministic stale-builder diagnostic instead of touching the VM. Use from another thread reports a foreign-thread refusal, and committing against a frozen State reports a frozen-State refusal; all three are `StateNotReady`. A plan also commits once — a second `Commit()` is refused as a stale builder. So a builder is a short-lived local, staged and committed in one place.
 
 ## What a State owns
 

@@ -158,9 +158,9 @@ The documentation under `docs/` was written with AI assistance and checked again
 - Classes as typed userdata: constructors, factories, singletons, allocators, methods, properties, fields, base edges, checked casts, and operators
 - Generic-`for` iteration of a class through the `Iterate` operator, declared as one step of the loop rather than an iterator object
 - An optional on-change callback on a read-write property or a writable field, run after a successful write
-- Property, field, method, static-method, operator, and construction value types of any consumer type with its own `Luna::TypeConverter<T>`, not just the foundation scalars
+- Property, field, and any callable parameter — root, namespaced, method, static method, operator, or construction — typed as any consumer type with its own `Luna::TypeConverter<T>`, not just the foundation scalars
 - Registered class instances as method, static-method, operator, and construction operands — spelled `T`, `const T &`, `T &`, `T *`, or `const T *`, across any registered class, each passing the same access gate a receiver passes
-- Registered class instances as method, static-method, and operator **results**, Lua-owned by value, shared through `std::shared_ptr<T>`, or borrowed through `T *` with a declared lifetime
+- Registered class instances as method, static-method, and operator **results** — Lua-owned by value or shared through `std::shared_ptr<T>`, with a borrowed `T *` result and its declared lifetime on a method or static method
 - `OwnedValue` and `ValuePack` results, so a method publishes a table — nested arrays and fields included — whose shape it decides at run time
 - Class instances also readable at a converted operand through `ValueView`'s read-only userdata accessors
 - Variadic `ArgumentView` / `ArgumentPack` elements carrying a registered class instance — passed directly or nested inside a table — with the text its class's `ToText` operator rendered
@@ -270,9 +270,9 @@ IDE, autocomplete, debug-UI, and profiling integrations are **available**, built
 
 A few current limitations are worth knowing before designing a surface:
 
-- A `Method`, `StaticMethod`, `Operator`, `Constructor`, `Factory`, or `Singleton` **operand** may be any type with its own `Luna::TypeConverter<T>` specialization, read through the same probe/read boundary a converted property or field value already uses.
+- An **operand** of any registered callable — root, namespaced, or a `Method`, `StaticMethod`, `Operator`, `Constructor`, `Factory`, or `Singleton` — may be any type with its own `Luna::TypeConverter<T>` specialization, read through the same probe/read boundary a converted property or field value already uses.
 - A **registered class** is an operand type too, after the class opts in with `Luna::RegisteredClassTrait`. A class has to be registered before a member taking one of its instances is declared, because a plan is validated in staging order.
-- Publishing a **converted** return value is not yet supported. A method, static method, or operator does return a class instance (`T`, `std::shared_ptr<T>`, or a borrowed `T *` with a declared lifetime), one `OwnedValue`, or a `ValuePack` of those, so tables and objects both cross the boundary as results.
+- Publishing a **converted** return value is not yet supported. A method, static method, or operator does return a class instance (`T` or `std::shared_ptr<T>`, plus a borrowed `T *` with a declared lifetime for a method or static method), one `OwnedValue`, or a `ValuePack` of those, so tables and objects both cross the boundary as results.
 - `ReturnPack` stays scalar-only by design: it is the declared multiple-return shape. A multiple return that needs a table or an object uses `ValuePack`. An `OwnedValue` can pass through an instance the call received but cannot manufacture a new one.
 - Generated `.d.lua` declarations describe an enumerator by its numeric value, so an enumeration published through `AsObjects()` still generates as `number` rather than as an enumerator type.
 - Inherited **fields** are not reachable through a derived class. Reach them through a value of the class that declared them.

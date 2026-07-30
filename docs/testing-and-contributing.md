@@ -16,7 +16,7 @@ CTest exposes four entries. `LunaTests` is the one unified test executable; `Lun
 
 The unified executable contains focused unit tests, compiler/VM integration tests, generation tests with golden artifacts, every standalone public-header compile check, the Luau-free consumer compile checks, and 33 RapidCheck properties. CTest sets `RC_PARAMS=max_success=100 verbose_shrinking=1`, so each property runs at least 100 successful generated cases and prints replay information on failure.
 
-Test sources are grouped by category under `tests/`: `unit/`, `property/`, `integration/`, `generation/`, and `compile/`. Every public header must have a matching standalone compile source under `tests/compile/standalone/`, or configuration fails outright.
+Test sources are grouped by category under `tests/`: `unit/`, `property/`, `integration/`, `generation/`, and `compile/`, with the entry point in `src/`, shared fixtures in `support/`, and the build-policy template in `cmake/`. Every public header must have a matching standalone compile source under `tests/compile/standalone/`, or configuration fails outright.
 
 ## Benchmarks
 
@@ -73,7 +73,7 @@ Not implemented at all, and absent rather than partial:
 
 IDE, autocomplete, debug-UI, and profiling integrations are available: `InstallProfilingHook` reports every invocation stage using the same canonical `SymbolId`/`TypeId` reflection publishes, runs on the owner thread only after Luna has already decided the outcome, and contains and uninstalls a hook that throws.
 
-Limitations of the shipped surface are documented where they bite: a *registered class* cannot be an operand of a `Method` or `Operator` (a type with its own `TypeConverter<T>` can), a converted *return* value cannot be published, generated declarations describe an enumerator by its numeric value, and inherited *fields* are not reachable through a derived class.
+Limitations of the shipped surface are documented where they bite: a converted *return* value cannot be published, generated declarations describe an enumerator by its numeric value, and inherited *fields* are not reachable through a derived class.
 
 ---
 

@@ -64,7 +64,7 @@ A benchmark result is admissible evidence only while the functional, determinist
 
 ## Not implemented
 
-There are no profiling or IDE integrations. The benchmark harness reports its own measurements and nothing hooks into an external profiler.
+Nothing hooks into an *external* profiler. The benchmark harness reports its own measurements, and live observation of a running surface goes through `InstallProfilingHook` instead — see [reflection and generation](reflection-and-generation.md#profiling-and-debug-ui-hooks).
 
 ---
 

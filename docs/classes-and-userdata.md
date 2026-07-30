@@ -32,12 +32,12 @@ Three kinds of construction candidate exist, and each is an ordinary callable ca
 Sprites.Constructor<std::string, double, double>()
     .Constructor<>("Empty")
     .Factory("Square", &Sprite::Square)
-    .Singleton("Current", &ActiveSprite);
+    .Singleton("Current", &AccessActiveSprite);
 ```
 
 - `Constructor<Args...>()` publishes under Luna's default constructor name, `New`. Several constructors of one class share that name and form one canonical overload set. `Constructor<Args...>(Name)` gives one an explicit name.
 - `Factory` returns the class **by value** to state Lua ownership, or `std::shared_ptr<T>` to state shared ownership of exactly one reference.
-- `Singleton` returns `T&`, `T*`, or `std::shared_ptr<T>`. It defaults to borrowed ownership with one Luna-owned lifetime that stays live for as long as the registration. A second overload takes an explicit `OwnershipPolicy`; a policy that contradicts the accessor's declared result is refused transactionally.
+- `Singleton` takes an accessor returning `T&`, `T*`, or `std::shared_ptr<T>` — an accessor, not the address of an object. Without an explicit policy it states borrowed ownership with one Luna-owned lifetime that stays live for as long as the registration, so a `T&`/`T*` accessor needs nothing more; an accessor returning `std::shared_ptr<T>` states `OwnershipPolicy::Shared()` through the second overload. A policy that contradicts the accessor's declared result is refused transactionally.
 
 An object is published only after allocation, native construction, ownership establishment, identity-cache insertion, metatable association, and protected return publication have all succeeded. Any failure performs exactly the cleanup the completed steps warrant.
 
@@ -53,7 +53,7 @@ An object is published only after allocation, native construction, ownership est
 
 ```cpp
 Luna::LifetimeHandle Lifetime;
-Sprites.Singleton("Active", &ActiveSprite,
+Sprites.Singleton("Active", &AccessActiveSprite,
                   Luna::OwnershipPolicy::Borrowed(Lifetime));
 
 
@@ -74,9 +74,9 @@ Sprites.Allocator(Luna::ClassAllocator::ForOwnedObject<Sprite>());
 
 The protocol is four semantic steps — obtain aligned storage, construct one object in it, destroy an object known to be constructed, give the storage back — and none of them names a VM, a Luau type, a stack index, or a registry reference. It prescribes no member names: supply whichever steps you want to own as ordinary callables, and Luna erases them, with whatever state they captured, into one immutable reference-counted record. Luna retains that record until the last userdata depending on it has finished cleanup, so an arena a value was allocated from is still reachable while that value is being destroyed.
 
-Which steps you declare decides the cleanup a value can receive, and nothing else does. No deallocation step means Luna does not own the storage. No destruction step means Luna never destroys the object, which is exactly what a borrowed object requires. No allocation step means the protocol can only describe an object that already exists.
+Which steps a protocol declares decides the cleanup a value can receive, and nothing else does. No deallocation step means Luna does not own the storage. No destruction step means Luna never destroys the object, which is exactly what a borrowed object requires. No allocation step means the protocol can only describe an object that already exists.
 
-Three ready-made protocols cover the common cases: `ForOwnedObject<T>()` (global aligned storage, in-place default construction, ordinary destruction, matching deallocation), `ForAdoptedObject<T>()` (Luna destroys but never allocates or deallocates), and `ForStorage<T>(Identity, Allocate, Deallocate)` (your storage, Luna's construction and destruction). `Undeclared()` names no protocol at all.
+A protocol *selected for a class* must declare all four steps, because Luna both creates and releases every value of the class it constructs itself. Two ready-made protocols qualify: `ForOwnedObject<T>()` (global aligned storage, in-place default construction, ordinary destruction, matching deallocation) and `ForStorage<T>(Identity, Allocate, Deallocate)` (your storage, Luna's construction and destruction). `ForAdoptedObject<T>()` (Luna destroys but never allocates or deallocates) and `Undeclared()` (no protocol at all) describe values Luna did not allocate — an adopted, shared, or borrowed object — so selecting either for a class is refused, as is a protocol whose size or alignment cannot hold the class.
 
 The selection belongs to the class rather than to one declaration, so it may be stated before or after the candidates it applies to; stating it twice keeps the last protocol named. A protocol Luna could not actually create and release a value through is refused transactionally rather than reinterpreted.
 
@@ -105,6 +105,8 @@ It is also why a dot call without a receiver fails as a receiver refusal instead
 Several methods under one name form one canonical overload set, resolved by exactly the rules every other overload set follows. Two whose declared shapes no call could tell apart are refused transactionally.
 
 A static method declares no receiver at all, so it is an ordinary callable candidate of the class scope reached by a dot call.
+
+A class member publishes its value inside the call that asked for it, so an `AsyncTask<T>` or `std::future<T>` result is refused at registration: asynchronous delivery belongs to namespace and root functions. The same refusal covers operators and construction candidates.
 
 ## Properties and fields
 
@@ -156,7 +158,7 @@ Studio.RegisterClass<Body>("Body", BodyKey())
     .Field<Vector3>("Velocity", &Body::Velocity);
 ```
 
-The getter and setter, or the field itself, still declare their native C++ type exactly as they would for a scalar member — `Vector3 GetPosition() const`, `void SetPosition(Vector3)`, `Vector3 Velocity`. Reading the member runs the value type's `Write`; writing it runs the value type's `Read`; both go through the identical probe/read/write boundary a converted parameter or return value uses, so a converted member gets the same diagnostics, the same reservation discipline, and the same atomicity guarantees. A getter or setter whose value type declares no `Luna::TypeConverter<T>` specialization is refused at compile time, the same way an unsupported scalar type is. `Property<Value>` and `Field<Value>` accept the same policy, on-change, and getter/setter-shape overloads their scalar counterparts do.
+The getter and setter, or the field itself, still declare their native C++ type exactly as they would for a scalar member — `Vector3 GetPosition() const`, `void SetPosition(Vector3)`, `Vector3 Velocity`. Reading the member runs the value type's `Write`; writing it runs the value type's `Read`; both go through the identical probe/read/write boundary a converted parameter or return value uses, so a converted member gets the same diagnostics, the same reservation discipline, and the same atomicity guarantees. A getter or setter whose value type declares no `Luna::TypeConverter<T>` specialization is refused at compile time, the same way an unsupported scalar type is. `Property<Value>` and `Field<Value>` accept the same policy and getter/setter-shape overloads their scalar counterparts do. Two differences are worth knowing: an on-change callback is scalar-only, and a converted read runs on every access even under `Lazy()`, because a lazily cached value is one of the four supported value types.
 
 ## Inheritance and casts
 
@@ -197,7 +199,7 @@ Sprites.Operator(Luna::ClassOperator::Add, &Sprite::Padded)
 
 `ClassOperator` covers `Call`, `Length`, `Equal`, `Less`, `LessEqual`, `Add`, `Subtract`, `Multiply`, `Divide`, `Modulo`, `Power`, `Negate`, `Concatenate`, `ToText`, `Index`, `Assign`, and `Iterate`. The target states its receiver exactly the way an instance method does, and every operand after that receiver is an ordinary parameter. So the receiver is rank position zero of an operator call too, validated before one operand is inspected, and the candidate resolves through the same canonical overload rules.
 
-The operand count of each operator is fixed, and a declaration taking a different number of them — or taking one optionally — is refused transactionally. Two operators are exceptions: `Call` forwards whatever the call site supplied, and `Iterate` receives one control operand that may be omitted, described under [Iteration](#iteration) below.
+The operand count of each operator is fixed, and a declaration taking a different number of them — or taking one optionally — is refused transactionally. `Length`, `Negate`, and `ToText` take none; the arithmetic, comparison, `Concatenate`, `Index`, and `Iterate` forms take one; `Assign` takes two and its target returns `void`. Every operator except `Call` and `Iterate` publishes exactly one value, so a `void` or `ReturnPack` result is refused for the rest. Two operators are the exceptions on operand count too: `Call` forwards whatever the call site supplied, and `Iterate` receives one control operand that may be omitted, described under [Iteration](#iteration) below.
 
 `Index` and `Assign` keep Luna's own metamethods. The declaration is the behavior Luna consults for a name the class declares nothing for, never a replacement of Luna's reserved dispatch.
 
@@ -232,7 +234,7 @@ Operators are documented, annotated, and exemplified by naming the operator rath
 
 ### Converted operands
 
-A `Method`, `StaticMethod`, or `Operator` parameter is not limited to the four supported value types either: any type with its own `Luna::TypeConverter<T>` specialization may be an operand too, read through the same probe/read boundary a converted property or field value already uses (see [custom conversions](values-and-validation.md#custom-conversions)). No explicit template argument is needed — the parameter's own declared C++ type is enough, the same way a scalar parameter already is:
+A `Method`, `StaticMethod`, `Operator`, `Constructor`, `Factory`, or `Singleton` parameter is not limited to the four supported value types either: any type with its own `Luna::TypeConverter<T>` specialization may be an operand too, read through the same probe/read boundary a converted property or field value already uses (see [custom conversions](values-and-validation.md#custom-conversions)). No explicit template argument is needed — the parameter's own declared C++ type is enough, the same way a scalar parameter already is:
 
 ```cpp
 Sprites.Method("Dot", &Sprite::Dot)
@@ -271,7 +273,7 @@ S:Absorb(B)           -- and the caller's own object is what was written
 
 The opt-in is deliberate rather than automatic. Treating every class type as an operand would silently turn long-standing compile-time refusals — `std::string_view`, `Luna::ReturnPack`, a `std::function` of an unsupported shape, a native event source — into registration-time failures, so a class states its own participation instead.
 
-The operand's class identity comes from what `RegisterClass<T>` recorded for that C++ type, so an operand may be an instance of any registered class, not only of the class declaring the member. The first registration of a C++ type wins: registering the same type under a second key later keeps the original identity rather than changing what earlier declarations meant.
+The operand's class identity comes from what `RegisterClass<T>` recorded for that C++ type, so an operand may be an instance of any registered class, not only of the class declaring the member. That key is recorded once per process, shared by every State in it: registering the same type under a second key later keeps the original identity rather than changing what earlier declarations meant.
 
 A mutable operand — `T &` or `T *` — requires a mutable instance, exactly as a non-const receiver does; a `const` spelling accepts either. Every operand passes the receiver gate before the native target runs, so origin State, metatable identity, payload liveness, borrowed lifetime, dynamic type, and const permission all produce a receiver-quality refusal at the operand's own position. An operand of the wrong class, a scalar, or an omitted operand is a caller error.
 
@@ -300,15 +302,19 @@ A registered class also reaches a *converted* operand, which is useful when the 
 
 `UserdataClassName()` is the registered qualified name and `UserdataType()` is the canonical `TypeId`, so the converter confirms the identity before it casts — a value of a different class simply fails the check. `UserdataStorage()` yields null whenever handing the object out would be unsound: the capture has expired, the owning State has gone away, or the object is no longer published, which is the same stale-borrow refusal a receiver performs. `UserdataPermitsMutation()` reports whether the instance was exposed mutably, and `UserdataText()` carries whatever the class's `ToText` operator rendered.
 
+An instance reaches a *variadic* parameter the same way — directly or nested in a table — as an `OwnedValue` of `ValueCategory::Userdata`; see [variadic arguments](registering-functions.md#variadic-arguments).
+
 ### Returning instances and tables
 
-A method, static method, or operator returns a registered class instance in any of the three ownership models a construction publishes:
+A method, static method, or operator returns a registered class instance. The returned class opts in exactly the way an operand class does, with `Luna::RegisteredClassTrait`; a by-value result also has to be move-constructible, as a by-value operand has to be copy-constructible.
 
 | Declared result | Ownership | Declaration |
 |---|---|---|
 | `T` by value | Lua-owned copy | nothing extra |
 | `std::shared_ptr<T>` | shared | nothing extra |
 | `T *` | borrowed | `OwnershipPolicy::Borrowed(Lifetime)` |
+
+An operator publishes an instance it owns — `T` by value or `std::shared_ptr<T>`. The borrowed form states its lifetime through the ownership-policy overload, which `Method` and `StaticMethod` accept and `Operator` does not, so an operator does not hand back a borrowed object.
 
 ```cpp
 struct Vector { double X, Y; [[nodiscard]] Vector Scaled(double By) const; };

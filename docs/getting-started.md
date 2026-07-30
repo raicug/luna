@@ -1,6 +1,6 @@
 # Getting started
 
-Luna builds as a C++20 static library. The repository uses CMake presets and Ninja, and fetches pinned Luau and RapidCheck revisions during the first configuration.
+Luna builds as a C++20 static library. The repository uses CMake presets and Ninja, and fetches Luau at pinned release `0.730` during the first configuration, plus RapidCheck at a pinned commit when testing is enabled.
 
 ## Requirements
 
@@ -72,7 +72,7 @@ int main() {
   Luna::NamespaceBuilder Studio = Registry.RegisterNamespace("Studio");
 
   Studio.RegisterConstant("Version", "0.1.0")
-      .Documentation("The demo surface.");
+      .Documentation("Version", "The published surface version.");
 
   Luna::EnumBuilder<Channel> Channels =
       Studio.RegisterEnum<Channel>("Channel", Luna::StableTypeKey("app.Channel"));
@@ -109,7 +109,7 @@ cmake --preset ninja-debug -DLUNA_BUILD_IMGUI_DEMO=ON
 cmake --build --preset ninja-debug --target LunaImGuiDemo
 ```
 
-It links `Luna::Luna` and nothing else from Luna, so every snippet it shows is public API.
+It needs OpenGL development headers, and fetches GLFW, Dear ImGui, and ImGuiColorTextEdit on first configure. It links `Luna::Luna` and nothing else from Luna, so every snippet it shows is public API.
 
 ---
 

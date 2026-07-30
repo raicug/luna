@@ -6,12 +6,15 @@ The public API is deliberately smaller than the implementation behind it. Consum
 State
  ├─ BindingRegistry → builders → canonical descriptors
  └─ Impl
-     ├─ lifecycle      logical identity, owner thread, phase, epochs
-     ├─ transaction    capture → preparation → installation → publication
+     ├─ binding        private builder plumbing and state handles
+     ├─ transaction    lifecycle identity, owner thread, phase and epochs;
+     │                 capture → preparation → installation → publication
      ├─ identity       canonical encoding, digests, identity registry
      ├─ type           canonical types, conversion frames, conversion boundary
      ├─ registration   pending plans, overload groups, shape validation, store
-     ├─ invocation     trampolines, argument binding, overload selection, returns
+     ├─ invocation     trampolines, receiver gate, overload probing and selection,
+     │                 argument conversion, return writing, validation,
+     │                 delegates, suspended async calls
      ├─ userdata       class registry, construction, ownership, member access
      ├─ module         manifest registry, resolution, load, lifecycle
      ├─ reflection     immutable published storage and views
@@ -20,6 +23,7 @@ State
      ├─ vm             VM owner, closure installer, tables, interned enum items, stack checkpoints
      ├─ execution      compiler and disposable-thread executor
      ├─ generation     documentation, declaration, publication writers
+     ├─ tooling        profiling hook registry
      └─ testing        private fault injection and test hooks
 
 Luau call → trampoline → receiver gate → overload selection
@@ -65,7 +69,7 @@ Reflection is not a view onto live State storage. Each published generation is i
 
 Headers under `include/luna/` use only Luna and standard-library types. No Luau type, header, pointer, constant, stack operation, or registry reference is reachable from them, and no consumer macro or compile definition is required. Luau headers appear only in private implementation files, and the VM and compiler are private, link-only dependencies of the `Luna` target.
 
-That boundary is enforced by the build, not by convention. Standalone compile checks build every public header with only Luna's public include directory, and a separate consumer check compiles against that directory with no Luau link dependency and no compile definitions. The build policy test fails if a Luau target leaks into Luna's interface, if a public header lacks its standalone check, or if a target stops compiling as C++20 with extensions disabled.
+That boundary is enforced by the build, not by convention. Standalone compile checks build every public header with only Luna's public include directory, and a separate consumer check compiles against that directory with no Luau link dependency and no compile definitions. Configuration fails outright if a public header lacks its standalone check or if a target stops compiling as C++20 with extensions disabled, and the build policy test fails if a Luau target leaks into Luna's interface.
 
 ---
 
