@@ -58,6 +58,49 @@ template <class Type>
 
 } // namespace Detail
 
+template <class Type> OwnedValue OwnedValue::Instance(Type Value) {
+  static_assert(RegisteredClassType<Type>,
+                "A manufactured Luna instance names a class that opted in with "
+                "Luna::RegisteredClassTrait.");
+  ClassAllocator Protocol = ClassAllocator::ForOwnedObject<Type>(
+      Detail::ConstructedStoragePolicyName);
+  auto Held = std::make_shared<Type>(std::move(Value));
+  ClassAllocator::ConstructOperation Build = [Held](void *Storage) {
+    static_cast<void>(new (Storage) Type(std::move(*Held)));
+    return AllocatorStepResult::Done();
+  };
+  return OwnedValue::PendingInstance(
+      Detail::RecordedClassKey<Type>(),
+      Detail::CreatedClassInstance(std::move(Protocol), std::move(Build)));
+}
+
+template <class Type>
+OwnedValue OwnedValue::Instance(std::shared_ptr<Type> Shared) {
+  static_assert(RegisteredClassType<Type>,
+                "A manufactured Luna instance names a class that opted in with "
+                "Luna::RegisteredClassTrait.");
+  Type *const Object = Shared.get();
+  if (Object == nullptr)
+    return OwnedValue::PendingInstance(Detail::RecordedClassKey<Type>(),
+                                       Detail::ConstructedInstance());
+  return OwnedValue::PendingInstance(
+      Detail::RecordedClassKey<Type>(),
+      Detail::SharedClassInstance(
+          static_cast<void *>(Object),
+          std::static_pointer_cast<void>(std::move(Shared))));
+}
+
+template <class Type>
+OwnedValue OwnedValue::Instance(Type *Borrowed, OwnershipPolicy Declared) {
+  static_assert(RegisteredClassType<Type>,
+                "A manufactured Luna instance names a class that opted in with "
+                "Luna::RegisteredClassTrait.");
+  return OwnedValue::PendingInstance(
+      Detail::RecordedClassKey<Type>(),
+      Detail::BorrowedClassInstance(static_cast<void *>(Borrowed),
+                                    Declared.Lifetime()));
+}
+
 namespace Detail {
 
 template <class Type> struct IsFixedReturnPack : std::false_type {};

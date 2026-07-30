@@ -435,9 +435,62 @@ local decoded = http:Decode(encoded)
 print(decoded.enabled, decoded.names[1])
 ```
 
-`ReturnPack` stays deliberately scalar-only. It is the *declared* multiple-return shape, and widening its element type would change what every existing `AppendNumber`/`AppendText` call site means. A target that needs a table inside a multiple return returns a `ValuePack` instead. An owned return states its reservation before publishing, so a value exceeding the invocation's string policy publishes nothing rather than a truncated prefix.
+An owned return states its reservation before publishing, so a value exceeding the invocation's string policy publishes nothing rather than a truncated prefix.
 
-One limit is worth naming: an `OwnedValue` carrying userdata holds a reference to an instance the call *received*, so a pack can pass an instance through but cannot manufacture a new one. A method returning a newly built object returns it directly rather than nesting it in a pack.
+#### Manufactured instances
+
+An `OwnedValue` also carries an instance the call *built*, which is what a `GetChildren()`-shaped API needs — a table whose elements are objects that did not exist before the call:
+
+| Factory | Ownership | Declaration |
+|---|---|---|
+| `OwnedValue::Instance<T>(T Value)` | Lua-owned copy | nothing extra |
+| `OwnedValue::Instance<T>(std::shared_ptr<T>)` | shared | nothing extra |
+| `OwnedValue::Instance<T>(T *, OwnershipPolicy)` | borrowed | `OwnershipPolicy::Borrowed(Lifetime)` |
+
+Each requires `Luna::RegisteredClassTrait<T>` and the class to be registered in the publishing State. The three forms mean exactly what the corresponding direct instance returns mean.
+
+```cpp
+[[nodiscard]] Luna::OwnedValue Game::GetChildren() const {
+  Luna::OwnedValue Children = Luna::OwnedValue::Table();
+  for (const Part &Held : Parts)
+    Children.Append(Luna::OwnedValue::Instance<Part>(Held));
+  return Children;
+}
+```
+
+```lua
+for _, Child in ipairs(game:GetChildren()) do
+  print(Child.Name, Child:Describe())        -- each element is real userdata
+end
+```
+
+Publication is *deferred*: the owned value records the class key and the produced object, and the userdata is built when the value is materialized onto the stack, through the same publication path a direct instance return uses. Identity caching by native address and the refusal of two objects sharing one address therefore hold unchanged. Nested tables and `ValuePack` elements work identically, at any depth.
+
+An element refuses transactionally and publishes nothing when its class was never registered in this State, when the borrowed form declares no lifetime, or when the object is null. The refusal is decided for every element of the whole return before anything reaches the stack, so a bad element leaves the call published nothing rather than a partial table.
+
+`ReturnPack` gains the matching `AppendInstance<T>` overloads, in the same three forms. A pack that appended only scalars keeps publishing exactly as before; the first `AppendInstance` migrates the scalars already appended and every later element goes through the owned path, so order is preserved:
+
+```cpp
+[[nodiscard]] Luna::ReturnPack Wall::Step(std::optional<int> Control) const {
+  const int Next = Control ? *Control + 1 : 1;
+  if (Next > static_cast<int>(Labels.size()))
+    return Luna::ReturnPack::Empty();
+  Luna::ReturnPack Produced;
+  Produced.AppendInteger(Next);
+  Produced.AppendInstance<Badge>(Badge{Labels[Next - 1]});
+  return Produced;
+}
+```
+
+That is what lets the `Iterate` operator yield objects, so a generic for over a container class walks real instances:
+
+```lua
+for Position, Badge in Wall do
+  print(Position, Badge:Shout())
+end
+```
+
+An `AppendInstance` element is an integer-keyed value of the pack, so `ReturnPack::Values()` and `At()` — the scalar views — report nothing once a pack carries owned elements; `CarriesOwnedValues()` states which mode a pack is in.
 
 ## Access from Luau
 

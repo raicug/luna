@@ -108,7 +108,7 @@ A callable publishes returns in one of these declared shapes:
 | `void` | zero |
 | one supported value | exactly one |
 | `std::pair`, `std::tuple` | ordered, count fixed by the signature |
-| `Luna::ReturnPack` | ordered, count decided by the invocation, scalar elements only |
+| `Luna::ReturnPack` | ordered, count decided by the invocation, scalars plus `AppendInstance<T>` elements |
 | `Luna::OwnedValue` | exactly one, of whatever category the target built |
 | `Luna::ValuePack` | ordered, count decided by the invocation, any category |
 | a registered class instance — `T`, `std::shared_ptr<T>`, `T *` | exactly one, see [returning instances and tables](classes-and-userdata.md#returning-instances-and-tables) |
@@ -127,6 +127,8 @@ Luna::ReturnPack Tally(Luna::ArgumentView Arguments) {
 ```
 
 A pack is staging, not output. Luna converts and validates every element before any return is exposed, so a refused element publishes zero values rather than a partial list. The typed appends exist because a bare literal would otherwise let the value variant pick a surprising alternative.
+
+`AppendInstance<T>` appends an instance of a registered class the call manufactured — `T` by value, `std::shared_ptr<T>`, or a borrowed `T *` with an `OwnershipPolicy`. Appending one switches the pack to owned publication, carrying every scalar already appended with it, so order stays as written. See [manufactured instances](classes-and-userdata.md#manufactured-instances).
 
 ## Published values
 

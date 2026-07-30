@@ -14,7 +14,7 @@ These are the types a registered signature uses for parameters and returns. A pr
 | `std::string` | string | Byte-preserving, including embedded NUL bytes |
 | `void` | no return | Return type only |
 
-Parameters may additionally be a trailing `std::optional<T>` of one of these, a delegate (`Delegate<Signature>` or `std::function<Signature>`), a converted operand, a registered class instance, or one final variadic `ArgumentView` / `ArgumentPack`. Returns may additionally be `std::pair`, `std::tuple`, or `ReturnPack` of these; a registered class instance; or `OwnedValue` / `ValuePack` for a value whose shape the target decides at run time. See [registering functions](registering-functions.md) for the declared shapes and [classes and userdata](classes-and-userdata.md#returning-instances-and-tables) for instance and table results.
+Parameters may additionally be a trailing `std::optional<T>` of one of these, a delegate (`Delegate<Signature>` or `std::function<Signature>`), a converted operand, a registered class instance, or one final variadic `ArgumentView` / `ArgumentPack`. Returns may additionally be `std::pair`, `std::tuple`, or `ReturnPack` of these; a registered class instance; or `OwnedValue` / `ValuePack` for a value whose shape the target decides at run time. A `ReturnPack` element and an `OwnedValue` at any depth may also be an instance the call manufactured. See [registering functions](registering-functions.md) for the declared shapes and [classes and userdata](classes-and-userdata.md#returning-instances-and-tables) for instance and table results.
 
 Luna does not coerce strings to numbers, numbers to booleans, or other near matches. The Luau type must agree with the declared C++ type.
 

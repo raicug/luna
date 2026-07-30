@@ -1,9 +1,14 @@
 // clang-format off
 #include "state/type/owned_value_bridge.hpp"
 
+#include <luna/binding/class_construction.hpp>
+#include <luna/type/type_descriptor.hpp>
+
 #include "state/invocation/parameters/vm_userdata_capture.hpp"
+#include "state/type/type_generation.hpp"
 #include "state/userdata/access.hpp"
 #include "state/userdata/class_registry.hpp"
+#include "state/userdata/construction.hpp"
 #include "state/userdata/exposure.hpp"
 #include "state/userdata/header.hpp"
 #include "state/vm/stack_checkpoint.hpp"
@@ -11,6 +16,7 @@
 #include <lua.h>
 
 #include <cstddef>
+#include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -151,7 +157,80 @@ CapturedUserdataIdentityOf(lua_State *State, int StackIndex) {
   return OwnedValue();
 }
 
-bool PushTo(lua_State *State, const OwnedValue &Source, int Depth) {
+[[nodiscard]] std::string
+ClassifyPendingObject(const StableTypeKey &Class,
+                      const ConstructedInstance &Produced,
+                      const TypeGeneration &Types) {
+  if (Class.IsEmpty())
+    return "a manufactured class instance names a class that never registered "
+           "in this State.";
+  if (!Types.IsAvailableForWrite(TypeDescriptor::ForClass(Class)))
+    return "a manufactured instance of " + std::string(Class.Text()) +
+           " names a class that is unavailable in the captured type registry.";
+
+  switch (Produced.Ownership) {
+  case ConstructionOwnership::Borrowed:
+    if (Produced.Storage == nullptr)
+      return "a borrowed instance of " + std::string(Class.Text()) +
+             " carries no object.";
+    if (!Produced.Lifetime.IsDeclared())
+      return "a borrowed instance of " + std::string(Class.Text()) +
+             " declares no lifetime, so Luna cannot state when the object "
+             "stops being reachable.";
+    return std::string();
+  case ConstructionOwnership::Shared:
+    if (Produced.Storage == nullptr || !Produced.SharedOwnership)
+      return "a shared instance of " + std::string(Class.Text()) +
+             " carries no object.";
+    return std::string();
+  case ConstructionOwnership::LuaOwned:
+    if (!Produced.Allocator.DeclaresAllocation() ||
+        (!Produced.Construct && !Produced.Allocator.DeclaresConstruction()))
+      return "a Lua-owned instance of " + std::string(Class.Text()) +
+             " carries no object.";
+    return std::string();
+  }
+  return "a manufactured instance of " + std::string(Class.Text()) +
+         " declares no ownership.";
+}
+
+[[nodiscard]] std::string ClassifyPending(const OwnedValue &Source,
+                                          const TypeGeneration &Types,
+                                          int Depth) {
+  if (Depth > MaximumBridgeDepth)
+    return "a returned value nests deeper than Luna publishes.";
+
+  if (Source.IsPendingInstance()) {
+    std::string Refusal = ClassifyPendingObject(
+        Source.InstanceClass(), *Source.PendingInstanceObject(), Types);
+    if (!Refusal.empty())
+      return Refusal;
+  }
+  for (std::size_t Index = 0; Index < Source.Size(); ++Index) {
+    std::string Refusal =
+        ClassifyPending(Source.Element(Index), Types, Depth + 1);
+    if (!Refusal.empty())
+      return Refusal;
+  }
+  for (std::size_t Index = 0; Index < Source.FieldCount(); ++Index) {
+    std::string Refusal = ClassifyPending(Source.Field(Source.FieldName(Index)),
+                                          Types, Depth + 1);
+    if (!Refusal.empty())
+      return Refusal;
+  }
+  return std::string();
+}
+
+[[nodiscard]] std::shared_ptr<const TypeGeneration>
+CapturedTypes(lua_State *State) {
+  const UserdataAccessContext *Context = ObserveUserdataAccessContext(State);
+  if (Context && Context->Types)
+    return Context->Types->Capture();
+  return TypeGeneration::Foundation();
+}
+
+bool PushTo(lua_State *State, const OwnedValue &Source,
+            const TypeGeneration &Types, int Depth) {
   if (State == nullptr || Depth > MaximumBridgeDepth ||
       !lua_checkstack(State, 3))
     return false;
@@ -176,7 +255,7 @@ bool PushTo(lua_State *State, const OwnedValue &Source, int Depth) {
     lua_createtable(State, static_cast<int>(Source.Size()), 0);
     const int TableIndex = lua_gettop(State);
     for (std::size_t Index = 0; Index < Source.Size(); ++Index) {
-      if (!PushTo(State, Source.Element(Index), Depth + 1)) {
+      if (!PushTo(State, Source.Element(Index), Types, Depth + 1)) {
         lua_settop(State, TableIndex - 1);
         return false;
       }
@@ -184,7 +263,7 @@ bool PushTo(lua_State *State, const OwnedValue &Source, int Depth) {
     }
     for (std::size_t Index = 0; Index < Source.FieldCount(); ++Index) {
       const std::string_view Name = Source.FieldName(Index);
-      if (!PushTo(State, Source.Field(Name), Depth + 1)) {
+      if (!PushTo(State, Source.Field(Name), Types, Depth + 1)) {
         lua_settop(State, TableIndex - 1);
         return false;
       }
@@ -193,6 +272,12 @@ bool PushTo(lua_State *State, const OwnedValue &Source, int Depth) {
     return true;
   }
   case ValueCategory::Userdata: {
+    if (Source.IsPendingInstance()) {
+      const InstancePublication Published =
+          PublishConstructedInstance(State, Types, Source.InstanceClass(),
+                                     *Source.PendingInstanceObject());
+      return Published.IsSuccess() && Published.PublishedCount == 1;
+    }
     const auto &Target = Source.UserdataTarget();
     if (!Target)
       return false;
@@ -210,8 +295,23 @@ Luna::OwnedValue BuildOwnedValueFromStack(lua_State *State, int StackIndex) {
   return BuildFrom(State, StackIndex, 0);
 }
 
+std::string ClassifyPendingInstances(const Luna::OwnedValue &Source,
+                                     const TypeGeneration &Types) {
+  return ClassifyPending(Source, Types, 0);
+}
+
 bool PushOwnedValueToStack(lua_State *State, const Luna::OwnedValue &Source) {
-  return PushTo(State, Source, 0);
+  const std::shared_ptr<const TypeGeneration> Types = CapturedTypes(State);
+  if (!Types)
+    return false;
+  return PushOwnedValueToStack(State, Source, *Types);
+}
+
+bool PushOwnedValueToStack(lua_State *State, const Luna::OwnedValue &Source,
+                           const TypeGeneration &Types) {
+  if (!ClassifyPending(Source, Types, 0).empty())
+    return false;
+  return PushTo(State, Source, Types, 0);
 }
 
 } // namespace Luna::Detail

@@ -62,9 +62,14 @@ struct Vector final {
   [[nodiscard]] Vector Doubled() const { return Vector{X * 2.0, Y * 2.0}; }
 };
 
+struct Ghost final {
+  int Unused = 0;
+};
+
 struct Game final {
   int Cookie = 0;
   Http Service;
+  Vector Anchor{11.0, 12.0};
 
   [[nodiscard]] Http *GetService(std::string Name) {
     return Name == "HttpService" ? &Service : nullptr;
@@ -73,15 +78,71 @@ struct Game final {
   [[nodiscard]] std::shared_ptr<Vector> MakeShared() const {
     return std::make_shared<Vector>(Vector{3.0, 4.0});
   }
+
+  [[nodiscard]] Luna::OwnedValue GetChildren() const;
+  [[nodiscard]] Luna::ValuePack ChildPack() const;
+  [[nodiscard]] Luna::ReturnPack ChildList() const;
+  [[nodiscard]] Luna::OwnedValue UnregisteredChild() const;
+  [[nodiscard]] Luna::OwnedValue LifetimelessChild();
+  [[nodiscard]] Luna::OwnedValue NullChild() const;
 };
 
 } // namespace
 
 template <> struct Luna::RegisteredClassTrait<Http> : std::true_type {};
 template <> struct Luna::RegisteredClassTrait<Vector> : std::true_type {};
+template <> struct Luna::RegisteredClassTrait<Ghost> : std::true_type {};
 template <> struct Luna::RegisteredClassTrait<Game> : std::true_type {};
 
 namespace {
+
+Luna::OwnedValue Game::GetChildren() const {
+  Luna::OwnedValue Children = Luna::OwnedValue::Table();
+  Children.Append(Luna::OwnedValue::Instance<Vector>(Vector{1.0, 2.0}));
+  Children.Append(
+      Luna::OwnedValue::Instance<Vector>(std::make_shared<Vector>(Anchor)));
+
+  Luna::OwnedValue Nested = Luna::OwnedValue::Table();
+  Nested.Append(Luna::OwnedValue::Instance<Vector>(Vector{5.0, 6.0}));
+  Children.SetField("nested", std::move(Nested));
+  Children.SetField("count", Luna::OwnedValue::Number(2.0));
+  return Children;
+}
+
+Luna::ValuePack Game::ChildPack() const {
+  Luna::ValuePack Produced;
+  Produced.Append(Luna::OwnedValue::Instance<Vector>(Vector{7.0, 8.0}));
+  Produced.Append(Luna::OwnedValue::Text("tail"));
+  return Produced;
+}
+
+Luna::ReturnPack Game::ChildList() const {
+  Luna::ReturnPack Produced;
+  Produced.AppendText("head");
+  Produced.AppendInstance<Vector>(Vector{9.0, 10.0});
+  return Produced;
+}
+
+Luna::OwnedValue Game::UnregisteredChild() const {
+  Luna::OwnedValue Children = Luna::OwnedValue::Table();
+  Children.Append(Luna::OwnedValue::Instance<Vector>(Vector{1.0, 1.0}));
+  Children.Append(Luna::OwnedValue::Instance<Ghost>(Ghost{}));
+  return Children;
+}
+
+Luna::OwnedValue Game::LifetimelessChild() {
+  Luna::OwnedValue Children = Luna::OwnedValue::Table();
+  Children.Append(Luna::OwnedValue::Instance<Vector>(
+      &Anchor, Luna::OwnershipPolicy::LuaOwned()));
+  return Children;
+}
+
+Luna::OwnedValue Game::NullChild() const {
+  Luna::OwnedValue Children = Luna::OwnedValue::Table();
+  Children.Append(
+      Luna::OwnedValue::Instance<Vector>(std::shared_ptr<Vector>()));
+  return Children;
+}
 
 [[nodiscard]] Game *HostGame() {
   static Game Only;
@@ -118,7 +179,13 @@ namespace {
       Games.Singleton("Get", &HostGame, Luna::OwnershipPolicy::Borrowed(Host))
           .Method("GetService", &Game::GetService,
                   Luna::OwnershipPolicy::Borrowed(Host))
-          .Method("MakeShared", &Game::MakeShared);
+          .Method("MakeShared", &Game::MakeShared)
+          .Method("GetChildren", &Game::GetChildren)
+          .Method("ChildPack", &Game::ChildPack)
+          .Method("ChildList", &Game::ChildList)
+          .Method("UnregisteredChild", &Game::UnregisteredChild)
+          .Method("LifetimelessChild", &Game::LifetimelessChild)
+          .Method("NullChild", &Game::NullChild);
   static_cast<void>(DeclaredGame.QualifiedName());
 
   const Luna::RegistrationResult Committed = Studio.Commit();
@@ -233,6 +300,92 @@ void CheckBorrowedReturnWithoutLifetimeIsRefused() {
         "registration");
 }
 
+void CheckManufacturedInstancesTravelInsideOwnedValues() {
+  Luna::LifetimeHandle Host;
+  Luna::State Owner;
+  Check(Owner.IsReady() && RegisterModel(Owner, Host), "the model publishes");
+  const auto EntryDepth = Hooks::ObserveRootStackDepth(Owner);
+
+  Check(Succeeds(Owner, "game = Studio.Game.Get()\n"
+                        "local Children = game:GetChildren()\n"
+                        "assert(type(Children) == 'table')\n"
+                        "assert(Children.count == 2)\n"
+                        "assert(#Children == 2)\n"
+                        "assert(type(Children[1]) == 'userdata')\n"
+                        "assert(Children[1].X == 1 and Children[1].Y == 2)\n"
+                        "assert(Children[2].X == 11 and Children[2].Y == 12)\n"
+                        "assert(Children[1]:Scaled(3).X == 3)\n"
+                        "assert(Children.nested[1].X == 5)"),
+        "a table returned by a method carries instances the call "
+        "manufactured, each usable as a receiver, including inside a nested "
+        "table");
+
+  Check(Succeeds(Owner, "game = Studio.Game.Get()\n"
+                        "local First, Second = game:ChildPack()\n"
+                        "assert(type(First) == 'userdata')\n"
+                        "assert(First.X == 7 and First.Y == 8)\n"
+                        "assert(Second == 'tail')"),
+        "a ValuePack element publishes a manufactured instance beside a "
+        "scalar");
+
+  Check(Succeeds(Owner, "game = Studio.Game.Get()\n"
+                        "local Head, Part = game:ChildList()\n"
+                        "assert(Head == 'head')\n"
+                        "assert(type(Part) == 'userdata')\n"
+                        "assert(Part.X == 9 and Part.Y == 10)"),
+        "a ReturnPack keeps the scalars appended before the first instance and "
+        "publishes both in order");
+
+  Check(Succeeds(Owner, "game = Studio.Game.Get()\n"
+                        "local A = game:GetChildren()[1]\n"
+                        "local B = game:GetChildren()[1]\n"
+                        "A.X = 40\n"
+                        "assert(B.X == 1)"),
+        "each manufactured instance owns its own copy");
+
+  Check(Hooks::ObserveRootStackDepth(Owner) == EntryDepth,
+        "publishing manufactured instances restores the entry stack depth");
+}
+
+void CheckMalformedManufacturedInstancesPublishNothing() {
+  Luna::LifetimeHandle Host;
+  Luna::State Owner;
+  Check(Owner.IsReady() && RegisterModel(Owner, Host), "the model publishes");
+  const auto EntryDepth = Hooks::ObserveRootStackDepth(Owner);
+
+  Check(Succeeds(Owner, "game = Studio.Game.Get()\n"
+                        "local Ok, Message = pcall(function()\n"
+                        "  return game:UnregisteredChild()\n"
+                        "end)\n"
+                        "assert(not Ok, 'an unregistered class refuses')\n"
+                        "assert(type(Message) == 'string')"),
+        "a table element naming a class this State never registered refuses "
+        "the whole return");
+
+  Check(Succeeds(Owner, "game = Studio.Game.Get()\n"
+                        "local Ok = pcall(function()\n"
+                        "  return game:LifetimelessChild()\n"
+                        "end)\n"
+                        "assert(not Ok)"),
+        "a borrowed element with no declared lifetime refuses the whole "
+        "return");
+
+  Check(Succeeds(Owner, "game = Studio.Game.Get()\n"
+                        "local Ok = pcall(function()\n"
+                        "  return game:NullChild()\n"
+                        "end)\n"
+                        "assert(not Ok)"),
+        "a null element refuses the whole return");
+
+  Check(Succeeds(Owner, "game = Studio.Game.Get()\n"
+                        "local Children = game:GetChildren()\n"
+                        "assert(Children[1].X == 1)"),
+        "a refused return leaves the State able to publish the next one");
+
+  Check(Hooks::ObserveRootStackDepth(Owner) == EntryDepth,
+        "a refused manufactured instance restores the entry stack depth");
+}
+
 } // namespace
 
 int RunInstanceReturnTests();
@@ -243,5 +396,7 @@ int RunInstanceReturnTests() {
   CheckMethodReturnsOwnedAndSharedInstances();
   CheckMethodReturnsTableAndOwnedPack();
   CheckBorrowedReturnWithoutLifetimeIsRefused();
+  CheckManufacturedInstancesTravelInsideOwnedValues();
+  CheckMalformedManufacturedInstancesPublishNothing();
   return FailureCount == 0 ? 0 : 1;
 }

@@ -141,7 +141,8 @@ PublishReturnPack(lua_State *State, int EntryDepth,
 
 [[nodiscard]] ReturnWriteResult
 PublishOwnedValues(lua_State *State, int EntryDepth, bool IsSingleValue,
-                   const InvocationOutcome &Outcome, FaultInjector &Faults) {
+                   const InvocationOutcome &Outcome,
+                   const TypeGeneration &Types, FaultInjector &Faults) {
   if (Outcome.Kind() != InvocationOutcomeKind::OwnedValues)
     return Failure(State, EntryDepth,
                    "Owned return metadata did not match callable outcome.");
@@ -165,6 +166,15 @@ PublishOwnedValues(lua_State *State, int EntryDepth, bool IsSingleValue,
                        std::to_string(MaximumInvocationStringBytes) +
                        "-byte maximum.");
 
+  for (std::size_t Index = 0; Index < Produced.Size(); ++Index) {
+    const std::string Refusal =
+        ClassifyPendingInstances(Produced.At(Index), Types);
+    if (!Refusal.empty())
+      return Failure(State, EntryDepth,
+                     ReturnPositionText(Index + 1) +
+                         "cannot be published: " + Refusal);
+  }
+
   const int PublishedCount = static_cast<int>(Produced.Size());
   if (Faults.Consume(StateFaultPoint::ReturnStackCapacity) ||
       !lua_checkstack(State, PublishedCount + 1))
@@ -173,7 +183,7 @@ PublishOwnedValues(lua_State *State, int EntryDepth, bool IsSingleValue,
                        std::to_string(PublishedCount) + " return values.");
 
   for (std::size_t Index = 0; Index < Produced.Size(); ++Index) {
-    if (!PushOwnedValueToStack(State, Produced.At(Index)))
+    if (!PushOwnedValueToStack(State, Produced.At(Index), Types))
       return Failure(State, EntryDepth,
                      ReturnPositionText(Index + 1) + "could not be published.");
   }
@@ -211,6 +221,9 @@ ReturnWriteResult WriteInvocationReturn(lua_State *State,
       if (!State)
         return Failure(State, EntryDepth,
                        "Return writer has no invocation stack.");
+      if (Outcome.Kind() == InvocationOutcomeKind::OwnedValues)
+        return PublishOwnedValues(State, EntryDepth, false, Outcome, Types,
+                                  Faults);
       return PublishReturnPack(State, EntryDepth, Metadata, Outcome, Types,
                                Faults);
     }
@@ -258,7 +271,7 @@ ReturnWriteResult WriteInvocationReturn(lua_State *State,
                        "Return writer has no invocation stack.");
       return PublishOwnedValues(
           State, EntryDepth, Metadata.Disposition() == ReturnDisposition::Owned,
-          Outcome, Faults);
+          Outcome, Types, Faults);
     }
 
     case ReturnDisposition::Instance: {

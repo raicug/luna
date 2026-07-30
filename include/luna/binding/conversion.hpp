@@ -1,8 +1,10 @@
 #pragma once
 
 // clang-format off
+#include <luna/binding/class_construction.hpp>
 #include <luna/binding/value.hpp>
 #include <luna/reflection/ids.hpp>
+#include <luna/type/stable_type_key.hpp>
 
 #include <concepts>
 #include <cstddef>
@@ -281,6 +283,26 @@ public:
     return Result;
   }
 
+  template <class Type> [[nodiscard]] static OwnedValue Instance(Type Value);
+
+  template <class Type>
+  [[nodiscard]] static OwnedValue Instance(std::shared_ptr<Type> Shared);
+
+  template <class Type>
+  [[nodiscard]] static OwnedValue Instance(Type *Borrowed,
+                                           OwnershipPolicy Declared);
+
+  [[nodiscard]] static OwnedValue
+  PendingInstance(StableTypeKey Class, Detail::ConstructedInstance Produced) {
+    OwnedValue Result;
+    Result.CategoryValue = ValueCategory::Userdata;
+    Result.TextValue = Class.Text();
+    Result.InstanceClassValue = std::move(Class);
+    Result.PendingInstanceValue =
+        std::make_shared<Detail::ConstructedInstance>(std::move(Produced));
+    return Result;
+  }
+
   [[nodiscard]] static OwnedValue FromValue(const Value &Source) {
     if (const bool *SourceBoolean = std::get_if<bool>(&Source))
       return OwnedValue::Boolean(*SourceBoolean);
@@ -354,13 +376,30 @@ public:
   }
 
   [[nodiscard]] bool UserdataIsLive() const noexcept {
-    return CategoryValue == ValueCategory::Userdata && UserdataTargetValue &&
-           UserdataTargetValue->IsLive();
+    if (CategoryValue != ValueCategory::Userdata)
+      return false;
+    if (PendingInstanceValue)
+      return true;
+    return UserdataTargetValue && UserdataTargetValue->IsLive();
   }
 
   [[nodiscard]] const std::shared_ptr<Detail::CapturedUserdataTarget> &
   UserdataTarget() const noexcept {
     return UserdataTargetValue;
+  }
+
+  [[nodiscard]] bool IsPendingInstance() const noexcept {
+    return CategoryValue == ValueCategory::Userdata &&
+           PendingInstanceValue != nullptr;
+  }
+
+  [[nodiscard]] const StableTypeKey &InstanceClass() const noexcept {
+    return InstanceClassValue;
+  }
+
+  [[nodiscard]] const std::shared_ptr<Detail::ConstructedInstance> &
+  PendingInstanceObject() const noexcept {
+    return PendingInstanceValue;
   }
 
   [[nodiscard]] std::size_t Size() const noexcept {
@@ -521,6 +560,7 @@ public:
       return Left.TextValue == Right.TextValue;
     case ValueCategory::Userdata:
       return Left.UserdataTargetValue == Right.UserdataTargetValue &&
+             Left.PendingInstanceValue == Right.PendingInstanceValue &&
              Left.UserdataTextValue == Right.UserdataTextValue;
     default:
       break;
@@ -554,6 +594,8 @@ private:
   std::vector<std::string> FieldNamesValue;
   std::vector<OwnedValue> FieldValuesValue;
   std::shared_ptr<Detail::CapturedUserdataTarget> UserdataTargetValue;
+  StableTypeKey InstanceClassValue;
+  std::shared_ptr<Detail::ConstructedInstance> PendingInstanceValue;
 };
 
 class ValuePack final {

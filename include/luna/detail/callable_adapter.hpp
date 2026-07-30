@@ -138,6 +138,8 @@ CaptureReturn(Invoker &&Invoke,
         AdoptInstanceReturn<Return>(Invoke(), Policy));
   } else if constexpr (IsDynamicReturnPack<Return>) {
     const ReturnPack Produced = Invoke();
+    if (Produced.CarriesOwnedValues())
+      return InvocationOutcome::WithOwnedValues(Produced.ToOwnedValues());
     const std::span<const Value> Elements = Produced.Values();
     return InvocationOutcome::WithValues(
         std::vector<Value>(Elements.begin(), Elements.end()));

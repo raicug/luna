@@ -47,6 +47,36 @@ struct Roster final {
   }
 };
 
+struct Badge final {
+  std::string Label;
+
+  [[nodiscard]] std::string Shout() const { return Label + "!"; }
+};
+
+struct Wall final {
+  std::vector<std::string> Labels{"alpha", "beta"};
+
+  [[nodiscard]] Luna::ReturnPack Step(std::optional<int> Control) const;
+};
+
+} // namespace
+
+template <> struct Luna::RegisteredClassTrait<Badge> : std::true_type {};
+template <> struct Luna::RegisteredClassTrait<Wall> : std::true_type {};
+
+namespace {
+
+Luna::ReturnPack Wall::Step(std::optional<int> Control) const {
+  const int Next = Control ? *Control + 1 : 1;
+  if (Next > static_cast<int>(Labels.size()))
+    return Luna::ReturnPack::Empty();
+  Luna::ReturnPack Produced;
+  Produced.AppendInteger(Next);
+  Produced.AppendInstance<Badge>(
+      Badge{Labels[static_cast<std::size_t>(Next - 1)]});
+  return Produced;
+}
+
 [[nodiscard]] Luna::StableTypeKey RosterKey() {
   return Luna::StableTypeKey("Studio.IterationRoster");
 }
@@ -110,6 +140,44 @@ void CheckGenericForIteratesOneClass() {
         "every iteration restores the entry stack depth");
 }
 
+void CheckGenericForYieldsInstances() {
+  Luna::State Owner;
+  Check(Owner.IsReady(), "the state is ready");
+
+  Luna::BindingRegistry Registry = Owner.Bindings();
+  Luna::NamespaceBuilder Studio = Registry.RegisterNamespace("Studio");
+  Luna::ClassBuilder<Badge> Badges = Studio.RegisterClass<Badge>(
+      "Badge", Luna::StableTypeKey("Studio.IterationBadge"));
+  Luna::ClassBuilder<Badge> &DeclaredBadge =
+      Badges.Field("Label", &Badge::Label).Method("Shout", &Badge::Shout);
+  static_cast<void>(DeclaredBadge.QualifiedName());
+
+  Luna::ClassBuilder<Wall> Walls = Studio.RegisterClass<Wall>(
+      "Wall", Luna::StableTypeKey("Studio.IterationWall"));
+  Luna::ClassBuilder<Wall> &DeclaredWall =
+      Walls.Constructor<>().Operator(Luna::ClassOperator::Iterate, &Wall::Step);
+  static_cast<void>(DeclaredWall.QualifiedName());
+
+  const Luna::RegistrationResult Committed = Studio.Commit();
+  Check(Committed.IsSuccess(), "the iterating container publishes");
+  const auto EntryDepth = Hooks::ObserveRootStackDepth(Owner);
+
+  Check(Succeeds(Owner, "local Wall = Studio.Wall.New()\n"
+                        "local Shouted = {}\n"
+                        "for Position, Badge in Wall do\n"
+                        "  assert(type(Badge) == 'userdata')\n"
+                        "  Shouted[Position] = Badge:Shout()\n"
+                        "end\n"
+                        "assert(#Shouted == 2)\n"
+                        "assert(Shouted[1] == 'alpha!')\n"
+                        "assert(Shouted[2] == 'beta!')"),
+        "a generic for over a container class yields instances the step "
+        "manufactured");
+
+  Check(Hooks::ObserveRootStackDepth(Owner) == EntryDepth,
+        "iterating instances restores the entry stack depth");
+}
+
 void CheckMalformedIterationStepsAreRefused() {
   {
     Luna::State Owner;
@@ -136,6 +204,7 @@ int RunClassIterationTests();
 int RunClassIterationTests() {
   FailureCount = 0;
   CheckGenericForIteratesOneClass();
+  CheckGenericForYieldsInstances();
   CheckMalformedIterationStepsAreRefused();
   return FailureCount == 0 ? 0 : 1;
 }
