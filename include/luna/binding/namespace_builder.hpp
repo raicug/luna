@@ -60,6 +60,22 @@ public:
     return *this;
   }
 
+  template <class Producer>
+  NamespaceBuilder &RegisterValue(std::string_view Name, Producer &&Produce) {
+    StageValue(Name, Detail::MakePublishedValueRequest(
+                         std::forward<Producer>(Produce)));
+    return *this;
+  }
+
+  template <class Producer>
+  NamespaceBuilder &RegisterValue(std::string_view Name, Producer &&Produce,
+                                  OwnershipPolicy Ownership) {
+    StageValue(
+        Name, Detail::MakePublishedValueRequest(std::forward<Producer>(Produce),
+                                                std::move(Ownership)));
+    return *this;
+  }
+
   template <class Enum>
   [[nodiscard]] EnumBuilder<Enum> RegisterEnum(std::string_view Name,
                                                StableTypeKey Key) {
@@ -135,6 +151,8 @@ private:
                      ErasedCallableDescriptor Descriptor);
 
   void StageConstant(std::string_view Name, Detail::ConstantRequest Request);
+
+  void StageValue(std::string_view Name, Detail::PublishedValueRequest Request);
 
   void StageModule(ModuleManifest Manifest,
                    Detail::ModuleRegistration Registration);

@@ -17,6 +17,7 @@
 #include "state/type/structural_types.hpp"
 #include "state/type/structured_conversion.hpp"
 #include "state/type/type_record.hpp"
+#include "state/userdata/construction.hpp"
 
 #include <algorithm>
 #include <cstdint>
@@ -125,6 +126,62 @@ DescriptorPlanEntry MakeConstantPlanEntry(const StagedConstant &Declaration,
   Installed.Staged = StructuredValue::Scalar(Declaration.Request.Constant);
   Entry.InstalledValue = std::move(Installed);
   return Entry;
+}
+
+DescriptorPlanEntry MakeInstanceValuePlanEntry(const StagedValue &Declaration,
+                                               SymbolId Parent,
+                                               const TypeId &Type) {
+  DescriptorPlanEntry Entry;
+  Entry.Category = PlanEntryKind::Value;
+  Entry.VmPath = Declaration.QualifiedName;
+
+  const TypeDescriptor Class = TypeDescriptor::ForClass(Declaration.Class);
+
+  SymbolDescriptor Symbol =
+      MakeScopeSymbol(SymbolKind::Constant, Declaration.QualifiedName, Parent);
+  Symbol.AssociatedType = Class;
+  Entry.Symbol = std::move(Symbol);
+  Entry.Identity = IdentityOf(Entry.Symbol);
+
+  ReflectionRecordFields Record;
+  Record.Kind = SymbolKind::Constant;
+  Record.Id = Entry.Identity;
+  Record.Name = std::string(FinalSegment(Declaration.QualifiedName));
+  Record.QualifiedName = Declaration.QualifiedName;
+  Record.Scope = Parent.IsValid() ? ScopeId(Parent) : ScopeId::Root();
+  Record.Declaration = Entry.Identity;
+  Record.Type = Type;
+  Record.Descriptor = Class;
+  Record.Returns = ReturnShape::Zero;
+  Record.Documentation = Declaration.Documentation;
+  Record.Attributes = Declaration.Attributes;
+  Record.Examples = Declaration.Examples;
+  Entry.Record = std::move(Record);
+
+  if (Declaration.Produced) {
+    PlannedValue Installed;
+    Installed.Type = Class;
+    Installed.Staged = StagedInstanceValue(*Declaration.Produced);
+    Entry.InstalledValue = std::move(Installed);
+  }
+  return Entry;
+}
+
+std::optional<ErrorDiagnostic>
+ValidateStagedValue(const StagedValue &Declaration) {
+  const std::string Subject = SubjectText(SymbolKindText(SymbolKind::Constant),
+                                          Declaration.QualifiedName);
+
+  if (!Declaration.Refusal.empty())
+    return MalformedMetadataDiagnostic(Subject, Declaration.Refusal);
+  if (!Declaration.Class.IsValid())
+    return MalformedMetadataDiagnostic(
+        Subject, "the produced object names no registered class; register the "
+                 "class before publishing one of its instances as a value.");
+  if (!Declaration.Produced)
+    return MalformedMetadataDiagnostic(Subject,
+                                       "the producer published no object.");
+  return std::nullopt;
 }
 
 EnumerationDomain MakeEnumerationDomain(const StagedEnumeration &Declaration) {

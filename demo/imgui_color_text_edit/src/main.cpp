@@ -57,6 +57,39 @@ static_assert(Luna::SupportedCallable<int (*)(int)> &&
   return Formatted;
 }
 
+class Vector final {
+public:
+  Vector() = default;
+  Vector(double X, double Y) : X(X), Y(Y) {}
+
+  double X = 0.0;
+  double Y = 0.0;
+
+  [[nodiscard]] double Length() const { return std::sqrt(X * X + Y * Y); }
+
+  [[nodiscard]] Vector Unit() const {
+    const double Measured = Length();
+    return Measured == 0.0 ? Vector() : Vector(X / Measured, Y / Measured);
+  }
+
+  [[nodiscard]] double Dot(const Vector &Other) const {
+    return X * Other.X + Y * Other.Y;
+  }
+
+  [[nodiscard]] Vector Plus(const Vector &Other) const {
+    return Vector(X + Other.X, Y + Other.Y);
+  }
+
+  [[nodiscard]] std::string ToText() const {
+    return "Vector(" + NumberText(X) + ", " + NumberText(Y) + ")";
+  }
+
+  [[nodiscard]] static Vector Between(const Vector &First,
+                                      const Vector &Second) {
+    return Vector((First.X + Second.X) / 2.0, (First.Y + Second.Y) / 2.0);
+  }
+};
+
 class Entity {
 public:
   Entity() = default;
@@ -93,6 +126,10 @@ public:
 
   double Width = 1.0;
   double Height = 1.0;
+
+  Vector Origin;
+
+  [[nodiscard]] Vector Size() const { return Vector(Width, Height); }
 
   [[nodiscard]] double Area() const { return Width * Height; }
 
@@ -136,11 +173,47 @@ public:
   }
 };
 
+class Stage final {
+public:
+  int Frames = 0;
+
+  [[nodiscard]] Vector Center() const {
+    return Vector(Featured.Width / 2.0, Featured.Height / 2.0);
+  }
+
+  [[nodiscard]] Sprite Sample() const { return Featured; }
+
+  [[nodiscard]] std::string Describe() const {
+    return "stage after " + std::to_string(Frames) + " frame(s) showing " +
+           Featured.ToText();
+  }
+
+  void Advance() { ++Frames; }
+
+private:
+  Sprite Featured{"featured", 4.0, 3.0};
+};
+
+} // namespace
+
+template <> struct Luna::RegisteredClassTrait<Vector> : std::true_type {};
+template <> struct Luna::RegisteredClassTrait<Sprite> : std::true_type {};
+template <> struct Luna::RegisteredClassTrait<Stage> : std::true_type {};
+
+namespace {
+
+[[nodiscard]] Stage *HostStage() {
+  static Stage Only;
+  return &Only;
+}
+
 [[nodiscard]] int Measure(std::string Text) {
   return static_cast<int>(Text.size());
 }
 
-[[nodiscard]] int Measure(int Width, int Height) { return Width * Height; }
+[[nodiscard]] int Measure(int Width, int Height) {
+  return Width * Height;
+}
 
 [[nodiscard]] std::string Greet(std::string Name,
                                 std::optional<std::string> Title) {
@@ -246,7 +319,9 @@ public:
   return Described.empty() ? std::string("none") : Described;
 }
 
-[[nodiscard]] double ToPixels(double Metres) { return Metres * 64.0; }
+[[nodiscard]] double ToPixels(double Metres) {
+  return Metres * 64.0;
+}
 
 [[nodiscard]] std::string DescribePasses(int Passes) {
   return "render graph with " + std::to_string(Passes) + " pass(es)";
@@ -270,6 +345,14 @@ public:
 
 [[nodiscard]] Luna::StableTypeKey SpriteKey() {
   return Luna::StableTypeKey("demo.studio.Sprite");
+}
+
+[[nodiscard]] Luna::StableTypeKey VectorKey() {
+  return Luna::StableTypeKey("demo.studio.Vector");
+}
+
+[[nodiscard]] Luna::StableTypeKey StageKey() {
+  return Luna::StableTypeKey("demo.studio.Stage");
 }
 
 [[nodiscard]] Luna::SemanticVersion Version(std::string_view Text) {
@@ -367,7 +450,7 @@ struct BoundFeature final {
   std::string_view Snippet;
 };
 
-constexpr std::array<BoundFeature, 21> BoundFeatures{{
+constexpr std::array<BoundFeature, 24> BoundFeatures{{
     {"Root function (Register)",
      R"(Registry.Register("HostLog", [this](std::string Message) {
   OutputLines.push_back(std::move(Message));
@@ -485,6 +568,37 @@ Sprites.Base<Entity>(EntityKey())
     .Attribute("Area", "evaluation", "lazy")
     .Documentation(Luna::ClassOperator::Add,
                    "Sprite + padding is the padded area.");)"},
+    {"Instance operands, results, and members in one chain",
+     R"CPP(
+template <> struct Luna::RegisteredClassTrait<Vector> : std::true_type {};
+
+Luna::ClassBuilder<Vector> Vectors =
+    Studio.RegisterClass<Vector>("Vector", VectorKey());
+Vectors.Constructor<double, double>()
+    .Factory("Between", &Vector::Between)
+    .Field("X", &Vector::X)
+    .Field("Y", &Vector::Y)
+    .Property("Unit", &Vector::Unit)
+    .Method("Dot", &Vector::Dot)
+    .Operator(Luna::ClassOperator::Add, &Vector::Plus)
+    .Operator(Luna::ClassOperator::ToText, &Vector::ToText);)CPP"},
+    {"Instance-valued property and field",
+     R"CPP(
+
+
+Sprites.Property("Size", &Sprite::Size)
+    .Field("Origin", &Sprite::Origin);)CPP"},
+    {"Class constants and a published value",
+     R"CPP(
+Vectors.Constant("Axes", 2);
+Sprites.Constant("MaxSide", 4096);
+
+
+
+Luna::LifetimeHandle StageHost;
+
+Registry.RegisterValue("stage", &HostStage,
+                       Luna::OwnershipPolicy::Borrowed(StageHost));)CPP"},
     {"Iteration operator",
      R"CPP(
 
@@ -589,7 +703,7 @@ struct ExampleScript final {
   std::string_view Source;
 };
 
-constexpr std::array<ExampleScript, 6> ExampleScripts{{
+constexpr std::array<ExampleScript, 7> ExampleScripts{{
     {"Root functions, parameters and returns",
      R"LUA(-- Root scope: Register, RegisterFunction, RegisterConstant.
 HostLog("HostName = " .. HostName)
@@ -730,6 +844,52 @@ HostLog("Crate.Tag = " .. Crate.Tag .. ", Crate:Label() = " .. Crate:Label())
 HostLog("Studio.Sprite.Category() = " .. Studio.Sprite.Category())
 HostLog("Studio.Entity.Category() = " .. Studio.Entity.Category())
 HostLog("Square factory = " .. tostring(Studio.Sprite.Square("tile", 2)))
+)LUA"},
+    {"Instances as operands, results, members and values",
+     R"LUA(-- One class declared in a single chain that takes and publishes its own
+-- instances: the operand, the result and the member value are all Vector.
+local A = Studio.Vector.New(3, 4)
+local B = Studio.Vector.New(1, 2)
+HostLog("tostring(A) = " .. tostring(A))
+HostLog("A:Dot(B) = " .. A:Dot(B))
+HostLog("A + B = " .. tostring(A + B))
+HostLog("Between(A, B) = " .. tostring(Studio.Vector.Between(A, B)))
+
+-- An instance-valued property: reading it publishes one typed object, not a
+-- table and not a call. typeof names the registered class.
+HostLog("typeof(A.Unit) = " .. typeof(A.Unit))
+HostLog("A.Unit = " .. tostring(A.Unit))
+
+-- Each read publishes its own object, so writing one copy leaves the
+-- receiver alone.
+local Copy = A.Unit
+Copy.X = 0
+HostLog("A.Unit is unchanged: " .. tostring(A.Unit))
+
+-- A class constant is a plain value on the class table.
+HostLog("Studio.Vector.Axes = " .. Studio.Vector.Axes)
+HostLog("Studio.Sprite.MaxSide = " .. Studio.Sprite.MaxSide)
+
+-- A sprite publishes its size as a Vector, and its origin field reads as a
+-- copy of the instance the object holds.
+local Hero = Studio.Sprite.New("hero", 3, 4)
+HostLog("Hero.Size = " .. tostring(Hero.Size))
+HostLog("Hero.Origin = " .. tostring(Hero.Origin))
+
+-- An instance-valued member is read-only, so assigning it is refused.
+local Written = pcall(function() Hero.Origin = A end)
+HostLog("writing Hero.Origin -> " .. tostring(Written))
+
+-- RegisterValue publishes the host's own object at a global name: the name is
+-- the object itself, so it is reached without a call.
+HostLog("typeof(stage) = " .. typeof(stage))
+stage:Advance()
+HostLog(stage:Describe())
+HostLog("stage.Frames = " .. stage.Frames)
+
+-- The published value's own members resolve on every access.
+HostLog("stage.Center = " .. tostring(stage.Center))
+HostLog("stage:Sample() = " .. tostring(stage:Sample()))
 )LUA"},
     {"Module symbols",
      R"LUA(-- Both modules of the resolved graph published in one transaction. The
@@ -985,6 +1145,28 @@ private:
         .Documentation("Default", "An alias reads the very object it names.")
         .Example("HostLog(tostring(Studio.Material.Stone))");
 
+    Luna::ClassBuilder<Vector> Vectors =
+        Studio.RegisterClass<Vector>("Vector", VectorKey());
+    Vectors.Constructor<double, double>()
+        .Factory("Between", &Vector::Between)
+        .Field("X", &Vector::X)
+        .Field("Y", &Vector::Y)
+        .Property("Length", &Vector::Length)
+        .Property("Unit", &Vector::Unit)
+        .Method("Dot", &Vector::Dot)
+        .Operator(Luna::ClassOperator::Add, &Vector::Plus)
+        .Operator(Luna::ClassOperator::ToText, &Vector::ToText)
+        .Constant("Axes", 2)
+        .Documentation("One two-dimensional vector, declared in one chain that "
+                       "also takes and publishes its own instances.")
+        .Documentation("Unit", "An instance-valued property: reading it "
+                               "publishes one new Lua-owned Vector.")
+        .Documentation("Dot", "An operand of the class being registered.")
+        .Documentation("Axes", "A class constant: a plain value on the class "
+                               "table, not a call.")
+        .Example(
+            "local V = Studio.Vector.New(3, 4)\nHostLog(tostring(V.Unit))");
+
     Luna::ClassBuilder<Entity> Entities =
         Studio.RegisterClass<Entity>("Entity", EntityKey());
     Entities.Constructor<std::string>()
@@ -1015,6 +1197,9 @@ private:
             [](Sprite &Value, std::string Renamed) {
               Value.Rename(std::move(Renamed));
             })
+        .Property("Size", &Sprite::Size)
+        .Field("Origin", &Sprite::Origin)
+        .Constant("MaxSide", 4096)
         .Method("Bounds", &Sprite::Bounds)
         .Method("Grow", &Sprite::Grow)
         .StaticMethod("Category", &Sprite::Category)
@@ -1030,9 +1215,31 @@ private:
                        "Sprite + padding is the padded area.")
         .Documentation(Luna::ClassOperator::Iterate,
                        "A generic for loop walks the declared dimensions.")
+        .Documentation("Size", "An instance-valued property: one Vector per "
+                               "read, owned by Lua afterwards.")
+        .Documentation("Origin", "An instance-valued field: the read publishes "
+                                 "a copy, so writing it back is refused.")
+        .Documentation("MaxSide", "A class constant beside the constructors.")
         .Example("local S = Studio.Sprite.Square('tile', 2)");
 
+    Luna::ClassBuilder<Stage> Stages =
+        Studio.RegisterClass<Stage>("Stage", StageKey());
+    Stages.Field("Frames", &Stage::Frames)
+        .Property("Center", &Stage::Center)
+        .Method("Sample", &Stage::Sample)
+        .Method("Describe", &Stage::Describe)
+        .Method("Advance", &Stage::Advance)
+        .Documentation("The host object published at the global name 'stage'.")
+        .Documentation("Center", "An instance-valued property of a published "
+                                 "value, so stage.Center.X chains.")
+        .Documentation("Sample", "Publishes one Sprite by value.")
+        .Example("stage:Advance()\nHostLog(stage:Describe())");
+
     Record("NamespaceBuilder(\"Studio\")::Commit", Studio.Commit());
+
+    Record("RegisterValue(\"stage\")",
+           Registry.RegisterValue("stage", &HostStage,
+                                  Luna::OwnershipPolicy::Borrowed(StageHost)));
   }
 
   void RegisterModuleGraph() {
@@ -1722,6 +1929,7 @@ private:
   std::vector<LogEntry> Log;
   std::vector<std::string> OutputLines;
   Luna::Signal<void(int)> Alarm;
+  Luna::LifetimeHandle StageHost;
   std::vector<std::string> ProfilingLog;
   std::string Status;
   std::string DocumentationText;

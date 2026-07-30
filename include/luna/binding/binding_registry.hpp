@@ -57,6 +57,22 @@ public:
                                           std::move(Key)));
   }
 
+  template <class Producer>
+  [[nodiscard]] RegistrationResult RegisterValue(std::string_view Name,
+                                                 Producer &&Produce) {
+    return CommitValue(Name, Detail::MakePublishedValueRequest(
+                                 std::forward<Producer>(Produce)));
+  }
+
+  template <class Producer>
+  [[nodiscard]] RegistrationResult RegisterValue(std::string_view Name,
+                                                 Producer &&Produce,
+                                                 OwnershipPolicy Ownership) {
+    return CommitValue(
+        Name, Detail::MakePublishedValueRequest(std::forward<Producer>(Produce),
+                                                std::move(Ownership)));
+  }
+
   template <class Enum>
   [[nodiscard]] EnumBuilder<Enum> RegisterEnum(std::string_view Name,
                                                StableTypeKey Key) {
@@ -117,6 +133,9 @@ private:
 
   [[nodiscard]] RegistrationResult
   CommitConstant(std::string_view Name, Detail::ConstantRequest Request);
+
+  [[nodiscard]] RegistrationResult
+  CommitValue(std::string_view Name, Detail::PublishedValueRequest Request);
 
   [[nodiscard]] RegistrationResult
   CommitProvidedModule(ModuleManifest Manifest,

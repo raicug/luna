@@ -43,6 +43,8 @@ At root scope, `BindingRegistry::RegisterConstant` has the same two forms and co
 
 A class table holds constants too, through `ClassBuilder::Constant`, which takes the same two forms and stages into the class's own plan — see [class constants](classes-and-userdata.md#class-constants).
 
+A namespace also publishes **objects**, through `RegisterValue`, where a constant cannot: the name resolves to one registered class instance rather than to a scalar or a call — see [published values](registering-functions.md#published-values).
+
 ## Enumerations
 
 `RegisterEnum<Enum>` takes a name segment and the enumeration's `StableTypeKey`, and returns an `EnumBuilder<Enum>`:

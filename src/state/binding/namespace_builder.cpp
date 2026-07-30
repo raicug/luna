@@ -281,6 +281,40 @@ void NamespaceBuilderState::StageConstant(std::size_t ScopeNode,
   Staged.Constants.push_back(std::move(Declaration));
 }
 
+void NamespaceBuilderState::StageValue(std::size_t ScopeNode,
+                                       std::string_view Name,
+                                       PublishedValueRequest Request) {
+  const std::string_view Parent = QualifiedNameOf(ScopeNode);
+
+  if (!CanStage(ScopeNode))
+    return;
+
+  if (auto Diagnostic = ValidateNamespaceSegment(Name)) {
+    RecordFailure(std::move(*Diagnostic));
+    return;
+  }
+
+  StagedValue Declaration;
+  Declaration.Segment = std::string(Name);
+  Declaration.QualifiedName = JoinQualifiedName(Parent, Name);
+  Declaration.Class = std::move(Request.Class);
+  Declaration.Produced = std::move(Request.Produced);
+  Declaration.Refusal = std::move(Request.Refusal);
+
+  if (auto Diagnostic =
+          ValidateCanonicalQualifiedName(Declaration.QualifiedName)) {
+    RecordFailure(std::move(*Diagnostic));
+    return;
+  }
+
+  if (auto Diagnostic = ValidateStagedValue(Declaration)) {
+    RecordFailure(std::move(*Diagnostic));
+    return;
+  }
+
+  Staged.Values.push_back(std::move(Declaration));
+}
+
 std::size_t NamespaceBuilderState::StageEnumeration(
     std::size_t ScopeNode, std::string_view Name, const StableTypeKey &Key,
     const EnumerationPolicy &Policy) {
@@ -1372,6 +1406,12 @@ void NamespaceBuilder::StageConstant(std::string_view Name,
     Plan->StageConstant(Scope, Name, std::move(Request));
 }
 
+void NamespaceBuilder::StageValue(std::string_view Name,
+                                  Detail::PublishedValueRequest Request) {
+  if (Plan)
+    Plan->StageValue(Scope, Name, std::move(Request));
+}
+
 void NamespaceBuilder::StageModule(ModuleManifest Manifest,
                                    Detail::ModuleRegistration Registration) {
   if (Plan)
@@ -1448,6 +1488,16 @@ BindingRegistry::CommitConstant(std::string_view Name,
       Detail::NamespaceBuilderState::Create(*Owner);
   Plan->StageConstant(Detail::NamespaceBuilderState::RootScopeNode, Name,
                       std::move(Request));
+  return Plan->Commit();
+}
+
+RegistrationResult
+BindingRegistry::CommitValue(std::string_view Name,
+                             Detail::PublishedValueRequest Request) {
+  std::shared_ptr<Detail::NamespaceBuilderState> Plan =
+      Detail::NamespaceBuilderState::Create(*Owner);
+  Plan->StageValue(Detail::NamespaceBuilderState::RootScopeNode, Name,
+                   std::move(Request));
   return Plan->Commit();
 }
 

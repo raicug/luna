@@ -4,6 +4,8 @@
 #include <luna/binding/class_construction.hpp>
 #include <luna/type/stable_type_key.hpp>
 
+#include "state/type/structured_conversion.hpp"
+
 #include <string>
 // clang-format on
 
@@ -44,6 +46,9 @@ struct InstancePublication final {
 PublishConstructedInstance(lua_State *State, const TypeGeneration &Types,
                            const StableTypeKey &Class,
                            const ConstructedInstance &Produced) noexcept;
+
+[[nodiscard]] StructuredValue
+StagedInstanceValue(const ConstructedInstance &Produced);
 
 [[nodiscard]] bool ReleasePublishedInstance(lua_State *State,
                                             void *Storage) noexcept;

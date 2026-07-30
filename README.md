@@ -154,6 +154,7 @@ The documentation under `docs/` was written with AI assistance and checked again
 - Trailing `std::optional` parameters, immutable defaults via `WithDefaults`, and variadic `ArgumentView` / `ArgumentPack`
 - Zero, scalar, and ordered multiple returns via `std::pair`, `std::tuple`, and `ReturnPack`, published atomically
 - Nested namespaces, constants, and enums with aliases, bitflags, and an explicit unscoped opt-in
+- `RegisterValue` publishing a registered class instance at a root or namespaced name, so the name resolves to userdata instead of to a function
 - Enumerators publishable as interned enumerator objects through `AsObjects()`, reporting `typeof` as `EnumItem`, carrying `Name`, `Value`, and `EnumName`, and comparing equal only to themselves
 - Classes as typed userdata: constructors, factories, singletons, allocators, methods, properties, fields, class constants, base edges, checked casts, and operators
 - Generic-`for` iteration of a class through the `Iterate` operator, declared as one step of the loop rather than an iterator object

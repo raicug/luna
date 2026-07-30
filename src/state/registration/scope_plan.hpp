@@ -1,8 +1,10 @@
 #pragma once
 
 // clang-format off
+#include <luna/binding/class_construction.hpp>
 #include <luna/binding/constant_value.hpp>
 #include <luna/reflection/ids.hpp>
+#include <luna/type/stable_type_key.hpp>
 
 #include "state/identity/symbol_descriptor.hpp"
 #include "state/registration/plan.hpp"
@@ -10,6 +12,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -31,6 +34,18 @@ struct StagedConstant final {
   std::string Segment;
   std::string QualifiedName;
   ConstantRequest Request;
+  std::string Documentation;
+  std::vector<ReflectionAttributeFields> Attributes;
+  std::vector<std::string> Examples;
+};
+
+struct StagedValue final {
+  std::string Segment;
+  std::string QualifiedName;
+  StableTypeKey Class;
+  std::optional<ConstructedInstance> Produced;
+  std::string Refusal;
+
   std::string Documentation;
   std::vector<ReflectionAttributeFields> Attributes;
   std::vector<std::string> Examples;

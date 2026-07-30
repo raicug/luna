@@ -142,6 +142,11 @@ PublishConstructedInstance(lua_State *State, const TypeGeneration &Types,
   }
 }
 
+StructuredValue StagedInstanceValue(const ConstructedInstance &Produced) {
+  return StructuredValue::ExposedHandle(
+      Produced.Storage, Produced.PermitsMutation, IntentFrom(Produced));
+}
+
 bool ReleasePublishedInstance(lua_State *State, void *Storage) noexcept {
   if (Storage == nullptr)
     return false;

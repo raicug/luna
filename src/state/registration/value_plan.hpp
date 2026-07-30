@@ -60,6 +60,7 @@ struct BuilderPlan final {
   std::vector<StagedNamespace> Namespaces;
   std::vector<StagedFunction> Functions;
   std::vector<StagedConstant> Constants;
+  std::vector<StagedValue> Values;
   std::vector<StagedEnumeration> Enumerations;
   std::vector<StagedClass> Classes;
   std::vector<StagedModule> Modules;
@@ -70,6 +71,13 @@ struct BuilderPlan final {
 [[nodiscard]] DescriptorPlanEntry
 MakeConstantPlanEntry(const StagedConstant &Declaration, SymbolId Parent,
                       const TypeId &Type);
+
+[[nodiscard]] DescriptorPlanEntry
+MakeInstanceValuePlanEntry(const StagedValue &Declaration, SymbolId Parent,
+                           const TypeId &Type);
+
+[[nodiscard]] std::optional<ErrorDiagnostic>
+ValidateStagedValue(const StagedValue &Declaration);
 
 [[nodiscard]] EnumerationDomain
 MakeEnumerationDomain(const StagedEnumeration &Declaration);

@@ -846,6 +846,51 @@ RegistrationResult State::Impl::SubmitConstantDeclaration(
   return PrepareSubmittedDeclarations(Scope, Subject);
 }
 
+RegistrationResult
+State::Impl::SubmitValueDeclaration(const Detail::ActiveTransactionScope &Scope,
+                                    const Detail::StagedValue &Declaration) {
+  Detail::RegistrationTransaction &Active = Scope.Active();
+  const std::string &Name = Declaration.QualifiedName;
+  const std::string Subject =
+      Detail::SubjectText(SymbolKindText(SymbolKind::Constant), Name);
+  const Detail::TransactionCapture &Entry = Active.Entry();
+
+  if (auto Diagnostic = Detail::ValidateStagedValue(Declaration))
+    return ReportSubmissionFailure(Scope, std::move(*Diagnostic));
+
+  const std::string_view ParentName = Detail::ParentQualifiedName(Name);
+  const Detail::ParentScopeResolution Parent =
+      ResolveParentScope(Active, ParentName);
+
+  const Detail::VmPathObservation Observed = VirtualMachine.ObserveVmPath(Name);
+  const bool UnownedPath = Observed.Exists();
+
+  const TypeDescriptor Class = TypeDescriptor::ForClass(Declaration.Class);
+  Detail::DescriptorPlanEntry Candidate = Detail::MakeInstanceValuePlanEntry(
+      Declaration, Parent.Identity, IdentityOfDescriptor(Class));
+
+  Detail::RegistrationValidationRequest Request;
+  Request.Precedence = Detail::RegistrationPrecedence::GeneralOperation;
+  Request.Name = Name;
+  Request.Entry = &Candidate;
+  Request.Category = Detail::PlanEntryKind::Value;
+  Request.SubjectKindText = SymbolKindText(SymbolKind::Constant);
+  Request.ScopeIsOwned = Parent.IsOwned;
+  Request.ScopeIsCurrent = Parent.IsCurrent;
+  Request.ParentQualifiedName = ParentName;
+  Request.VmPathHoldsUnownedValue = UnownedPath;
+  Request.VmPathValueKindText =
+      UnownedPath ? Detail::VmValueKindText(Observed.Kind) : std::string_view();
+  Request.DeclaredValueType = &Class;
+
+  if (auto Diagnostic =
+          Detail::ValidateRegistration(Request, Entry, Active.Symbols()))
+    return ReportSubmissionFailure(Scope, std::move(*Diagnostic));
+
+  static_cast<void>(Active.Append(std::move(Candidate)));
+  return PrepareSubmittedDeclarations(Scope, Subject);
+}
+
 RegistrationResult State::Impl::SubmitEnumerationDeclaration(
     const Detail::ActiveTransactionScope &Scope,
     const Detail::StagedEnumeration &Declaration) {
@@ -1383,6 +1428,11 @@ RegistrationResult State::Impl::SubmitPlanDeclarations(
   }
   for (const Detail::StagedConstant &Declaration : Plan.Constants) {
     if (auto Result = SubmitConstantDeclaration(Scope, Declaration);
+        !Result.IsSuccess())
+      return Result;
+  }
+  for (const Detail::StagedValue &Declaration : Plan.Values) {
+    if (auto Result = SubmitValueDeclaration(Scope, Declaration);
         !Result.IsSuccess())
       return Result;
   }

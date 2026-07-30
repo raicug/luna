@@ -503,6 +503,60 @@ struct DescriptorMetadata<Return(Parameters...)> {
   }
 };
 
+struct PublishedValueRequest final {
+  StableTypeKey Class;
+  std::optional<ConstructedInstance> Produced;
+  std::string Refusal;
+
+  [[nodiscard]] bool HasObject() const noexcept { return Produced.has_value(); }
+};
+
+template <class Producer>
+[[nodiscard]] PublishedValueRequest MakePublishedValueRequest(
+    Producer &&Produce,
+    OwnershipPolicy Declared = UndeclaredOwnershipPolicy()) {
+  using Normalized = std::remove_cvref_t<Producer>;
+  static_assert(std::is_invocable_v<Normalized &>,
+                "A Luna published value declares a producer taking no "
+                "arguments: a function, a function pointer, a lambda, or a "
+                "functor.");
+  using Return = std::invoke_result_t<Normalized &>;
+
+  PublishedValueRequest Request;
+  Normalized Target(std::forward<Producer>(Produce));
+
+  if constexpr (AsyncReturnTrait<Return>::value) {
+    static_cast<void>(Target);
+    Request.Refusal =
+        "a published value is produced and published on the owner thread, so "
+        "an asynchronous producer is refused; a namespace or root function "
+        "delivers an awaited value instead.";
+  } else if constexpr (!IsInstanceReturnType<Return>) {
+    static_cast<void>(Target);
+    Request.Refusal =
+        "a published value names one registered class instance, so the "
+        "producer returns T, std::shared_ptr<T>, or a borrowed T * of a class "
+        "that opted in with Luna::RegisteredClassTrait.";
+  } else {
+    using Native = typename InstanceReturnTrait<Return>::Native;
+    Request.Class = RecordedClassKey<Native>();
+    Request.Refusal = ClassifyInstanceReturnPolicy<Return>(Declared);
+    if (Request.Refusal.empty()) {
+      Return Object = std::invoke(Target);
+      if constexpr (std::is_pointer_v<Return> ||
+                    !std::is_same_v<Return, Native>) {
+        if (!Object) {
+          Request.Refusal = "the producer returned no object.";
+          return Request;
+        }
+      }
+      Request.Produced =
+          AdoptInstanceReturn<Return>(std::move(Object), Declared);
+    }
+  }
+  return Request;
+}
+
 template <SupportedCallable Callable>
 [[nodiscard]] ErasedCallableDescriptor MakeErasedCallableDescriptor(
     Callable &&Target, OwnershipPolicy Declared = UndeclaredOwnershipPolicy()) {

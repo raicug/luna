@@ -93,6 +93,7 @@ int RunOverloadResolutionTests();
 int RunOwningReflectionSnapshotProperties();
 int RunParetoOverloadResolutionProperties();
 int RunProfilingHookTests();
+int RunPublishedValueTests();
 int RunReflectionDatabaseTests();
 int RunReflectionMetadataTests();
 int RunReflectionEnumerationOrderProperties();
@@ -225,6 +226,8 @@ int main() {
                RunInstanceMemberTests},
       TestCase{"class-scope constants on the class table",
                RunClassConstantTests},
+      TestCase{"registered class instances published at a name",
+               RunPublishedValueTests},
       TestCase{"variadic parameters receiving userdata directly and nested "
                "inside tables",
                RunVariadicUserdataTests},

@@ -52,7 +52,7 @@ A key is 1–256 bytes of ASCII, dot-separated identifier segments, and must not
 | anything convertible to `std::string_view` | `luna.string` |
 | an enum, with its `StableTypeKey` | that enumeration |
 
-An unsupported C++ type, a user-defined leaf without its key, and an integer outside the canonical range each produce a deterministic refusal rather than a guessed conversion. An out-of-range refusal reports the value it received verbatim. A registered class instance is not one of these types, so a constant cannot be an object; a property, a field, or a factory publishes one instead — see [instance values](classes-and-userdata.md#instance-values).
+An unsupported C++ type, a user-defined leaf without its key, and an integer outside the canonical range each produce a deterministic refusal rather than a guessed conversion. An out-of-range refusal reports the value it received verbatim. A registered class instance is not one of these types, so a constant cannot be an object: `RegisterValue` publishes one at a name — see [published values](registering-functions.md#published-values) — and a property, a field, or a factory publishes one on a class, see [instance values](classes-and-userdata.md#instance-values).
 
 ## Validation order
 

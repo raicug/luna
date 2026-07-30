@@ -82,6 +82,9 @@ public:
   void StageConstant(std::size_t ScopeNode, std::string_view Name,
                      ConstantRequest Request);
 
+  void StageValue(std::size_t ScopeNode, std::string_view Name,
+                  PublishedValueRequest Request);
+
   [[nodiscard]] std::size_t StageEnumeration(std::size_t ScopeNode,
                                              std::string_view Name,
                                              const StableTypeKey &Key,

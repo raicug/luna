@@ -128,6 +128,34 @@ Luna::ReturnPack Tally(Luna::ArgumentView Arguments) {
 
 A pack is staging, not output. Luna converts and validates every element before any return is exposed, so a refused element publishes zero values rather than a partial list. The typed appends exist because a bare literal would otherwise let the value variant pick a surprising alternative.
 
+## Published values
+
+`RegisterValue` names an **instance of a registered class**, not a function, so the name resolves to userdata and a script reaches it without a call:
+
+```cpp
+Luna::LifetimeHandle Host;
+static_cast<void>(Registry.RegisterValue("game", &HostGame,
+                                         Luna::OwnershipPolicy::Borrowed(Host)));
+
+Studio.RegisterValue("Camera", &OwnedCamera);   // by value, Lua-owned
+```
+
+```lua
+print(typeof(game))                      -- userdata
+local W = game:GetService("Workspace")   -- no call on the name itself
+print(Studio.Camera.Zoom)
+```
+
+`NamespaceBuilder::RegisterValue` is the scoped form and stages into the namespace's plan; `BindingRegistry::RegisterValue` is the root form and commits immediately as its own transaction. A constant carries one of the canonical constant types, so this is how an *object* reaches a name — see [values and validation](values-and-validation.md#constants).
+
+The producer is a callable taking no arguments that returns the same three shapes an instance result declares: `T` by value (one Lua-owned object), `std::shared_ptr<T>` (shared), or `T *` with `OwnershipPolicy::Borrowed(Lifetime)` (the host's own object). Each goes through the same instance publication a method returning an instance already uses.
+
+**The producer runs once, at registration**, and the object it produced is what the name holds from then on. That is the whole mechanism: a table entry has no read hook, so per-read production would mean Luna owning a metatable on the containing table — including the globals table — which this deliberately does not do. For a host object whose *identity* is stable, this is what you want: a borrowed `game` keeps naming the host's object, and reads through it always see the object's current state. For a name whose target is *replaced* at run time, publish the owner and reach the changing part through a member or a method, which resolve on every access.
+
+Refusals are transactional and take the shape a bad instance return already takes: a producer returning a scalar, a table, or a class that never opted in with `Luna::RegisteredClassTrait`; a pointer producer with no declared lifetime; a producer returning null; an asynchronous producer; and a class this State never registered. Each publishes nothing.
+
+A value published this way is read-only as a name: reading it yields the object, and the object's own members decide what may be written. Reflection publishes one value record whose type is the class, and generated declarations name it `declare game: Studio_Game`.
+
 ## Asynchronous results
 
 A namespace or root function may deliver its value after the call that started it returns. Return `Luna::AsyncTask<T>` or `std::future<T>`, where `T` is `void`, one supported value, or `Luna::ReturnPack`:

@@ -260,6 +260,10 @@ private:
                                   const Detail::StagedFunction &Declaration);
 
   [[nodiscard]] RegistrationResult
+  SubmitValueDeclaration(const Detail::ActiveTransactionScope &Scope,
+                         const Detail::StagedValue &Declaration);
+
+  [[nodiscard]] RegistrationResult
   SubmitConstantDeclaration(const Detail::ActiveTransactionScope &Scope,
                             const Detail::StagedConstant &Declaration);
 
