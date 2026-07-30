@@ -41,6 +41,8 @@ Studio.RegisterConstant("DefaultChannel", Channel::Info, ChannelKey());
 
 At root scope, `BindingRegistry::RegisterConstant` has the same two forms and commits immediately as its own transaction.
 
+A class table holds constants too, through `ClassBuilder::Constant`, which takes the same two forms and stages into the class's own plan — see [class constants](classes-and-userdata.md#class-constants).
+
 ## Enumerations
 
 `RegisterEnum<Enum>` takes a name segment and the enumeration's `StableTypeKey`, and returns an `EnumBuilder<Enum>`:

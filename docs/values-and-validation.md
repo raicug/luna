@@ -42,7 +42,7 @@ A key is 1–256 bytes of ASCII, dot-separated identifier segments, and must not
 
 ## Constants
 
-`RegisterConstant` accepts a wider set of C++ inputs than a signature does, because it normalizes the value in your translation unit before it ever reaches the registry:
+`RegisterConstant`, and `ClassBuilder::Constant` for a value on a class table, accept a wider set of C++ inputs than a signature does, because they normalize the value in your translation unit before it ever reaches the registry:
 
 | Declared C++ value | Canonical type |
 |---|---|
@@ -52,7 +52,7 @@ A key is 1–256 bytes of ASCII, dot-separated identifier segments, and must not
 | anything convertible to `std::string_view` | `luna.string` |
 | an enum, with its `StableTypeKey` | that enumeration |
 
-An unsupported C++ type, a user-defined leaf without its key, and an integer outside the canonical range each produce a deterministic refusal rather than a guessed conversion. An out-of-range refusal reports the value it received verbatim.
+An unsupported C++ type, a user-defined leaf without its key, and an integer outside the canonical range each produce a deterministic refusal rather than a guessed conversion. An out-of-range refusal reports the value it received verbatim. A registered class instance is not one of these types, so a constant cannot be an object; a property, a field, or a factory publishes one instead — see [instance values](classes-and-userdata.md#instance-values).
 
 ## Validation order
 

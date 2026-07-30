@@ -457,6 +457,9 @@ local Width, Height = Hero:Bounds()   -- ordered multiple returns
 HostLog(Hero:Grow(2))
 Hero.Name = "champion"                -- read-write property
 
+HostLog(Hero.Origin.X)                -- instance-valued property, userdata
+HostLog(Studio.Sprite.Dimensions)     -- class constant, a plain value
+
 HostLog(Studio.Sprite.Category())     -- static method, no receiver
 HostLog(tostring(Studio.Sprite.Square("tile", 2)))  -- factory
 ```
