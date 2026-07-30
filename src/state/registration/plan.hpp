@@ -97,6 +97,12 @@ struct DescriptorPlanEntry final {
 
   std::optional<TypeRecord> TypeConversion;
 
+  // A method, static method, or operator can declare more than one
+  // parameter whose type converts through its own `Luna::TypeConverter<T>`
+  // specialization, so its converted parameter types are staged as a list
+  // rather than the single `TypeConversion` a member value declares.
+  std::vector<TypeRecord> ParameterTypeConversions;
+
   std::optional<ErasedCallableDescriptor> Callable;
   std::size_t DispatchSlot = 0;
 

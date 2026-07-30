@@ -113,6 +113,18 @@ template <class Type>
 using DelegateParameterSignatureOf = typename DelegateParameterSignature<
     std::remove_cvref_t<Type>>::DeclaredSignature;
 
+// A parameter of a type with its own `Luna::TypeConverter<T>` specialization
+// is declared by value or by constant reference, the same restriction a
+// delegate parameter observes: the converted native value only lives for the
+// duration of the call, so nothing could hold a mutable reference into it.
+template <class Type>
+inline constexpr bool IsConvertedParameterType =
+    (!SupportedValue<std::remove_cvref_t<Type>>) &&
+    std::is_class_v<std::remove_cvref_t<Type>> &&
+    ConversionCapable<std::remove_cvref_t<Type>> &&
+    (!std::is_reference_v<Type> ||
+     std::is_same_v<Type, const std::remove_cvref_t<Type> &>);
+
 } // namespace Detail
 
 template <class Type>
@@ -121,7 +133,9 @@ concept SupportedDelegate = Detail::IsDelegateParameterType<Type>;
 template <class Type>
 concept SupportedParameter =
     SupportedValue<Type> || Detail::IsOptionalValueParameter<Type>::value ||
-    Detail::IsDelegateParameterType<Type> || std::same_as<Type, ArgumentView> ||
+    Detail::IsDelegateParameterType<Type> ||
+    Detail::IsConvertedParameterType<Type> ||
+    std::same_as<Type, ArgumentView> ||
     std::same_as<Type, const ArgumentView &> ||
     std::same_as<Type, ArgumentPack> ||
     std::same_as<Type, const ArgumentPack &>;
@@ -157,7 +171,7 @@ template <class Inner> struct OptionalParameterInner<std::optional<Inner>> {
 template <class Type>
 inline constexpr bool IsRelaxedParameter =
     IsOptionalValueParameter<Type>::value || IsVariadicParameterType<Type> ||
-    IsDelegateParameterType<Type>;
+    IsDelegateParameterType<Type> || IsConvertedParameterType<Type>;
 
 template <class Signature> struct IsSupportedSignature : std::false_type {};
 

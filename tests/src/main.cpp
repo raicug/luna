@@ -35,6 +35,7 @@ int RunConversionBoundaryTests();
 int RunConversionRegistryEdgeCaseTests();
 int RunConversionRegistryIntegrationTests();
 int RunConversionReturnValidationFaultEdgeCaseTests();
+int RunConvertedOperandTests();
 int RunDeclarationGenerationTests();
 int RunDeclaredParameterIntegrationTests();
 int RunDeclaredParameterShapeTests();
@@ -203,6 +204,9 @@ int main() {
                RunClassMemberIntegrationTests},
       TestCase{"converted property and field values through TypeConverter<T>",
                RunConvertedMemberTests},
+      TestCase{"converted operands for methods and operators through "
+               "TypeConverter<T>",
+               RunConvertedOperandTests},
       TestCase{
           "inheritance, casts, and operators through the real virtual machine",
           RunInheritanceOperatorIntegrationTests},

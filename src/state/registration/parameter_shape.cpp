@@ -9,6 +9,7 @@
 #include "state/identity/identity_registry.hpp"
 #include "state/registration/checks.hpp"
 #include "state/registration/return_shape.hpp"
+#include "state/type/structural_types.hpp"
 #include "state/type/structured_conversion.hpp"
 #include "state/type/type_record.hpp"
 
@@ -29,6 +30,8 @@ DeclaredParameterType(const ParameterDescriptor &Parameter) {
     return CanonicalValueType(*Kind);
   if (const DelegateShape *Declared = Parameter.DelegateSignature())
     return CanonicalDelegateType(*Declared);
+  if (const StableTypeKey *Key = Parameter.ConvertedKey())
+    return TypeDescriptor::ForConverted(*Key);
   return TypeDescriptor::ForFixed(FixedTypeKey::Value);
 }
 
@@ -46,6 +49,10 @@ DispositionOf(const ParameterDescriptor &Parameter) {
   case ParameterForm::Delegate:
     // A subscribed handler is always supplied, so it is reflected as
     // required and its call shape lives in its canonical callable type.
+    return ParameterDisposition::Required;
+  case ParameterForm::Converted:
+    // A converted operand is always supplied, exactly like a delegate
+    // parameter; its call shape lives in its canonical converted type.
     return ParameterDisposition::Required;
   }
   return ParameterDisposition::Required;
@@ -85,6 +92,10 @@ DispositionOf(const ParameterDescriptor &Parameter) {
     return "parameter " + Position +
            " declares a subscribed handler without a canonical delegate call "
            "shape.";
+  case ParameterShapeStatus::MalformedConverted:
+    return "parameter " + Position +
+           " declares a converted operand without a canonical converted "
+           "type.";
   case ParameterShapeStatus::Valid:
     break;
   }
@@ -221,6 +232,19 @@ MakeReflectedParameters(const CallableMetadata &Metadata) {
     Reflected.push_back(std::move(Fields));
   }
   return Reflected;
+}
+
+std::vector<TypeRecord>
+MakeParameterTypeConversions(const CallableMetadata &Metadata) {
+  std::vector<TypeRecord> Converted;
+  for (const ParameterDescriptor &Parameter : Metadata.Parameters()) {
+    const StableTypeKey *Key = Parameter.ConvertedKey();
+    if (!Key)
+      continue;
+    Converted.push_back(DeclareConvertedTypeRecord(
+        *Key, CanonicalTypeText(TypeDescriptor::ForConverted(*Key))));
+  }
+  return Converted;
 }
 
 } // namespace Luna::Detail

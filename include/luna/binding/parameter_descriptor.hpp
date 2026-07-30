@@ -1,8 +1,10 @@
 #pragma once
 
 // clang-format off
+#include <luna/binding/conversion.hpp>
 #include <luna/binding/supported_callable.hpp>
 #include <luna/binding/value.hpp>
+#include <luna/type/stable_type_key.hpp>
 
 #include <cstddef>
 #include <functional>
@@ -18,7 +20,14 @@
 
 namespace Luna {
 
-enum class ParameterForm { Required, Optional, Defaulted, Variadic, Delegate };
+enum class ParameterForm {
+  Required,
+  Optional,
+  Defaulted,
+  Variadic,
+  Delegate,
+  Converted
+};
 
 [[nodiscard]] constexpr std::string_view
 ParameterFormText(ParameterForm Form) noexcept {
@@ -33,9 +42,34 @@ ParameterFormText(ParameterForm Form) noexcept {
     return "variadic";
   case ParameterForm::Delegate:
     return "delegate";
+  case ParameterForm::Converted:
+    return "converted";
   }
   return "required";
 }
+
+// A parameter whose declared type is not one of the four foundation scalars
+// converts through its own `Luna::TypeConverter<T>` specialization, the same
+// boundary a converted property or field value already uses. Nothing outside
+// the declaring callable ever looks this shape up by a stable key, so it
+// carries only the type-erased probe its viability check needs, mirroring
+// how `DelegateShape` carries a self-contained call shape rather than a key.
+struct ConvertedParameterShape final {
+  using ProbeFunction = ConversionProbe (*)(ValueView Source,
+                                            const ConversionContext &Context);
+
+  ProbeFunction Probe = nullptr;
+
+  [[nodiscard]] friend bool operator==(const ConvertedParameterShape &Left,
+                                       const ConvertedParameterShape &Right) {
+    return Left.Probe == Right.Probe;
+  }
+
+  [[nodiscard]] friend bool operator!=(const ConvertedParameterShape &Left,
+                                       const ConvertedParameterShape &Right) {
+    return !(Left == Right);
+  }
+};
 
 [[nodiscard]] constexpr ValueKind ValueKindOf(const Value &Source) noexcept {
   if (std::holds_alternative<bool>(Source))
@@ -90,6 +124,15 @@ public:
     return Descriptor;
   }
 
+  [[nodiscard]] static ParameterDescriptor
+  ForConverted(StableTypeKey Key, ConvertedParameterShape Declared) {
+    ParameterDescriptor Descriptor;
+    Descriptor.FormValue = ParameterForm::Converted;
+    Descriptor.ConvertedKeyValue = std::move(Key);
+    Descriptor.ConvertedValue = std::move(Declared);
+    return Descriptor;
+  }
+
   [[nodiscard]] ParameterForm Form() const noexcept { return FormValue; }
 
   [[nodiscard]] const ValueKind *Kind() const noexcept {
@@ -104,16 +147,31 @@ public:
     return FormValue == ParameterForm::Delegate;
   }
 
+  [[nodiscard]] bool IsConverted() const noexcept {
+    return FormValue == ParameterForm::Converted;
+  }
+
   [[nodiscard]] const DelegateShape *DelegateSignature() const noexcept {
     return DelegateValue ? &*DelegateValue : nullptr;
   }
 
+  [[nodiscard]] const StableTypeKey *ConvertedKey() const noexcept {
+    return FormValue == ParameterForm::Converted ? &ConvertedKeyValue : nullptr;
+  }
+
+  [[nodiscard]] const ConvertedParameterShape *
+  ConvertedSignature() const noexcept {
+    return ConvertedValue ? &*ConvertedValue : nullptr;
+  }
+
   [[nodiscard]] bool Retains() const noexcept { return RetainsValue; }
 
-  // A delegate parameter is always supplied, so it never relaxes the shape.
+  // A delegate or converted parameter is always supplied, so neither ever
+  // relaxes the shape.
   [[nodiscard]] bool IsOmittable() const noexcept {
     return FormValue != ParameterForm::Required &&
-           FormValue != ParameterForm::Delegate;
+           FormValue != ParameterForm::Delegate &&
+           FormValue != ParameterForm::Converted;
   }
 
   [[nodiscard]] bool AcceptsNil() const noexcept { return AcceptsNilValue; }
@@ -133,7 +191,9 @@ public:
            Left.DefaultValue == Right.DefaultValue &&
            Left.AcceptsNilValue == Right.AcceptsNilValue &&
            Left.RetainsValue == Right.RetainsValue &&
-           Left.DelegateValue == Right.DelegateValue;
+           Left.DelegateValue == Right.DelegateValue &&
+           Left.ConvertedKeyValue == Right.ConvertedKeyValue &&
+           Left.ConvertedValue == Right.ConvertedValue;
   }
 
   [[nodiscard]] friend bool operator!=(const ParameterDescriptor &Left,
@@ -146,6 +206,8 @@ private:
   std::optional<ValueKind> KindValue;
   std::optional<Value> DefaultValue;
   std::optional<DelegateShape> DelegateValue;
+  StableTypeKey ConvertedKeyValue;
+  std::optional<ConvertedParameterShape> ConvertedValue;
   bool AcceptsNilValue = false;
   bool RetainsValue = false;
 };
@@ -157,7 +219,8 @@ enum class ParameterShapeStatus {
   MissingValueKind,
   MisplacedDefault,
   DefaultTypeMismatch,
-  MalformedDelegate
+  MalformedDelegate,
+  MalformedConverted
 };
 
 [[nodiscard]] constexpr std::string_view
@@ -177,6 +240,8 @@ ParameterShapeStatusText(ParameterShapeStatus Status) noexcept {
     return "default_type_mismatch";
   case ParameterShapeStatus::MalformedDelegate:
     return "malformed_delegate";
+  case ParameterShapeStatus::MalformedConverted:
+    return "malformed_converted";
   }
   return "valid";
 }
@@ -222,8 +287,25 @@ ValidateParameterShape(std::span<const ParameterDescriptor> Parameters) {
       continue;
     }
 
+    if (Parameter.IsConverted()) {
+      if (Parameter.ConvertedSignature() == nullptr ||
+          Parameter.ConvertedKey() == nullptr ||
+          !Parameter.ConvertedKey()->IsValid() || Parameter.Kind() != nullptr ||
+          Parameter.HasDefault() || Parameter.AcceptsNil() ||
+          Parameter.Retains())
+        return ParameterShapeIssue{ParameterShapeStatus::MalformedConverted,
+                                   Position};
+      if (SawRelaxed)
+        return ParameterShapeIssue{ParameterShapeStatus::RequiredAfterRelaxed,
+                                   Position};
+      continue;
+    }
+
     if (Parameter.DelegateSignature() != nullptr)
       return ParameterShapeIssue{ParameterShapeStatus::MalformedDelegate,
+                                 Position};
+    if (Parameter.ConvertedSignature() != nullptr)
+      return ParameterShapeIssue{ParameterShapeStatus::MalformedConverted,
                                  Position};
 
     const ValueKind *Kind = Parameter.Kind();

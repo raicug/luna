@@ -86,7 +86,8 @@ ValidateStagedOperator(const StagedOperator &Declaration) {
                      "takes " +
                      std::to_string(Declared.size()) + ".");
   for (const ParameterDescriptor &Parameter : Declared) {
-    if (Parameter.Form() != ParameterForm::Required)
+    if (Parameter.Form() != ParameterForm::Required &&
+        Parameter.Form() != ParameterForm::Converted)
       return MalformedMetadataDiagnostic(
           Subject, "every operand of this operator is always supplied, so it "
                    "cannot be declared optional, defaulted, or variadic.");

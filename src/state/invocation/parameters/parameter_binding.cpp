@@ -11,7 +11,9 @@
 #include "state/invocation/validation/validator.hpp"
 #include "state/testing/fault_injector.hpp"
 #include "state/testing/fault_point.hpp"
+#include "state/type/conversion_frame.hpp"
 #include "state/type/conversion_outcome.hpp"
+#include "state/type/owned_value_bridge.hpp"
 #include "state/type/type_record.hpp"
 
 #include <lua.h>
@@ -69,9 +71,40 @@ ShapeIsConsistent(std::span<const ParameterDescriptor> Parameters,
         return false;
       continue;
     }
+    if (Parameter.IsConverted()) {
+      const StableTypeKey *Key = Parameter.ConvertedKey();
+      if (!Key || !Key->IsValid() ||
+          !Types.IsAvailableForRead(TypeDescriptor::ForConverted(*Key)))
+        return false;
+      continue;
+    }
     const ValueKind *Kind = Parameter.Kind();
     if (!Kind || !Types.IsAvailableForRead(CanonicalValueType(*Kind)))
       return false;
+  }
+  return true;
+}
+
+[[nodiscard]] bool ReadConvertedParameter(
+    std::string_view CallableName, std::size_t Position,
+    const ConvertedParameterShape &Declared, lua_State *State, int StackIndex,
+    const ConversionSubject &Named, InvocationValidationResult &Validation,
+    OwnedValue &Converted) {
+  Converted = BuildOwnedValueFromStack(State, StackIndex);
+
+  ConversionFrame Frame(Luna::ConversionDirection::Read,
+                        std::string(CallableName), Position);
+  const ValueView Source = Frame.Open(Converted);
+  const ConversionContext Probing = Frame.ProbeContext();
+
+  const ConversionProbe Probed =
+      Declared.Probe ? Declared.Probe(Source, Probing) : ConversionProbe();
+  if (!Probed.IsViable) {
+    Validation.RecordCallerFailure(
+        SubjectText(Named) + " argument " + std::to_string(Position) + " " +
+        (Probed.Rejection.empty() ? "was refused by its declared type."
+                                  : Probed.Rejection));
+    return false;
   }
   return true;
 }
@@ -223,6 +256,29 @@ BoundInvocation BindDeclaredParameters(lua_State *State,
         continue;
       }
 
+      if (Parameter.IsConverted()) {
+        const ConvertedParameterShape *Declared =
+            Parameter.ConvertedSignature();
+        if (!Declared || InjectInspectionFailure) {
+          Result.Validation.RecordInternalFailure(
+              "Internal error: callable metadata is inconsistent for " +
+              ContextText(Named) + ".");
+          Result.Arguments = BoundArguments();
+          return Result;
+        }
+
+        OwnedValue Converted;
+        if (!ReadConvertedParameter(CallableName, Index + 1, *Declared, State,
+                                    StackIndex, Named, Result.Validation,
+                                    Converted)) {
+          Result.Arguments = BoundArguments();
+          return Result;
+        }
+        Result.Arguments.Fixed[Index] =
+            ArgumentSlot::SuppliedConverted(std::move(Converted));
+        continue;
+      }
+
       const ValueKind *Kind = Parameter.Kind();
       if (!Kind) {
         Result.Validation.RecordInternalFailure(
@@ -291,6 +347,10 @@ namespace {
 RetainedDeclaredArguments(const BoundArguments &Bound, int ArgumentBase) {
   ValuePack Owned;
   for (const ArgumentSlot &Slot : Bound.Fixed) {
+    if (const OwnedValue *Converted = Slot.ConvertedValue()) {
+      Owned.Append(*Converted);
+      continue;
+    }
     const Value *Present = Slot.Get();
     Owned.Append(Present ? OwnedValue::FromValue(*Present) : OwnedValue::Nil());
   }

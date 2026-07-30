@@ -177,6 +177,9 @@ DescriptorPlanEntry MakeFunctionPlanEntry(std::string QualifiedName,
       Callable.Metadata().ReturnType().IsAsynchronous();
   Entry.Record = std::move(Record);
 
+  Entry.ParameterTypeConversions =
+      MakeParameterTypeConversions(Callable.Metadata());
+
   Entry.Callable = std::move(Callable);
   return Entry;
 }

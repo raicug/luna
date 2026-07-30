@@ -9,10 +9,12 @@
 #include <luna/binding/supported_callable.hpp>
 #include <luna/type/stable_type_key.hpp>
 
+#include <atomic>
 #include <cstddef>
 #include <functional>
 #include <optional>
 #include <span>
+#include <string>
 #include <tuple>
 #include <type_traits>
 #include <utility>
@@ -107,6 +109,36 @@ DeclaredDefaultAt(std::span<const Value> Defaults, std::size_t Position,
   return &Defaults[Position - FirstDefaulted];
 }
 
+[[nodiscard]] inline std::size_t NextConvertedParameterOrdinal() noexcept {
+  static std::atomic<std::size_t> Ordinal{0};
+  return Ordinal.fetch_add(1, std::memory_order_relaxed);
+}
+
+// A converted parameter's declared type never needs a consumer-supplied
+// identity — nothing outside the declaring callable ever looks it up by a
+// stable key, the same way `DelegateShape` needs no key at all. One ordinal
+// per distinct C++ type, assigned the first time that type is used as a
+// converted parameter anywhere in the program, is exactly as stable as the
+// declaration itself: every later parameter of the same C++ type reaches the
+// same already-initialized static and so observes the same key.
+template <class Native>
+[[nodiscard]] const StableTypeKey &ConvertedParameterKeyFor() {
+  static const StableTypeKey Key(
+      "ConvertedParameter" + std::to_string(NextConvertedParameterOrdinal()));
+  return Key;
+}
+
+template <class Parameter>
+[[nodiscard]] ConvertedParameterShape ConvertedParameterShapeOf() {
+  using Native = std::remove_cvref_t<Parameter>;
+  ConvertedParameterShape Shape;
+  Shape.Probe = +[](ValueView Source,
+                    const ConversionContext &Context) -> ConversionProbe {
+    return ProbeValue<Native>(Source, Context);
+  };
+  return Shape;
+}
+
 template <class Parameter>
 [[nodiscard]] ParameterDescriptor
 MakeParameterDescriptor(const Value *Default) {
@@ -120,6 +152,12 @@ MakeParameterDescriptor(const Value *Default) {
     using Signature = DelegateParameterSignatureOf<Parameter>;
     return ParameterDescriptor::ForDelegate(
         DelegateSignatureShape<Signature>::Shape());
+  } else if constexpr (IsConvertedParameterType<Parameter>) {
+    static_cast<void>(Default);
+    using Native = std::remove_cvref_t<Parameter>;
+    return ParameterDescriptor::ForConverted(
+        ConvertedParameterKeyFor<Native>(),
+        ConvertedParameterShapeOf<Parameter>());
   } else if constexpr (IsOptionalValueParameter<Parameter>::value) {
     using Inner = typename OptionalParameterInner<Parameter>::Type;
     constexpr ValueKind Kind = ValueKindFor<Inner>();
@@ -157,6 +195,9 @@ template <class Parameter>
   } else if constexpr (IsDelegateParameterType<Parameter>) {
     const ArgumentSlot *Slot = Arguments.At(Position);
     return Slot != nullptr && Slot->HasHandler();
+  } else if constexpr (IsConvertedParameterType<Parameter>) {
+    const ArgumentSlot *Slot = Arguments.At(Position);
+    return Slot != nullptr && Slot->HasConvertedValue();
   } else {
     const ArgumentSlot *Slot = Arguments.At(Position);
     if (!Slot)
@@ -188,6 +229,13 @@ ParameterArgumentFor(const InvocationArguments &Arguments,
     const ArgumentSlot *Slot = Arguments.At(Position);
     Delegate<Signature> Subscribed(Slot ? Slot->Handler() : nullptr);
     return Declared(std::move(Subscribed));
+  } else if constexpr (IsConvertedParameterType<Parameter>) {
+    using Native = std::remove_cvref_t<Parameter>;
+    const ArgumentSlot *Slot = Arguments.At(Position);
+    const OwnedValue *Source = Slot ? Slot->ConvertedValue() : nullptr;
+    ConversionResult<Native> Read = ReadConvertedArgument<Native>(
+        Source ? *Source : OwnedValue(), std::string_view(), Position);
+    return Read.ConvertedValue ? std::move(*Read.ConvertedValue) : Native();
   } else if constexpr (IsOptionalValueParameter<Parameter>::value) {
     using Inner = typename OptionalParameterInner<Parameter>::Type;
     const ArgumentSlot *Slot = Arguments.At(Position);

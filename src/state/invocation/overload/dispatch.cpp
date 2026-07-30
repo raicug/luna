@@ -11,6 +11,8 @@
 #include "state/invocation/overload/probe.hpp"
 #include "state/invocation/overload/resolution.hpp"
 #include "state/registration/record.hpp"
+#include "state/type/conversion_frame.hpp"
+#include "state/type/owned_value_bridge.hpp"
 #include "state/type/structured_conversion.hpp"
 #include "state/type/type_generation.hpp"
 #include "state/type/type_record.hpp"
@@ -141,12 +143,37 @@ ParameterTypeAt(const CallableSignatureDescriptor &Signature,
 }
 
 [[nodiscard]] ArgumentProbe
+ProbeConvertedPosition(lua_State *State, const ParameterDescriptor &Parameter,
+                       int StackIndex) {
+  const ConvertedParameterShape *Declared = Parameter.ConvertedSignature();
+  if (!Declared || !Declared->Probe) {
+    ArgumentProbe Probe;
+    Probe.Rejection = "names no canonical converted type";
+    return Probe;
+  }
+
+  const OwnedValue Source = BuildOwnedValueFromStack(State, StackIndex);
+  ConversionFrame Frame(Luna::ConversionDirection::Read, std::string(), 0);
+  const ValueView Root = Frame.Open(Source);
+  const ConversionContext Probing = Frame.ProbeContext();
+
+  const ConversionProbe Probed = Declared->Probe(Root, Probing);
+  ArgumentProbe Probe;
+  Probe.IsViable = Probed.IsViable;
+  Probe.Rank = Probed.Rank;
+  Probe.Rejection = Probed.Rejection;
+  return Probe;
+}
+
+[[nodiscard]] ArgumentProbe
 ProbeDeclaredPosition(const TypeGeneration &Types, lua_State *State,
                       const DeclaredShape &Shape, std::size_t FixedCount,
                       std::size_t Position, int ArgumentBase) {
   const int StackIndex = static_cast<int>(Position) + ArgumentBase;
   if (Position < FixedCount) {
     const ParameterDescriptor &Parameter = Shape.Parameters[Position];
+    if (Parameter.IsConverted())
+      return ProbeConvertedPosition(State, Parameter, StackIndex);
     const ValueKind *Kind = Parameter.Kind();
     if (!Kind) {
       ArgumentProbe Probe;

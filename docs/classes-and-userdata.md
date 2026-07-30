@@ -203,7 +203,23 @@ The operand count of each operator is fixed, and a declaration taking a differen
 
 Operators are documented, annotated, and exemplified by naming the operator rather than the Luna-owned segment it is published under: `Documentation(ClassOperator, Text)`, `Attribute(ClassOperator, Name, Value)`, `Example(ClassOperator, Text)`.
 
-**Current limitation.** A registered class cannot be a *parameter* type of a `Method` or an `Operator`. It works as a receiver and as a construction result, but an operand is one of the supported value types. So `Sprite + 2` is expressible; `SpriteA + SpriteB` is not.
+### Converted operands
+
+A `Method`, `StaticMethod`, or `Operator` parameter is not limited to the four supported value types either: any type with its own `Luna::TypeConverter<T>` specialization may be an operand too, read through the same probe/read boundary a converted property or field value already uses (see [custom conversions](values-and-validation.md#custom-conversions)). No explicit template argument is needed — the parameter's own declared C++ type is enough, the same way a scalar parameter already is:
+
+```cpp
+Sprites.Method("Dot", &Sprite::Dot)                    // double Dot(Vector3) const
+       .Operator(Luna::ClassOperator::Add, &Sprite::Offset);  // Vector3 Offset(const Vector3 &) const
+```
+
+```lua
+local D = Hero:Dot({1, 0, 0})
+local Moved = Hero + {4, 0, 0}
+```
+
+Diagnostics for a converted operand read the same way a converted member value's do: a value the operand's own `Probe` rejects is a caller error naming the operand position, reported before the native target runs. Publishing a converted *return* value is not yet supported — an operator or method still returns one of the four supported value types, a fixed or dynamic pack, an instance, or void.
+
+A registered *class* used as an operand (rather than a type with its own `TypeConverter<T>`) is not yet supported: `SpriteA + SpriteB`, where both sides are registered classes, still requires explicit conversion on the Luau side.
 
 ## Access from Luau
 

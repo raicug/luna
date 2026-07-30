@@ -88,6 +88,8 @@ PreparationStatus PrepareGenerations(const RegistrationTransaction &Transaction,
         static_cast<void>(Candidate.AddType(*Entry->TypeFields));
       if (Entry->TypeConversion)
         DeclaredTypes.push_back(*Entry->TypeConversion);
+      for (const TypeRecord &Parameter : Entry->ParameterTypeConversions)
+        DeclaredTypes.push_back(Parameter);
 
       if (Entry->OverloadSetRecord)
         PendingRecords.emplace_back(*Entry->OverloadSetRecord,

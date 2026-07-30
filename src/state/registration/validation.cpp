@@ -117,6 +117,8 @@ PendingTypeDeclarations(const SymbolView &Symbols) {
   for (const DescriptorPlanEntry &Planned : Symbols.PendingEntries()) {
     if (Planned.TypeConversion)
       Pending.push_back(*Planned.TypeConversion);
+    for (const TypeRecord &Parameter : Planned.ParameterTypeConversions)
+      Pending.push_back(Parameter);
   }
   return Pending;
 }
@@ -130,16 +132,9 @@ PendingTypeDeclarations(const SymbolView &Symbols) {
   return false;
 }
 
-[[nodiscard]] std::optional<ErrorDiagnostic>
-CheckTypeDeclaration(const RegistrationValidationRequest &Request,
-                     const TypeGeneration &Types, const SymbolView &Symbols,
-                     const std::string &Subject) {
-  const DescriptorPlanEntry *Entry = Request.Entry;
-  if (!Entry || !Entry->TypeConversion)
-    return std::nullopt;
-
-  const TypeRecord &Candidate = *Entry->TypeConversion;
-  const std::vector<TypeRecord> Pending = PendingTypeDeclarations(Symbols);
+[[nodiscard]] std::optional<ErrorDiagnostic> CheckOneTypeDeclaration(
+    const TypeRecord &Candidate, const TypeGeneration &Types,
+    const std::vector<TypeRecord> &Pending, const std::string &Subject) {
   const std::string TypeText = CanonicalTypeText(Candidate.Descriptor);
 
   switch (ClassifyTypeDeclaration(Types, Pending, Candidate)) {
@@ -163,6 +158,29 @@ CheckTypeDeclaration(const RegistrationValidationRequest &Request,
 }
 
 [[nodiscard]] std::optional<ErrorDiagnostic>
+CheckTypeDeclaration(const RegistrationValidationRequest &Request,
+                     const TypeGeneration &Types, const SymbolView &Symbols,
+                     const std::string &Subject) {
+  const DescriptorPlanEntry *Entry = Request.Entry;
+  if (!Entry)
+    return std::nullopt;
+
+  const std::vector<TypeRecord> Pending = PendingTypeDeclarations(Symbols);
+
+  if (Entry->TypeConversion) {
+    if (auto Diagnostic = CheckOneTypeDeclaration(*Entry->TypeConversion, Types,
+                                                  Pending, Subject))
+      return Diagnostic;
+  }
+  for (const TypeRecord &Candidate : Entry->ParameterTypeConversions) {
+    if (auto Diagnostic =
+            CheckOneTypeDeclaration(Candidate, Types, Pending, Subject))
+      return Diagnostic;
+  }
+  return std::nullopt;
+}
+
+[[nodiscard]] std::optional<ErrorDiagnostic>
 CheckTypeAvailability(const RegistrationValidationRequest &Request,
                       const TypeGeneration &Types, const SymbolView &Symbols,
                       const std::string &Subject) {
@@ -173,6 +191,8 @@ CheckTypeAvailability(const RegistrationValidationRequest &Request,
   std::vector<TypeRecord> Pending = PendingTypeDeclarations(Symbols);
   if (Entry->TypeConversion)
     Pending.push_back(*Entry->TypeConversion);
+  for (const TypeRecord &Candidate : Entry->ParameterTypeConversions)
+    Pending.push_back(Candidate);
 
   // A delegate parameter is carried by Luna's own reference mechanism rather
   // than by a value converter, so it is usable once every value kind in its

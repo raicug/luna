@@ -153,6 +153,8 @@ struct GeneratedParameter final {
     return ParameterDescriptor::ForDefaulted(
         From.Kind, ValueOfKind(From.DefaultKind), From.AcceptsNil);
   case ParameterForm::Variadic:
+  case ParameterForm::Delegate:
+  case ParameterForm::Converted:
     break;
   }
   return ParameterDescriptor::ForVariadic(From.Retains);

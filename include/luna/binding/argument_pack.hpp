@@ -120,12 +120,26 @@ public:
     return Slot;
   }
 
+  // The raw value the caller supplied for a parameter whose declared type
+  // converts through its own `Luna::TypeConverter<T>` specialization. The
+  // native value is only produced later, once the templated call site knows
+  // the concrete C++ type to read it as.
+  [[nodiscard]] static ArgumentSlot SuppliedConverted(OwnedValue Source) {
+    ArgumentSlot Slot;
+    Slot.ConvertedStorage = std::move(Source);
+    return Slot;
+  }
+
   [[nodiscard]] bool HasValue() const noexcept {
     return ValueStorage.has_value();
   }
 
   [[nodiscard]] bool HasHandler() const noexcept {
     return HandlerStorage != nullptr;
+  }
+
+  [[nodiscard]] bool HasConvertedValue() const noexcept {
+    return ConvertedStorage.has_value();
   }
 
   [[nodiscard]] const Value *Get() const noexcept {
@@ -137,9 +151,14 @@ public:
     return HandlerStorage;
   }
 
+  [[nodiscard]] const OwnedValue *ConvertedValue() const noexcept {
+    return ConvertedStorage ? &*ConvertedStorage : nullptr;
+  }
+
 private:
   std::optional<Value> ValueStorage;
   std::shared_ptr<Detail::DelegateTarget> HandlerStorage;
+  std::optional<OwnedValue> ConvertedStorage;
 };
 
 class InvocationArguments final {

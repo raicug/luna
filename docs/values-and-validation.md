@@ -4,7 +4,7 @@ Luna has two layers here, and it helps to keep them apart. The **supported value
 
 ## Supported value types
 
-These are the types a registered signature uses for parameters and returns. A property or field value may additionally be any type with its own `Luna::TypeConverter<T>` specialization — see [custom conversions](#custom-conversions) below and [classes and userdata](classes-and-userdata.md#custom-value-types).
+These are the types a registered signature uses for parameters and returns. A property or field value, and a `Method`/`StaticMethod`/`Operator` parameter, may additionally be any type with its own `Luna::TypeConverter<T>` specialization — see [custom conversions](#custom-conversions) below and [classes and userdata](classes-and-userdata.md#custom-value-types). Publishing a converted *return* value is not yet supported.
 
 | C++ type | Luau value | Notes |
 |---|---|---|
@@ -140,6 +140,12 @@ public:
 ```
 
 Three types carry the boundary. `ValueView` is a transient token naming one value inside the current conversion frame: it exposes shape only, carries no pointer or stack index, and becomes inert when its frame ends, so retaining one can never reach released VM storage. `OwnedValue` and `ValuePack` are owning values that outlive any frame — `ToOwned()` is how you keep something. `ConversionContext` is the frame itself: it reports the shape under conversion, the callable name, the one-based position, and the complete nested path such as `argument 2[4].Key`, and `Describe` turns a reason into one deterministic diagnostic carrying all of it.
+
+The same specialization is what makes `AppColor` usable as a property or field value (`Property<AppColor>(...)`, `Field<AppColor>(...)`) and as a `Method`, `StaticMethod`, or `Operator` operand — declared with no explicit template argument there, since the parameter's own C++ type already names it:
+
+```cpp
+Sprites.Method("Tint", &Sprite::Tint);   // void Tint(AppColor)
+```
 
 Writers state everything they need through `ValueReservation` before publishing, and publication is refused unless the complete value fits the reservation. `OwnedValue::RequiredReservation()` computes exactly what one publication needs.
 

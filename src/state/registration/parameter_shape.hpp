@@ -7,6 +7,7 @@
 
 #include "state/identity/symbol_descriptor.hpp"
 #include "state/reflection/storage.hpp"
+#include "state/type/type_record.hpp"
 
 #include <optional>
 #include <string>
@@ -30,6 +31,14 @@ CheckDeclaredParameterShape(const CallableMetadata &Metadata,
 
 [[nodiscard]] std::vector<ReflectionParameterFields>
 MakeReflectedParameters(const CallableMetadata &Metadata);
+
+// A method, static method, operator, or free function can declare one or
+// more parameters whose type converts through its own
+// `Luna::TypeConverter<T>` specialization; each such parameter needs its
+// own idempotently redeclarable `TypeRecord`, the same way a converted
+// member value does.
+[[nodiscard]] std::vector<TypeRecord>
+MakeParameterTypeConversions(const CallableMetadata &Metadata);
 
 [[nodiscard]] std::vector<ReflectionReturnFields>
 MakeReflectedReturns(const CallableMetadata &Metadata);

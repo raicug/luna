@@ -312,6 +312,8 @@ DescriptorPlanEntry MakeMethodPlanEntry(const StagedClass &Class,
   Record.Examples = Declaration.Examples;
   Entry.Record = std::move(Record);
 
+  Entry.ParameterTypeConversions = MakeParameterTypeConversions(Metadata);
+
   Entry.Callable.emplace(std::move(*Declaration.Callable));
   return Entry;
 }
@@ -372,6 +374,8 @@ DescriptorPlanEntry MakeOperatorPlanEntry(const StagedClass &Class,
   Record.Attributes = Declaration.Attributes;
   Record.Examples = Declaration.Examples;
   Entry.Record = std::move(Record);
+
+  Entry.ParameterTypeConversions = MakeParameterTypeConversions(Metadata);
 
   PlannedClassOperator Published;
   Published.Selected = Declaration.Selected;

@@ -85,7 +85,9 @@ ConversionFrame::ConversionFrame(Luna::ConversionDirection Direction,
   Frames.Frames.emplace(TokenValue, this);
 }
 
-ConversionFrame::~ConversionFrame() { Deactivate(); }
+ConversionFrame::~ConversionFrame() {
+  Deactivate();
+}
 
 void ConversionFrame::Deactivate() noexcept {
   if (!ActiveValue)
@@ -100,7 +102,9 @@ ValueView ConversionFrame::Open(const OwnedValue &Source) {
   return Root();
 }
 
-ValueView ConversionFrame::Root() const noexcept { return ViewOf(0); }
+ValueView ConversionFrame::Root() const noexcept {
+  return ViewOf(0);
+}
 
 ConversionContext ConversionFrame::CommitContext() const noexcept {
   return ConversionContext(TokenValue, 0, false);
@@ -456,7 +460,9 @@ ConversionFrame *FindConversionFrame(std::uint64_t Token) noexcept {
   return Found->second;
 }
 
-void RecordExpiredConversionAccess() noexcept { ++Table().ExpiredAccessCount; }
+void RecordExpiredConversionAccess() noexcept {
+  ++Table().ExpiredAccessCount;
+}
 
 void RecordConversionProbeViolation(std::string_view Reason) noexcept {
   FrameTable &Frames = Table();
@@ -481,6 +487,28 @@ void ResetConversionBoundaryDiagnostics() noexcept {
   Frames.ExpiredAccessCount = 0;
   Frames.ProbeViolationCount = 0;
   Frames.ProbeViolations.clear();
+}
+
+ConversionFrame *OpenArgumentConversionFrame(const OwnedValue &Source,
+                                             std::string_view Callable,
+                                             std::size_t Position) {
+  auto *Frame = new ConversionFrame(Luna::ConversionDirection::Read,
+                                    std::string(Callable), Position);
+  static_cast<void>(Frame->Open(Source));
+  return Frame;
+}
+
+void CloseArgumentConversionFrame(ConversionFrame *Frame) noexcept {
+  delete Frame;
+}
+
+ValueView ArgumentConversionRoot(ConversionFrame *Frame) noexcept {
+  return Frame ? Frame->Root() : ValueView();
+}
+
+ConversionContext
+ArgumentConversionCommitContext(ConversionFrame *Frame) noexcept {
+  return Frame ? Frame->CommitContext() : ConversionContext();
 }
 
 } // namespace Luna::Detail

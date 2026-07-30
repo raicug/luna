@@ -665,4 +665,40 @@ template <class Type>
   return Converter.Write(Source, Context);
 }
 
+namespace Detail {
+
+// A method, static method, or operator parameter whose declared type
+// converts through its own `Luna::TypeConverter<T>` specialization is bound
+// as a plain `OwnedValue` (the same currency a variadic argument already
+// uses) until the templated call site — instantiated where the concrete C++
+// type is known — reads it. These free functions bridge that bound value
+// into the same conversion-frame machinery a converted member value already
+// opens, without exposing the frame itself outside the library.
+[[nodiscard]] ConversionFrame *
+OpenArgumentConversionFrame(const OwnedValue &Source, std::string_view Callable,
+                            std::size_t Position);
+void CloseArgumentConversionFrame(ConversionFrame *Frame) noexcept;
+[[nodiscard]] ValueView ArgumentConversionRoot(ConversionFrame *Frame) noexcept;
+[[nodiscard]] ConversionContext
+ArgumentConversionCommitContext(ConversionFrame *Frame) noexcept;
+
+} // namespace Detail
+
+// Reads one converted method, static method, or operator parameter's bound
+// value as `Type`, using `Type`'s own `Luna::TypeConverter<Type>`
+// specialization. `Callable` and `Position` are used only to describe a
+// failure the same way a converted member value's failure already reads.
+template <class Type>
+[[nodiscard]] ConversionResult<Type>
+ReadConvertedArgument(const OwnedValue &Source, std::string_view Callable,
+                      std::size_t Position) {
+  Detail::ConversionFrame *Frame =
+      Detail::OpenArgumentConversionFrame(Source, Callable, Position);
+  const ValueView Root = Detail::ArgumentConversionRoot(Frame);
+  ConversionContext Context = Detail::ArgumentConversionCommitContext(Frame);
+  ConversionResult<Type> Result = ReadValue<Type>(Root, Context);
+  Detail::CloseArgumentConversionFrame(Frame);
+  return Result;
+}
+
 } // namespace Luna

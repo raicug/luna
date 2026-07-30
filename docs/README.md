@@ -52,9 +52,10 @@ None of these degrade quietly. An unsupported callable, parameter, or return fai
 
 IDE, autocomplete, debug-UI, and profiling integrations are available, and deliberately build from nothing but the public model: reflection snapshots, generated artifacts, and canonical identity. `BindingRegistry::InstallProfilingHook(Luna::ProfilingHook)` installs one hook reporting every call's completion, failure, suspension, resumption, or cancellation with the same `SymbolId`/`TypeId` reflection publishes. It runs on the owner thread strictly after Luna has decided the outcome, so it changes nothing about invocation, and a throwing hook is contained and uninstalled rather than reaching Luau.
 
-Two current limitations are worth knowing before you design a surface:
+A few current limitations are worth knowing before you design a surface:
 
-- A registered class cannot be used as a **parameter** type of a `Method` or an `Operator`. It works as a receiver and as a construction result, but an operand or argument is one of the supported value types.
+- A `Method`, `StaticMethod`, or `Operator` parameter may be any type with its own `Luna::TypeConverter<T>` specialization, read through the same probe/read boundary a converted property or field value already uses. A *registered class* used as an operand — `SpriteA + SpriteB`, where both sides are registered classes — is not yet supported.
+- Publishing a converted **return** value is not yet supported: an operator or method still returns one of the four supported value types, a fixed or dynamic pack, an instance, or void.
 - Inherited **fields** are not reachable through a derived class. Reach them through a value of the class that declared them.
 
 ## Useful source landmarks
