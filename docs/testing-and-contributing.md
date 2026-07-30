@@ -71,7 +71,7 @@ Not implemented at all, and absent rather than partial:
 
 IDE, autocomplete, debug-UI, and profiling integrations are available: `InstallProfilingHook` reports every invocation stage using the same canonical `SymbolId`/`TypeId` reflection publishes, runs on the owner thread only after Luna has already decided the outcome, and contains and uninstalls a hook that throws.
 
-Two limitations of the shipped surface are worth fixing before new features and are documented where they bite: a registered class cannot be a *parameter* type of a `Method` or `Operator`, and inherited *fields* are not reachable through a derived class.
+Limitations of the shipped surface are documented where they bite: a *registered class* cannot be an operand of a `Method` or `Operator` (a type with its own `TypeConverter<T>` can), a converted *return* value cannot be published, generated declarations describe an enumerator by its numeric value, and inherited *fields* are not reachable through a derived class.
 
 ---
 

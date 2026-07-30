@@ -11,12 +11,13 @@ State
      ├─ identity       canonical encoding, digests, identity registry
      ├─ type           canonical types, conversion frames, conversion boundary
      ├─ registration   pending plans, overload groups, shape validation, store
+     ├─ invocation     trampolines, argument binding, overload selection, returns
      ├─ userdata       class registry, construction, ownership, member access
      ├─ module         manifest registry, resolution, load, lifecycle
      ├─ reflection     immutable published storage and views
      ├─ freeze         validated model plus published lookup caches
      ├─ dispatch       permanent closure slots and dispatch generations
-     ├─ vm             VM owner, closure installer, tables, stack checkpoints
+     ├─ vm             VM owner, closure installer, tables, interned enum items, stack checkpoints
      ├─ execution      compiler and disposable-thread executor
      ├─ generation     documentation, declaration, publication writers
      └─ testing        private fault injection and test hooks

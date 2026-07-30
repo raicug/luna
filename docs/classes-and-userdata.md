@@ -197,7 +197,7 @@ Sprites.Operator(Luna::ClassOperator::Add, &Sprite::Padded)
 
 `ClassOperator` covers `Call`, `Length`, `Equal`, `Less`, `LessEqual`, `Add`, `Subtract`, `Multiply`, `Divide`, `Modulo`, `Power`, `Negate`, `Concatenate`, `ToText`, `Index`, `Assign`, and `Iterate`. The target states its receiver exactly the way an instance method does, and every operand after that receiver is an ordinary parameter. So the receiver is rank position zero of an operator call too, validated before one operand is inspected, and the candidate resolves through the same canonical overload rules.
 
-The operand count of each operator is fixed, and a declaration taking a different number of them — or taking one optionally — is refused transactionally. `Call` is the exception: it forwards whatever the call site supplied.
+The operand count of each operator is fixed, and a declaration taking a different number of them — or taking one optionally — is refused transactionally. Two operators are exceptions: `Call` forwards whatever the call site supplied, and `Iterate` receives one control operand that may be omitted, described under [Iteration](#iteration) below.
 
 `Index` and `Assign` keep Luna's own metamethods. The declaration is the behavior Luna consults for a name the class declares nothing for, never a replacement of Luna's reserved dispatch.
 
@@ -257,6 +257,10 @@ HostLog(Hero.Width)              -- field
 HostLog(Hero.Area)               -- lazy property
 HostLog(#Hero)                   -- Length operator
 HostLog(Hero + 2)                -- Add operator, number operand
+
+for Field, Value in Hero do      -- Iterate operator
+  HostLog(Field, Value)
+end
 
 local Width, Height = Hero:Bounds()   -- ordered multiple returns
 HostLog(Hero:Grow(2))

@@ -31,6 +31,8 @@ enum class Channel : int { Debug = 10, Info = 20, Warning = 30, Error = 40 };
 
 enum class Access : unsigned int { Read = 1, Write = 2, Execute = 4 };
 
+enum class Material : int { Wood = 0, Stone = 1, Metal = 2 };
+
 // Luna's extension boundary is checked when this demo compiles. Work that
 // finishes after the call that started it declares a supported return type,
 // a subscribed handler declares a supported parameter type, while a raw
@@ -121,6 +123,19 @@ public:
   [[nodiscard]] std::string ToText() const {
     return "Sprite(" + Name() + ", " + NumberText(Width) + "x" +
            NumberText(Height) + ")";
+  }
+
+  // One step of a Luau generic `for` loop. The control operand is whatever
+  // the previous step published first, and is omitted on the first step, so
+  // an empty pack is what ends the loop.
+  [[nodiscard]] Luna::ReturnPack
+  NextDimension(std::optional<std::string> Control) const {
+    Luna::ReturnPack Produced;
+    if (!Control)
+      Produced.AppendText("Width").AppendNumber(Width);
+    else if (*Control == "Width")
+      Produced.AppendText("Height").AppendNumber(Height);
+    return Produced;
   }
 
   [[nodiscard]] static std::string Category() { return "sprite"; }
@@ -261,6 +276,10 @@ public:
   return Luna::StableTypeKey("demo.studio.Access");
 }
 
+[[nodiscard]] Luna::StableTypeKey MaterialKey() {
+  return Luna::StableTypeKey("demo.studio.Material");
+}
+
 [[nodiscard]] Luna::StableTypeKey EntityKey() {
   return Luna::StableTypeKey("demo.studio.Entity");
 }
@@ -369,7 +388,7 @@ struct BoundFeature final {
   std::string_view Snippet;
 };
 
-constexpr std::array<BoundFeature, 19> BoundFeatures{{
+constexpr std::array<BoundFeature, 21> BoundFeatures{{
     {"Root function (Register)",
      R"(Registry.Register("HostLog", [this](std::string Message) {
   OutputLines.push_back(std::move(Message));
@@ -437,6 +456,18 @@ Flags.Value("Read", Access::Read)
     .Value("Execute", Access::Execute)
     .Bitflags()
     .Documentation("Declared bitflags: the supported mask is checked.");)"},
+    {"Enumerator objects",
+     R"CPP(// AsObjects publishes each enumerator as one interned object rather
+// than its bare number, so `typeof` reports EnumItem, the enumerator
+// names itself, and equality is identity.
+Luna::EnumBuilder<Material> Materials =
+    Studio.RegisterEnum<Material>("Material", MaterialKey());
+Materials.AsObjects()
+    .Value("Wood", Material::Wood)
+    .Value("Stone", Material::Stone)
+    .Value("Metal", Material::Metal)
+    .Alias("Default", "Wood")
+    .Example("HostLog(tostring(Studio.Material.Stone))");)CPP"},
     {"Base class",
      R"CPP(Luna::ClassBuilder<Entity> Entities =
     Studio.RegisterClass<Entity>("Entity", EntityKey());
@@ -475,6 +506,22 @@ Sprites.Base<Entity>(EntityKey())
     .Attribute("Area", "evaluation", "lazy")
     .Documentation(Luna::ClassOperator::Add,
                    "Sprite + padding is the padded area.");)"},
+    {"Iteration operator",
+     R"CPP(// Iterate makes the class usable in a generic for loop. The target is
+// one step of the loop, not an iterator: it receives the control value
+// the previous step published first (omitted on the first step) and
+// returns a pack. An empty pack ends the loop.
+Luna::ReturnPack Sprite::NextDimension(
+    std::optional<std::string> Control) const {
+  Luna::ReturnPack Produced;
+  if (!Control)
+    Produced.AppendText("Width").AppendNumber(Width);
+  else if (*Control == "Width")
+    Produced.AppendText("Height").AppendNumber(Height);
+  return Produced;
+}
+
+Sprites.Operator(Luna::ClassOperator::Iterate, &Sprite::NextDimension);)CPP"},
     {"Versioned module graph",
      R"(// Two versions of the dependency become available without loading
 // anything, so resolution has a choice to make.
@@ -634,6 +681,30 @@ local Mask = bit32.bor(Studio.Access.Read, Studio.Access.Write)
 HostLog("mask " .. Mask .. " -> " .. Studio.DescribeAccess(Mask))
 HostLog("execute -> " .. Studio.DescribeAccess(Studio.Access.Execute))
 HostLog("nothing -> " .. Studio.DescribeAccess(0))
+
+-- The same enumeration surface published as enumerator objects instead of
+-- bare numbers: each one names itself and reports its own type.
+local Chosen = Studio.Material.Stone
+HostLog("typeof(Studio.Material.Stone) = " .. typeof(Chosen))
+HostLog("Name = " .. Chosen.Name .. ", Value = " .. Chosen.Value)
+HostLog("EnumName = " .. Chosen.EnumName)
+HostLog("tostring = " .. tostring(Chosen))
+
+-- Each enumerator is interned once, so equality is identity and an alias
+-- reads the very object it names.
+HostLog("read twice is one value: " ..
+    tostring(Studio.Material.Stone == Studio.Material.Stone))
+HostLog("two enumerators differ: " ..
+    tostring(Studio.Material.Stone ~= Studio.Material.Wood))
+HostLog("alias is Wood: " ..
+    tostring(Studio.Material.Default == Studio.Material.Wood))
+
+-- An enumerator object is immutable, exactly like the table holding it.
+local Wrote, WriteMessage = pcall(function()
+  Studio.Material.Stone.Value = 9
+end)
+HostLog("writing an enumerator succeeded: " .. tostring(Wrote))
+HostLog("writing an enumerator -> " .. tostring(WriteMessage))
 )LUA"},
     {"Class hierarchy, members and operators",
      R"LUA(-- Constructor, fields, lazy property, methods, operators, inheritance.
@@ -643,6 +714,12 @@ HostLog("Hero.Width = " .. Hero.Width)
 HostLog("Hero.Area (lazy property) = " .. Hero.Area)
 HostLog("#Hero (Length operator) = " .. #Hero)
 HostLog("Hero + 2 (Add operator) = " .. (Hero + 2))
+
+-- The Iterate operator: a generic for loop walks the declared step, which
+-- ends the loop by publishing an empty pack.
+for Field, Value in Hero do
+  HostLog("Hero." .. Field .. " = " .. Value)
+end
 
 -- One method with ordered multiple returns.
 local Width, Height = Hero:Bounds()
@@ -918,6 +995,20 @@ private:
         .Documentation("Declared bitflags, so a combined mask converts whole.")
         .Example("Studio.DescribeAccess(bit32.bor(Studio.Access.Read, 2))");
 
+    // The same enumeration surface, published as interned enumerator objects
+    // instead of bare numbers. Each enumerator names itself, compares equal
+    // only to itself, and reports its own `typeof`.
+    Luna::EnumBuilder<Material> Materials =
+        Studio.RegisterEnum<Material>("Material", MaterialKey());
+    Materials.AsObjects()
+        .Value("Wood", Material::Wood)
+        .Value("Stone", Material::Stone)
+        .Value("Metal", Material::Metal)
+        .Alias("Default", "Wood")
+        .Documentation("Enumerator objects rather than bare numbers.")
+        .Documentation("Default", "An alias reads the very object it names.")
+        .Example("HostLog(tostring(Studio.Material.Stone))");
+
     Luna::ClassBuilder<Entity> Entities =
         Studio.RegisterClass<Entity>("Entity", EntityKey());
     Entities.Constructor<std::string>()
@@ -958,12 +1049,15 @@ private:
         .Operator(Luna::ClassOperator::Add, &Sprite::Padded)
         .Operator(Luna::ClassOperator::Length, &Sprite::Pixels)
         .Operator(Luna::ClassOperator::ToText, &Sprite::ToText)
+        .Operator(Luna::ClassOperator::Iterate, &Sprite::NextDimension)
         .Documentation("One drawable entity.")
         .Documentation("Square", "Produces one square sprite by value.")
         .Documentation("Area", "Computed once, then reused for that object.")
         .Attribute("Area", "evaluation", "lazy")
         .Documentation(Luna::ClassOperator::Add,
                        "Sprite + padding is the padded area.")
+        .Documentation(Luna::ClassOperator::Iterate,
+                       "A generic for loop walks the declared dimensions.")
         .Example("local S = Studio.Sprite.Square('tile', 2)");
 
     Record("NamespaceBuilder(\"Studio\")::Commit", Studio.Commit());

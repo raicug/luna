@@ -118,6 +118,8 @@ A generator builds and validates the complete byte buffer before returning. `IsC
 
 Declaration generation emits only metadata that maps onto a representable Luau declaration. It refuses rather than guessing.
 
+One deliberate flattening is worth knowing: an enumerator is declared by the numeric value it carries. An enumeration published through `AsObjects()` reaches a script as an enumerator object, but its generated declaration still names `number`, because the declaration is derived from the canonical descriptor and the descriptor is the same in either representation.
+
 An accepted artifact is canonical UTF-8, without a byte-order mark, with LF line endings on every host, and byte-identical for equivalent snapshot content and equal options.
 
 ## Publishing atomically

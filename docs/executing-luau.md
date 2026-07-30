@@ -41,7 +41,7 @@ These are intentional gaps rather than partial features:
 - No file-loading helper, custom chunk name, or sandbox environment.
 - No mechanism for retrieving script return values.
 - Only the chunk `Execute` is running can suspend an asynchronous call. A script coroutine or a metamethod that reaches such a callable is refused deterministically, and the started work is cancelled.
-- No annotation helper macros or IDE/profiling integrations.
+- No annotation helper macros. Documentation, attributes, and examples are ordinary builder calls, and IDE, debug-UI, and profiling integrations are available through the public model.
 
 Execution is otherwise unrestricted: a chunk may freely call any registered function, construct registered classes, read constants and enumerators, and use module surfaces.
 
