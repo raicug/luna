@@ -470,11 +470,14 @@ State::Impl::Impl()
       VirtualMachine.PublishUserdataCaptureRegistry(&UserdataCaptures));
   static_cast<void>(VirtualMachine.PublishEnumItemRegistry(&EnumItems));
   static_cast<void>(VirtualMachine.PublishProfilingRegistry(&ProfilingHooks));
+  static_cast<void>(VirtualMachine.PublishInterruptRequest(&Interrupt));
+  VirtualMachine.BindChunkHost(*ChunkHosting, Faults, AsyncCalls);
 }
 
 State::Impl::~Impl() {
   Destroying = true;
 
+  ChunkHosting->Retire();
   AsyncCalls.CancelEverything("the State that suspended it is gone");
   Delegates.Retire();
   UserdataCaptures.Retire();
@@ -2050,6 +2053,9 @@ void State::Impl::RecordPublishedClasses(
       Member.ConvertedRead = Entry->ClassMember->ConvertedRead;
       Member.ConvertedWrite = Entry->ClassMember->ConvertedWrite;
       Member.InstanceRead = Entry->ClassMember->InstanceRead;
+      Member.InstanceWrite = Entry->ClassMember->InstanceWrite;
+      Member.InstanceWriteRequiresMutation =
+          Entry->ClassMember->InstanceWriteRequiresMutation;
       Owner->Members.push_back(std::move(Member));
       continue;
     }
@@ -2595,6 +2601,31 @@ ExecutionResult State::Impl::Execute(std::string_view Source) {
   }
   AsyncCalls.BindOrigin(Lifecycle.Identity(), Lifecycle.Generation());
   return VirtualMachine.ExecuteSource(Source, Faults, &AsyncCalls);
+}
+
+bool State::Impl::CompileChunkSource(std::string_view Source,
+                                     std::string_view Name,
+                                     std::string &Bytecode,
+                                     std::string &Diagnostic) {
+  if (!IsOwnerThread()) {
+    Diagnostic = "a chunk is compiled on the State's owner thread only.";
+    return false;
+  }
+  if (!IsReady()) {
+    Diagnostic = "compiling a chunk requires a ready State.";
+    return false;
+  }
+  return ChunkHosting->Compile(Source, Name, Bytecode, Diagnostic);
+}
+
+void State::Impl::RequestInterrupt(std::string Reason) {
+  Interrupt.Request(std::move(Reason));
+}
+
+void State::Impl::ClearInterrupt() noexcept { Interrupt.Clear(); }
+
+bool State::Impl::IsInterruptPending() const noexcept {
+  return Interrupt.IsPending();
 }
 
 ReflectionSnapshot State::Impl::CaptureReflection() const {

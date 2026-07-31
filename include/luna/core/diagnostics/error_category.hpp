@@ -9,6 +9,7 @@ enum class ErrorCategory {
   NullCallable,
   Compilation,
   Runtime,
+  Interrupted,
   Internal
 };
 

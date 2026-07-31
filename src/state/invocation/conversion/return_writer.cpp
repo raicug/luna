@@ -274,6 +274,37 @@ ReturnWriteResult WriteInvocationReturn(lua_State *State,
           Outcome, Types, Faults);
     }
 
+    case ReturnDisposition::Chunk: {
+      if (!State)
+        return Failure(State, EntryDepth,
+                       "Return writer has no invocation stack.");
+      if (Outcome.Kind() != InvocationOutcomeKind::Chunk ||
+          Outcome.ChunkBytecode().empty())
+        return Failure(State, EntryDepth,
+                       "Chunk return metadata did not match callable outcome.");
+      if (Faults.Consume(StateFaultPoint::ReturnStackCapacity) ||
+          !lua_checkstack(State, 2))
+        return Failure(State, EntryDepth,
+                       "Could not reserve stack capacity for return value.");
+
+      const std::string ChunkName =
+          std::string("=") + (Outcome.ChunkName().empty()
+                                  ? std::string("LunaChunk")
+                                  : Outcome.ChunkName());
+      const std::string &Bytecode = Outcome.ChunkBytecode();
+      if (luau_load(State, ChunkName.c_str(), Bytecode.data(), Bytecode.size(),
+                    0) != LUA_OK) {
+        lua_settop(State, EntryDepth);
+        return Failure(State, EntryDepth,
+                       "Returned chunk could not be loaded as a callable "
+                       "value.");
+      }
+      if (Faults.Consume(StateFaultPoint::ReturnWrite))
+        return Failure(State, EntryDepth,
+                       "Injected internal return-writer failure.");
+      return {.Status = ReturnWriteStatus::ValueWritten, .ReturnCount = 1};
+    }
+
     case ReturnDisposition::Instance: {
       if (!State)
         return Failure(State, EntryDepth,

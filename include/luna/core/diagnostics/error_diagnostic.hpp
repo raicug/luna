@@ -54,6 +54,8 @@ private:
       return "Compilation failed.";
     case ErrorCategory::Runtime:
       return "Runtime execution failed.";
+    case ErrorCategory::Interrupted:
+      return "Execution was interrupted.";
     case ErrorCategory::Internal:
       return "Internal Luna error.";
     }

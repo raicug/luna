@@ -112,6 +112,7 @@ A callable publishes returns in one of these declared shapes:
 | `Luna::OwnedValue` | exactly one, of whatever category the target built |
 | `Luna::ValuePack` | ordered, count decided by the invocation, any category |
 | a registered class instance — `T`, `std::shared_ptr<T>`, `T *` | exactly one, see [returning instances and tables](classes-and-userdata.md#returning-instances-and-tables) |
+| `Luna::Chunk` | exactly one, published as a real Luau function, see [publishing a chunk](executing-luau.md#publishing-a-chunk-to-a-script) |
 | `Luna::AsyncTask<T>`, `std::future<T>` | the awaited shape, see [asynchronous results](#asynchronous-results) |
 
 ```cpp
@@ -222,6 +223,44 @@ What Luna guarantees:
 - Emitting takes one snapshot of the current subscribers, so a handler may subscribe or unsubscribe while the emission is running: a handler removed during the emission is never called by it, one added during the emission is delivered starting with the next emission, and no handler is ever called twice by the same emission.
 - A handler that raises a Luau error does not fail the emission; `SignalEmission` reports how many delivered, how many were skipped, how many failed, and the first failure's message.
 - Replacing the State's lifecycle generation invalidates every handler subscribed through it; a handler that outlives its State, or a call made from a thread other than the State's owner thread, refuses deterministically rather than touching a closed or foreign virtual machine.
+
+### Delegates carrying objects
+
+A delegate's declared signature is not limited to scalars. Its parameters may also be:
+
+| Declared parameter | What the handler receives |
+|---|---|
+| `T` where `RegisteredClassTrait<T>` holds | one Lua-owned copy, as userdata |
+| `std::shared_ptr<T>` | the shared object, as userdata |
+| `T *` | the host's own object, borrowed |
+| `Luna::OwnedValue` | whatever the host built — a table, nested tables, a scalar, nil, or a manufactured instance at any depth |
+| `Luna::ValuePack` | several values, spread at that position |
+
+```cpp
+struct Hub { Luna::Signal<void(Vector3)> Moved; };
+
+Registry.RegisterFunction("OnMoved", [&Hub](Luna::Delegate<void(Vector3)> Handler) {
+  return Hub.Moved.Subscribe(std::move(Handler));
+});
+Hub.Moved.Emit(Vector3{2, 7, 0});
+```
+
+```lua
+OnMoved(function(Where)
+  print(Where.X, Where:Magnitude())    -- real userdata, not loose numbers
+end)
+```
+
+Object arguments are staged as owned values and published through the same path an owned return uses, so **manufactured instances work here too**: an event can construct the object it publishes rather than only passing one through. `OwnedValue::Instance<T>` inside an `OwnedValue` or a `ValuePack` is exactly the shape described under [manufactured instances](classes-and-userdata.md#manufactured-instances).
+
+Four rules govern the object forms:
+
+- The **class must be registered in the publishing State**, and staged before the declaration that names the delegate — the same ordering rule instance operands follow. A delegate naming a class that never opted in, or one this State never registered, is refused at registration.
+- The **borrowed form needs a declared lifetime**, which a signature cannot carry. State it on the delegate: `Handler.DeclareOwnership(Luna::OwnershipPolicy::Borrowed(HostLifetime))` before the first call. Without it, a `T *` argument refuses the call.
+- A `ValuePack` parameter is **only valid as the final parameter**, because it spreads. A signature declaring one earlier is rejected at compile time.
+- **Refusals are transactional.** An unregistered class, a null pointer, a borrowed pointer with no declared lifetime, and a released handler each publish nothing: every argument is validated before the first one reaches the stack, so the handler is not called at all. `DelegateCallResult` keeps naming the same outcomes — `Released` for a released handler, `HandlerFailed` for an argument Luna could not publish, `ForeignThread`, `ResultMismatch`, `Ready`.
+
+A delegate **may still declare a scalar result** while its parameters carry objects: `Delegate<bool(Vector3)>` is a valid filter, and the handler's return value is read as one canonical value exactly as before. The reverse is not available — a delegate cannot declare an object *result*, because reading an instance back out of a Luau value is the instance-operand path rather than the result path.
 
 ## Names
 

@@ -9,7 +9,7 @@ if (!Result.IsSuccess()) {
 }
 ```
 
-Both `RegistrationResult` and `ExecutionResult` follow the same invariant: success has no diagnostic, while failure owns exactly one non-empty diagnostic. `Diagnostic()` therefore returns `nullptr` on success and a pointer to result-owned data on failure.
+Both `RegistrationResult` and `ExecutionResult` follow the same invariant: success has no diagnostic, while failure owns exactly one non-empty diagnostic. `Diagnostic()` therefore returns `nullptr` on success and a pointer to result-owned data on failure. `ChunkResult`, which a `Luna::Chunk` invocation returns, follows the same invariant and additionally carries the values the chunk produced.
 
 Every builder `Commit()`, `BindingRegistry::Freeze()`, `ProvideModule`, and `RegisterModule` returns a `RegistrationResult` too, so one shape covers the whole registration surface.
 
@@ -17,7 +17,7 @@ One deliberate exception exists. `Delegate<Signature>::operator()` throws `Luna:
 
 ## Categories
 
-`ErrorCategory` has seven values:
+`ErrorCategory` has eight values:
 
 | Category | Meaning |
 |---|---|
@@ -27,7 +27,10 @@ One deliberate exception exists. `Delegate<Signature>::operator()` throws `Luna:
 | `NullCallable` | A registered function pointer was null |
 | `Compilation` | Source could not be compiled or loaded |
 | `Runtime` | Protected Luau execution failed, including native caller errors |
+| `Interrupted` | The host requested a stop through `State::RequestInterrupt` and the executing chunk was stopped, rather than the script throwing |
 | `Internal` | Luna could not complete required bookkeeping, conversion, or VM work |
+
+`ExecutionResult::IsInterrupted()` is the direct test for the interrupted case, so a host does not have to compare categories to tell "the user stopped it" from "the script threw". See [interrupting execution](executing-luau.md#interrupting-execution).
 
 The category is a coarse channel; the message carries the specifics. A refused registration names what was refused and why — a stale builder, a frozen State, an ambiguous overload pair, an out-of-range enumerator, an unregistered base, an incoherent property policy, a module cycle, a version conflict. Equivalent inputs always produce the same message, which is what makes a refusal something you can assert on.
 

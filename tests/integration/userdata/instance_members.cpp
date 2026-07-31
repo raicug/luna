@@ -44,6 +44,7 @@ struct Http final {
 struct Body final {
   Vector Position;
   Http Client;
+  Http *Attached = nullptr;
 
   [[nodiscard]] Vector Heading() const { return Vector{0.0, 1.0}; }
 
@@ -54,6 +55,23 @@ struct Body final {
   [[nodiscard]] Http *Service() { return &Client; }
 
   void Move(Vector Target) { Position = Target; }
+
+  [[nodiscard]] Vector Where() const { return Position; }
+
+  void Place(const Vector &Target) { Position = Target; }
+
+  void Consume(Vector &Target) {
+    Position = Target;
+    Target.X = -1.0;
+  }
+
+  [[nodiscard]] Http *Link() const { return Attached; }
+
+  void Attach(Http *Incoming) { Attached = Incoming; }
+
+  [[nodiscard]] int LinkedRequests() const {
+    return Attached != nullptr ? Attached->Requests : -1;
+  }
 };
 
 struct Machine final {
@@ -105,7 +123,8 @@ namespace {
   Luna::ClassBuilder<Http> Services =
       Studio.RegisterClass<Http>("Http", HttpKey());
   Luna::ClassBuilder<Http> &DeclaredHttp =
-      Services.Field("Requests", &Http::Requests)
+      Services.Constructor<>()
+          .Field("Requests", &Http::Requests)
           .Method("Encode", &Http::Encode);
   static_cast<void>(DeclaredHttp.QualifiedName());
 
@@ -118,7 +137,12 @@ namespace {
           .Property("Anchor", &Body::Anchor)
           .Property("Service", &Body::Service,
                     Luna::OwnershipPolicy::Borrowed(Host))
-          .Method("Move", &Body::Move);
+          .Property("Where", &Body::Where, &Body::Place)
+          .Property("Taken", &Body::Where, &Body::Consume)
+          .Property("Link", &Body::Link, &Body::Attach,
+                    Luna::OwnershipPolicy::Borrowed(Host))
+          .Method("Move", &Body::Move)
+          .Method("LinkedRequests", &Body::LinkedRequests);
   static_cast<void>(DeclaredBody.QualifiedName());
 
   const Luna::RegistrationResult Committed = Studio.Commit();
@@ -240,8 +264,89 @@ void CheckBorrowedInstanceMemberWithoutLifetimeIsRefused() {
         "registration");
 }
 
-void CheckWritableInstancePropertyIsRefused() {
+void CheckWritableInstancePropertyAcceptsAnInstanceOperand() {
   Luna::LifetimeHandle Host;
+  Luna::State Owner;
+  Check(Owner.IsReady() && RegisterModel(Owner, Host), "the model publishes");
+  const auto EntryDepth = Hooks::ObserveRootStackDepth(Owner);
+
+  Check(Succeeds(Owner, "local B = Studio.Body.New()\n"
+                        "local V = Studio.Vector.New()\n"
+                        "V.X = 2\nV.Y = 7\n"
+                        "B.Where = V\n"
+                        "assert(B.Where.X == 2 and B.Where.Y == 7)\n"
+                        "assert(B.Position.X == 2)"),
+        "a read-write instance property accepts an instance of its class and "
+        "the setter reaches the receiver's own storage");
+
+  Check(Succeeds(Owner, "local B = Studio.Body.New()\n"
+                        "local V = Studio.Vector.New()\n"
+                        "V.X = 5\nV.Y = 5\n"
+                        "B.Taken = V\n"
+                        "assert(B.Taken.X == 5)\n"
+                        "assert(V.X == -1)"),
+        "a setter taking the class by mutable reference receives the caller's "
+        "own native object rather than a copy of it");
+
+  Check(Succeeds(Owner, "local B = Studio.Body.New()\n"
+                        "local H = Studio.Http.New()\n"
+                        "H.Requests = 9\n"
+                        "B.Link = H\n"
+                        "assert(B:LinkedRequests() == 9)\n"
+                        "H.Requests = 12\n"
+                        "assert(B:LinkedRequests() == 12)"),
+        "a setter taking the class by pointer stores the caller's object, so a "
+        "later write through the original is observed natively");
+
+  const Luna::ExecutionResult Reread =
+      Owner.Execute("local B = Studio.Body.New()\n"
+                    "local H = Studio.Http.New()\n"
+                    "B.Link = H\n"
+                    "local Back = B.Link");
+  Check(!Reread.IsSuccess(),
+        "reading a borrowed instance property back after storing a Lua-owned "
+        "instance in it is refused, because one native address cannot be "
+        "exposed under two ownership models");
+
+  Check(Hooks::ObserveRootStackDepth(Owner) == EntryDepth,
+        "an instance-member write restores the entry stack depth");
+}
+
+void CheckWritableInstancePropertyRefusesOtherValues() {
+  Luna::LifetimeHandle Host;
+  Luna::State Owner;
+  Check(Owner.IsReady() && RegisterModel(Owner, Host), "the model publishes");
+  const auto EntryDepth = Hooks::ObserveRootStackDepth(Owner);
+
+  const Luna::ExecutionResult OtherClass =
+      Owner.Execute("local B = Studio.Body.New()\n"
+                    "B.Where = B.Service");
+  Check(!OtherClass.IsSuccess(),
+        "assigning an instance of another registered class is refused");
+
+  const Luna::ExecutionResult Scalar =
+      Owner.Execute("local B = Studio.Body.New()\n"
+                    "B.Where = 4");
+  Check(!Scalar.IsSuccess(),
+        "assigning a scalar to an instance property is refused");
+
+  const Luna::ExecutionResult ReadOnly =
+      Owner.Execute("local B = Studio.Body.New()\n"
+                    "B.Heading = Studio.Vector.New()");
+  Check(!ReadOnly.IsSuccess(),
+        "a property declaring no setter stays read-only, and the class's "
+        "Assign operator is never consulted for a declared member");
+
+  Check(Succeeds(Owner, "local B = Studio.Body.New()\n"
+                        "B.Where = Studio.Vector.New()\n"
+                        "assert(B.Where.X == 0)"),
+        "a refused write leaves the receiver able to accept the next one");
+
+  Check(Hooks::ObserveRootStackDepth(Owner) == EntryDepth,
+        "a refused instance-member write restores the entry stack depth");
+}
+
+void CheckInstancePropertyChangeHandlerIsRefused() {
   Luna::State Owner;
   Check(Owner.IsReady(), "the state is ready");
 
@@ -254,17 +359,17 @@ void CheckWritableInstancePropertyIsRefused() {
 
   Luna::ClassBuilder<Body> Bodies =
       Studio.RegisterClass<Body>("Body", BodyKey());
-  Luna::ClassBuilder<Body> &Declared =
-      Bodies.Property("Position", &Body::Heading, &Body::Move);
+  Luna::ClassBuilder<Body> &Declared = Bodies.Property(
+      "Where", &Body::Where, &Body::Place, [](Body &, const Vector &) {});
   static_cast<void>(Declared.QualifiedName());
 
   const Luna::RegistrationResult Committed = Studio.Commit();
   Check(!Committed.IsSuccess(),
-        "a writable instance-valued property is refused at registration");
+        "an on-change handler on an instance-valued property is refused at "
+        "registration");
   if (const Luna::ErrorDiagnostic *Diagnostic = Committed.Diagnostic())
-    Check(Diagnostic->Message().find("read-only") != std::string::npos,
-          "the refusal names the read-only limitation");
-  static_cast<void>(Host);
+    Check(Diagnostic->Message().find("on-change") != std::string::npos,
+          "the refusal names the on-change handler");
 }
 
 void CheckUnregisteredValueClassIsRefused() {
@@ -327,7 +432,9 @@ int RunInstanceMemberTests() {
   CheckSharedAndBorrowedInstanceProperties();
   CheckInstanceFieldPublishesACopy();
   CheckBorrowedInstanceMemberWithoutLifetimeIsRefused();
-  CheckWritableInstancePropertyIsRefused();
+  CheckWritableInstancePropertyAcceptsAnInstanceOperand();
+  CheckWritableInstancePropertyRefusesOtherValues();
+  CheckInstancePropertyChangeHandlerIsRefused();
   CheckUnregisteredValueClassIsRefused();
   CheckSharedAddressWithAnotherClassIsRefusedAtRead();
   return FailureCount == 0 ? 0 : 1;

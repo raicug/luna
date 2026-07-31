@@ -102,7 +102,8 @@ bool DescriptorPlanEntry::IsValid() const {
            (ClassMember->Read != nullptr || ClassMember->Write != nullptr ||
             ClassMember->ConvertedRead != nullptr ||
             ClassMember->ConvertedWrite != nullptr ||
-            ClassMember->InstanceRead != nullptr);
+            ClassMember->InstanceRead != nullptr ||
+            ClassMember->InstanceWrite != nullptr);
   default:
     return true;
   }

@@ -96,4 +96,41 @@ ExecutionResult State::Execute(std::string_view Source) {
   return Implementation->Execute(Source);
 }
 
+Chunk State::Load(std::string_view Source) { return Load(Source, "LunaChunk"); }
+
+Chunk State::Load(std::string_view Source, std::string_view Name) {
+  if (!Implementation)
+    return Chunk::Refused(
+        ErrorCategory::StateNotReady,
+        "State not ready: loading a chunk requires a ready State.");
+
+  std::string Bytecode;
+  std::string Diagnostic;
+  if (!Implementation->CompileChunkSource(Source, Name, Bytecode, Diagnostic)) {
+    const bool IsCompilation =
+        Diagnostic.find("Compilation error:") != std::string::npos;
+    return Chunk::Refused(IsCompilation ? ErrorCategory::Compilation
+                                        : ErrorCategory::StateNotReady,
+                          std::move(Diagnostic));
+  }
+  return Chunk(Implementation->Chunks(), std::move(Bytecode),
+               std::string(Name));
+}
+
+void State::RequestInterrupt(std::string Reason) {
+  if (!Implementation)
+    return;
+  Implementation->RequestInterrupt(std::move(Reason));
+}
+
+void State::ClearInterrupt() noexcept {
+  if (!Implementation)
+    return;
+  Implementation->ClearInterrupt();
+}
+
+bool State::IsInterruptPending() const noexcept {
+  return Implementation && Implementation->IsInterruptPending();
+}
+
 } // namespace Luna

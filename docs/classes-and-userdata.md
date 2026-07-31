@@ -214,7 +214,35 @@ The three ownership models are the ones an instance result already declares, and
 
 A by-value member publishes a copy, so writing the published object never reaches the owner's storage; a borrowed member publishes the owner's own object, so a write through it is observed by the next read. A pointer-valued member declared without a lifetime is refused at registration, as a borrowed result is, and the class whose instance a member publishes has to be registered before the member is declared — the same staging-order rule instance operands follow.
 
-**Current limitation.** An instance-valued member is **read-only**. A read publishes one object, and a write would have to decide whether it replaces the owner's value or mutates the published one, so `Property` with a setter, and a writable instance `Field`, are refused at registration with a diagnostic naming the limitation. Declare a method taking the new value — `Body:Move(Vector3)` — until writes land. A read also runs on every access even under `PropertyPolicy::Lazy()`, because a lazily cached value is one of the four supported value types.
+#### Writing an instance-valued property
+
+An instance-valued **property** is read-write when it declares a setter. The getter states the value type as before; the setter takes the same registered class as an *instance operand*, spelled exactly as a method parameter is — `T`, `const T &`, `T &`, `T *`, or `const T *`:
+
+```cpp
+Bodies.Property("Position", &Body::Where, &Body::Place)
+      .Property("Link", &Body::Link, &Body::Attach,
+                Luna::OwnershipPolicy::Borrowed(HostLifetime));
+```
+
+```lua
+Part.Position = Vector3.new(2, 7, 0)
+assert(Part.Position.X == 2)
+```
+
+The ownership policy an instance-valued property already needed for its *getter* is stated after the setter, so a borrowed getter and a setter live in the same declaration.
+
+The write path is the instance-parameter path, not a value conversion. The incoming value has to be live userdata of that class; an accessible base or a declared `Cast` satisfies it exactly as it does for a method operand; a `T &` or `T *` setter requires a mutable view and refuses a const one before native code runs; and an instance of another registered class is refused with the diagnostic a mismatched instance parameter already produces. The native object is handed to the setter directly, so a `T &` or `T *` setter sees the caller's own object rather than a copy of it.
+
+Getter and setter must name the same class. A property with no setter stays read-only, which remains the default.
+
+Two things are refused for this shape:
+
+- An **on-change handler** receives the newly written value as one canonical Luna value, which an instance is not, so `Property(Name, Getter, Setter, OnChange)` on an instance-valued property is refused at registration.
+- A writable instance-valued **field** is still refused. A field is the value the object already holds, and assigning through it would have to copy into the owner's storage under a policy no `FieldPolicy` states. Declare a property with a getter and a setter instead; the diagnostic says so.
+
+A read runs on every access even under `PropertyPolicy::Lazy()`, because a lazily cached value is one of the four supported value types.
+
+**The `Assign` operator never applies to a declared member.** `Assign` is the unknown-key write operator: `__newindex` consults it only when the key names no declared member of the class. A member that exists and permits no write refuses with its own read-only diagnostic rather than diverting to `Assign`, so `Part.Heading = v` on a read-only `Heading` is a deterministic refusal even when the class declares `Assign`. `Index` behaves the same way on the read side.
 
 Two objects still must not share one native address. A borrowed member pointing at a data member at offset zero of its owner names the same address the owner's own userdata does; Luna keys userdata identity by address, so that read is refused deterministically at the moment it is published rather than aliasing the owner. The collision is only visible once an address is known, so it is a read-time refusal, not a registration-time one.
 

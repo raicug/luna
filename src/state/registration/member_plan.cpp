@@ -3,6 +3,7 @@
 
 #include <luna/binding/class_member.hpp>
 #include <luna/core/diagnostics/error_diagnostic.hpp>
+#include <luna/detail/property_adapter.hpp>
 #include <luna/reflection/ids.hpp>
 #include <luna/reflection/reflection_record.hpp>
 #include <luna/type/type_descriptor.hpp>
@@ -136,6 +137,9 @@ DescriptorPlanEntry MakeMemberPlanEntry(const StagedMember &Declaration,
   Member.ConvertedRead = Declaration.ConvertedRead;
   Member.ConvertedWrite = Declaration.ConvertedWrite;
   Member.InstanceRead = Declaration.InstanceRead;
+  Member.InstanceWrite = Declaration.InstanceWrite;
+  Member.InstanceWriteRequiresMutation =
+      Declaration.InstanceWriteRequiresMutation;
   Entry.ClassMember = std::move(Member);
   return Entry;
 }
@@ -185,11 +189,21 @@ ValidateStagedMember(const StagedMember &Declaration) {
                  "boundary, so it cannot declare another ownership.");
 
   if (Declaration.ValueType.Kind() == TypeKind::Class &&
-      (Declaration.HasWriter() || PermitsMemberWrite(Declaration.Access)))
+      PermitsMemberWrite(Declaration.Access) &&
+      Declaration.InstanceWrite == nullptr)
     return MalformedMetadataDiagnostic(
-        Subject, "a member whose value is a registered class instance "
-                 "publishes one object per read, so it is read-only; declare a "
-                 "method taking the new value instead of a setter.");
+        Subject, std::string(WritableInstanceMemberRefusal));
+
+  if (Declaration.ValueType.Kind() == TypeKind::Class &&
+      Declaration.Change != nullptr)
+    return MalformedMetadataDiagnostic(
+        Subject, std::string(InstanceMemberChangeRefusal));
+
+  if (Declaration.InstanceWrite != nullptr &&
+      Declaration.ValueType.Kind() != TypeKind::Class)
+    return MalformedMetadataDiagnostic(
+        Subject, "this member generated an instance setter but does not name a "
+                 "registered class as its value type.");
   return std::nullopt;
 }
 

@@ -6,6 +6,8 @@
 #include <luna/state/state.hpp>
 
 #include "state/binding/state_handle.hpp"
+#include "state/execution/chunk_host.hpp"
+#include "state/execution/interrupt.hpp"
 #include "state/freeze/cache.hpp"
 #include "state/invocation/async/suspended_call.hpp"
 #include "state/invocation/delegate/vm_delegate.hpp"
@@ -47,6 +49,7 @@
 #include <cstdint>
 #include <memory>
 #include <optional>
+#include <string>
 #include <string_view>
 #include <vector>
 // clang-format on
@@ -71,6 +74,20 @@ public:
   [[nodiscard]] ExecutionResult Execute(std::string_view Source);
   [[nodiscard]] ReflectionSnapshot CaptureReflection() const;
   [[nodiscard]] RegistrationResult Freeze();
+
+  [[nodiscard]] const std::shared_ptr<Detail::ChunkHost> &
+  Chunks() const noexcept {
+    return ChunkHosting;
+  }
+
+  [[nodiscard]] bool CompileChunkSource(std::string_view Source,
+                                        std::string_view Name,
+                                        std::string &Bytecode,
+                                        std::string &Diagnostic);
+
+  void RequestInterrupt(std::string Reason);
+  void ClearInterrupt() noexcept;
+  [[nodiscard]] bool IsInterruptPending() const noexcept;
 
   [[nodiscard]] RegistrationResult
   RegisterBuilderPlan(const Detail::BuilderPlan &Plan,
@@ -426,6 +443,11 @@ private:
   std::shared_ptr<Detail::StateHandleToken> Handle;
 
   Detail::FaultInjector Faults;
+
+  Detail::InterruptRequest Interrupt;
+
+  std::shared_ptr<Detail::ChunkHost> ChunkHosting =
+      std::make_shared<Detail::ChunkHost>();
   Detail::AsyncCallRegistry AsyncCalls;
   Detail::VmDelegateRegistry Delegates;
   Detail::VmUserdataCaptureRegistry UserdataCaptures;

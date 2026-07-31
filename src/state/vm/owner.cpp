@@ -1,7 +1,9 @@
 // clang-format off
 #include "state/vm/owner.hpp"
 
+#include "state/execution/chunk_host.hpp"
 #include "state/execution/executor.hpp"
+#include "state/execution/interrupt.hpp"
 #include "state/invocation/async/suspended_call.hpp"
 #include "state/invocation/delegate/vm_delegate.hpp"
 #include "state/invocation/parameters/vm_userdata_capture.hpp"
@@ -105,6 +107,20 @@ bool VirtualMachineOwner::PublishEnumItemRegistry(
 bool VirtualMachineOwner::PublishProfilingRegistry(
     ProfilingRegistry *Profiling) noexcept {
   return Luna::Detail::PublishProfilingRegistry(Handle, Profiling);
+}
+
+bool VirtualMachineOwner::PublishInterruptRequest(
+    InterruptRequest *Pending) noexcept {
+  if (!Handle || !Pending)
+    return false;
+  InstallInterruptCallback(Handle, Pending);
+  return ObserveInterruptRequest(Handle) == Pending;
+}
+
+void VirtualMachineOwner::BindChunkHost(ChunkHost &Hosting,
+                                        FaultInjector &Faults,
+                                        AsyncCallRegistry &Async) noexcept {
+  Hosting.Bind(Handle, &Faults, &Async);
 }
 
 ClosureInstallationStatus

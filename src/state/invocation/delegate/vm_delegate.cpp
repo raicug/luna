@@ -5,6 +5,7 @@
 
 #include "state/invocation/conversion/argument_reader.hpp"
 #include "state/type/conversion_outcome.hpp"
+#include "state/type/owned_value_bridge.hpp"
 #include "state/type/type_generation.hpp"
 #include "state/type/type_record.hpp"
 #include "state/vm/stack_checkpoint.hpp"
@@ -58,41 +59,18 @@ public:
 
   [[nodiscard]] DelegateCallResult
   Call(std::span<const Value> Arguments) override {
-    if (!LinkValue)
-      return DelegateCallResult::Refused(
-          DelegateStatus::Released,
-          "the subscribed handler is no longer available.");
-
     lua_State *State = nullptr;
-    {
-      const std::lock_guard<std::mutex> Guard(LinkValue->Barrier);
-      if (ReleasedValue || !LinkValue->Alive ||
-          LinkValue->Epoch != EpochValue) {
-        LinkValue->Counters.Failures += 1;
-        return DelegateCallResult::Refused(
-            DelegateStatus::Released,
-            "the subscribed handler was released before this call.");
-      }
-      if (std::this_thread::get_id() != LinkValue->Owner) {
-        LinkValue->Counters.ForeignThreadRefusals += 1;
-        LinkValue->Counters.Failures += 1;
-        return DelegateCallResult::Refused(
-            DelegateStatus::ForeignThread,
-            "a subscribed handler runs only on the thread that owns its "
-            "State.");
-      }
-      State = LinkValue->Thread;
-      LinkValue->Counters.Invocations += 1;
-    }
-
-    if (!State)
-      return Refuse(DelegateStatus::Released,
-                    "the subscribed handler has no virtual machine.");
+    if (std::optional<DelegateCallResult> Refused = Enter(State))
+      return std::move(*Refused);
 
     if (Arguments.size() != ShapeValue.Parameters.size())
       return Refuse(DelegateStatus::ResultMismatch,
                     "the subscribed handler received an argument count its "
                     "declared shape does not accept.");
+    if (ShapeValue.CarriesObjects())
+      return Refuse(DelegateStatus::ResultMismatch,
+                    "this subscribed handler declares arguments carrying "
+                    "objects, which are staged as owned values.");
 
     const std::shared_ptr<const TypeGeneration> Types =
         TypeGeneration::Foundation();
@@ -114,12 +92,86 @@ public:
                       "the subscribed handler is no longer a function.");
 
       for (std::size_t Index = 0; Index < Arguments.size(); ++Index) {
-        const TypeRecord *Record = Types->Find(ShapeValue.Parameters[Index]);
+        const TypeRecord *Record =
+            Types->Find(ShapeValue.Parameters[Index].Kind);
         if (!Record || !Record->IsWritable || !Record->Write)
           return Refuse(DelegateStatus::HandlerFailed,
                         "the subscribed handler declares an argument type "
                         "that is unavailable in the type registry.");
         if (!Record->Write(State, Arguments[Index]))
+          return Refuse(DelegateStatus::HandlerFailed,
+                        "the subscribed handler could not receive argument " +
+                            std::to_string(Index + 1) + ".");
+      }
+
+      const int ResultCount = ShapeValue.Result ? 1 : 0;
+      if (lua_pcall(State, static_cast<int>(Arguments.size()), ResultCount,
+                    0) != LUA_OK)
+        return Refuse(DelegateStatus::HandlerFailed, HandlerFailureText(State));
+
+      if (!ShapeValue.Result)
+        return Deliver(std::nullopt);
+
+      const ArgumentReadResult Read =
+          ReadArgument(*Types, State, -1, *ShapeValue.Result);
+      if (!Read.IsSuccess())
+        return Refuse(DelegateStatus::ResultMismatch,
+                      "the subscribed handler published no value of its "
+                      "declared result type.");
+      return Deliver(*Read.ConvertedValue);
+    } catch (const std::exception &Error) {
+      return Refuse(DelegateStatus::HandlerFailed,
+                    std::string("the subscribed handler reported: ") +
+                        Error.what());
+    } catch (...) {
+      return Refuse(DelegateStatus::HandlerFailed,
+                    "the subscribed handler reported an unknown failure.");
+    }
+  }
+
+  [[nodiscard]] DelegateCallResult
+  CallOwned(std::span<const OwnedValue> Arguments) override {
+    lua_State *State = nullptr;
+    if (std::optional<DelegateCallResult> Refused = Enter(State))
+      return std::move(*Refused);
+
+    if (Arguments.size() < ShapeValue.FixedParameterCount() ||
+        (!ShapeValue.CarriesPack() &&
+         Arguments.size() != ShapeValue.Parameters.size()))
+      return Refuse(DelegateStatus::ResultMismatch,
+                    "the subscribed handler received an argument count its "
+                    "declared shape does not accept.");
+
+    const std::shared_ptr<const TypeGeneration> Types =
+        CaptureOwnedValueTypes(State);
+    if (!Types)
+      return Refuse(DelegateStatus::HandlerFailed,
+                    "the subscribed handler has no captured type registry.");
+
+    for (std::size_t Index = 0; Index < Arguments.size(); ++Index) {
+      const std::string Refusal =
+          ClassifyPendingInstances(Arguments[Index], *Types);
+      if (!Refusal.empty())
+        return Refuse(DelegateStatus::HandlerFailed,
+                      "the subscribed handler cannot receive argument " +
+                          std::to_string(Index + 1) + ": " + Refusal);
+    }
+
+    try {
+      StackCheckpoint Checkpoint(State);
+      const int Requested = static_cast<int>(Arguments.size()) + 3;
+      if (!lua_checkstack(State, Requested))
+        return Refuse(DelegateStatus::HandlerFailed,
+                      "the subscribed handler could not reserve stack "
+                      "capacity.");
+
+      lua_getref(State, ReferenceValue);
+      if (lua_type(State, -1) != LUA_TFUNCTION)
+        return Refuse(DelegateStatus::Released,
+                      "the subscribed handler is no longer a function.");
+
+      for (std::size_t Index = 0; Index < Arguments.size(); ++Index) {
+        if (!PushOwnedValueToStack(State, Arguments[Index], *Types))
           return Refuse(DelegateStatus::HandlerFailed,
                         "the subscribed handler could not receive argument " +
                             std::to_string(Index + 1) + ".");
@@ -172,6 +224,39 @@ public:
   }
 
 private:
+  [[nodiscard]] std::optional<DelegateCallResult> Enter(lua_State *&State) {
+    if (!LinkValue)
+      return DelegateCallResult::Refused(
+          DelegateStatus::Released,
+          "the subscribed handler is no longer available.");
+
+    {
+      const std::lock_guard<std::mutex> Guard(LinkValue->Barrier);
+      if (ReleasedValue || !LinkValue->Alive ||
+          LinkValue->Epoch != EpochValue) {
+        LinkValue->Counters.Failures += 1;
+        return DelegateCallResult::Refused(
+            DelegateStatus::Released,
+            "the subscribed handler was released before this call.");
+      }
+      if (std::this_thread::get_id() != LinkValue->Owner) {
+        LinkValue->Counters.ForeignThreadRefusals += 1;
+        LinkValue->Counters.Failures += 1;
+        return DelegateCallResult::Refused(
+            DelegateStatus::ForeignThread,
+            "a subscribed handler runs only on the thread that owns its "
+            "State.");
+      }
+      State = LinkValue->Thread;
+      LinkValue->Counters.Invocations += 1;
+    }
+
+    if (!State)
+      return Refuse(DelegateStatus::Released,
+                    "the subscribed handler has no virtual machine.");
+    return std::nullopt;
+  }
+
   [[nodiscard]] DelegateCallResult Deliver(std::optional<Value> Produced) {
     return DelegateCallResult::Delivered(std::move(Produced));
   }

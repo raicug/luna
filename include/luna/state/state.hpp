@@ -3,9 +3,11 @@
 // clang-format off
 #include <luna/core/results/execution_result.hpp>
 #include <luna/core/results/registration_result.hpp>
+#include <luna/state/chunk.hpp>
 #include <luna/tooling/profiling_hook.hpp>
 
 #include <memory>
+#include <string>
 #include <string_view>
 // clang-format on
 
@@ -33,6 +35,13 @@ public:
   [[nodiscard]] bool IsReady() const noexcept;
   [[nodiscard]] BindingRegistry Bindings() noexcept;
   [[nodiscard]] ExecutionResult Execute(std::string_view Source);
+
+  [[nodiscard]] Chunk Load(std::string_view Source);
+  [[nodiscard]] Chunk Load(std::string_view Source, std::string_view Name);
+
+  void RequestInterrupt(std::string Reason);
+  void ClearInterrupt() noexcept;
+  [[nodiscard]] bool IsInterruptPending() const noexcept;
 
 private:
   friend class BindingRegistry;

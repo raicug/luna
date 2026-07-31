@@ -25,6 +25,7 @@ enum class InvocationOutcomeKind {
   Values,
   OwnedValues,
   Instance,
+  Chunk,
   Suspended,
   InternalFailure
 };
@@ -59,6 +60,16 @@ public:
     InvocationOutcome Outcome(InvocationOutcomeKind::Instance, std::nullopt,
                               {});
     Outcome.InstanceStorage = std::move(Produced);
+    return Outcome;
+  }
+
+  [[nodiscard]] static InvocationOutcome WithChunk(std::string Bytecode,
+                                                   std::string Name) {
+    if (Bytecode.empty())
+      return InternalFailure("Callable produced no loadable chunk.");
+    InvocationOutcome Outcome(InvocationOutcomeKind::Chunk, std::nullopt, {});
+    Outcome.ChunkBytecodeValue = std::move(Bytecode);
+    Outcome.ChunkNameValue = std::move(Name);
     return Outcome;
   }
 
@@ -100,6 +111,14 @@ public:
     return InstanceStorage ? &*InstanceStorage : nullptr;
   }
 
+  [[nodiscard]] const std::string &ChunkBytecode() const noexcept {
+    return ChunkBytecodeValue;
+  }
+
+  [[nodiscard]] const std::string &ChunkName() const noexcept {
+    return ChunkNameValue;
+  }
+
   [[nodiscard]] const std::string &FailureMessage() const noexcept {
     return FailureMessageValue;
   }
@@ -125,6 +144,8 @@ private:
   ValuePack OwnedStorage;
   std::optional<Detail::ConstructedInstance> InstanceStorage;
   std::unique_ptr<Detail::PendingAsyncWork> SuspendedStorage;
+  std::string ChunkBytecodeValue;
+  std::string ChunkNameValue;
   std::string FailureMessageValue;
 };
 

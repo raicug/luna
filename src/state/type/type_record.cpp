@@ -160,8 +160,24 @@ TypeDescriptor CanonicalDelegateType(const DelegateShape &Declared) {
   Children.push_back(Declared.Result
                          ? CanonicalValueType(*Declared.Result)
                          : TypeDescriptor::ForFixed(FixedTypeKey::Void));
-  for (const ValueKind Kind : Declared.Parameters)
-    Children.push_back(CanonicalValueType(Kind));
+  for (const DelegateParameterShape &Parameter : Declared.Parameters) {
+    switch (Parameter.Form) {
+    case DelegateValueForm::Scalar:
+      Children.push_back(CanonicalValueType(Parameter.Kind));
+      break;
+    case DelegateValueForm::Instance:
+      Children.push_back(Parameter.Resolve != nullptr
+                             ? TypeDescriptor::ForClass(Parameter.Resolve())
+                             : TypeDescriptor::Unsupported());
+      break;
+    case DelegateValueForm::Owned:
+      Children.push_back(TypeDescriptor::ForFixed(FixedTypeKey::Value));
+      break;
+    case DelegateValueForm::Pack:
+      Children.push_back(TypeDescriptor::ForFixed(FixedTypeKey::ValuePack));
+      break;
+    }
+  }
 
   for (const TypeDescriptor &Child : Children) {
     if (!Child.IsValid())

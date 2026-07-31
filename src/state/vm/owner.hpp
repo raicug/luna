@@ -20,7 +20,9 @@ namespace Luna::Detail {
 class AsyncCallRegistry;
 class BindingRecord;
 class EnumItemRegistry;
+class ChunkHost;
 class FaultInjector;
+class InterruptRequest;
 class ProfilingRegistry;
 class StateTestHooks;
 class TypeGeneration;
@@ -56,6 +58,10 @@ public:
   [[nodiscard]] bool PublishEnumItemRegistry(EnumItemRegistry *Items) noexcept;
   [[nodiscard]] bool
   PublishProfilingRegistry(ProfilingRegistry *Profiling) noexcept;
+  [[nodiscard]] bool
+  PublishInterruptRequest(InterruptRequest *Pending) noexcept;
+  void BindChunkHost(ChunkHost &Hosting, FaultInjector &Faults,
+                     AsyncCallRegistry &Async) noexcept;
   [[nodiscard]] ClosureInstallationStatus
   InstallBindingClosure(BindingRecord &Record, bool InjectFailure) noexcept;
   [[nodiscard]] const BindingRecord *

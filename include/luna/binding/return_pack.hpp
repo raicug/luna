@@ -3,6 +3,7 @@
 // clang-format off
 #include <luna/binding/class_construction.hpp>
 #include <luna/binding/conversion.hpp>
+#include <luna/binding/registered_class.hpp>
 #include <luna/binding/value.hpp>
 
 #include <cstddef>

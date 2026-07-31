@@ -405,6 +405,7 @@ int NativeTrampolineContinuation(lua_State *State, int Status) {
           case ReturnDisposition::Instance:
           case ReturnDisposition::Owned:
           case ReturnDisposition::OwnedPack:
+          case ReturnDisposition::Chunk:
 
             Consistent = false;
             break;

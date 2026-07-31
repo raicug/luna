@@ -2,7 +2,9 @@
 
 // clang-format off
 #include <luna/core/results/execution_result.hpp>
+#include <luna/state/chunk.hpp>
 
+#include <string>
 #include <string_view>
 // clang-format on
 
@@ -17,5 +19,14 @@ class FaultInjector;
                                             std::string_view Source,
                                             FaultInjector &Faults,
                                             AsyncCallRegistry *Async);
+
+[[nodiscard]] bool CompileChunk(lua_State *Root, std::string_view Source,
+                                std::string_view Name, std::string &Bytecode,
+                                std::string &Diagnostic);
+
+[[nodiscard]] ChunkResult
+InvokeChunk(lua_State *Root, std::string_view Bytecode, std::string_view Name,
+            const ValuePack &Arguments, FaultInjector *Faults,
+            AsyncCallRegistry *Async);
 
 } // namespace Luna::Detail

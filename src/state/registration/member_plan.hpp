@@ -45,6 +45,9 @@ struct StagedMember final {
   MemberConvertedWriteOperation ConvertedWrite;
 
   MemberInstanceReadOperation InstanceRead;
+  MemberInstanceWriteOperation InstanceWrite;
+
+  bool InstanceWriteRequiresMutation = false;
 
   std::string Refusal;
 
@@ -57,7 +60,8 @@ struct StagedMember final {
            InstanceRead != nullptr;
   }
   [[nodiscard]] bool HasWriter() const noexcept {
-    return Write != nullptr || ConvertedWrite != nullptr;
+    return Write != nullptr || ConvertedWrite != nullptr ||
+           InstanceWrite != nullptr;
   }
 };
 

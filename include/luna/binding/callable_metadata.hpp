@@ -22,7 +22,8 @@ enum class ReturnDisposition {
   Pack,
   Instance,
   Owned,
-  OwnedPack
+  OwnedPack,
+  Chunk
 };
 
 class ReturnMetadata {
@@ -62,6 +63,10 @@ public:
     ReturnMetadata Metadata(ReturnDisposition::Instance, std::nullopt);
     Metadata.InstanceKeyValue = std::move(Class);
     return Metadata;
+  }
+
+  [[nodiscard]] static ReturnMetadata ForChunk() noexcept {
+    return ReturnMetadata(ReturnDisposition::Chunk, std::nullopt);
   }
 
   [[nodiscard]] static ReturnMetadata ForAsync(ReturnMetadata Awaited) {

@@ -48,6 +48,9 @@ struct RegisteredMember final {
   MemberConvertedWriteOperation ConvertedWrite;
 
   MemberInstanceReadOperation InstanceRead;
+  MemberInstanceWriteOperation InstanceWrite;
+
+  bool InstanceWriteRequiresMutation = false;
 
   [[nodiscard]] bool IsConverted() const noexcept {
     return ConvertedRead != nullptr || ConvertedWrite != nullptr;
@@ -55,6 +58,10 @@ struct RegisteredMember final {
 
   [[nodiscard]] bool IsInstance() const noexcept {
     return InstanceRead != nullptr;
+  }
+
+  [[nodiscard]] bool IsInstanceWritable() const noexcept {
+    return InstanceWrite != nullptr;
   }
 
   [[nodiscard]] bool HasChangeHandler() const noexcept {
@@ -69,7 +76,8 @@ struct RegisteredMember final {
 
   [[nodiscard]] bool PermitsWrite() const noexcept {
     return PermitsMemberWrite(Access) &&
-           (Write != nullptr || ConvertedWrite != nullptr);
+           (Write != nullptr || ConvertedWrite != nullptr ||
+            InstanceWrite != nullptr);
   }
 
   [[nodiscard]] bool IsLazy() const noexcept {
@@ -79,7 +87,8 @@ struct RegisteredMember final {
   [[nodiscard]] bool IsComplete() const noexcept {
     return Member.IsValid() && !QualifiedName.empty() && ValueType.IsValid() &&
            (Read != nullptr || Write != nullptr || ConvertedRead != nullptr ||
-            ConvertedWrite != nullptr || InstanceRead != nullptr);
+            ConvertedWrite != nullptr || InstanceRead != nullptr ||
+            InstanceWrite != nullptr);
   }
 };
 
@@ -161,6 +170,7 @@ struct MemberValueOutcome final {
   bool Succeeded = false;
   Value Converted;
   std::optional<OwnedValue> ConvertedValue;
+  void *InstanceStorage = nullptr;
   std::string Refusal;
 
   [[nodiscard]] static MemberValueOutcome Accept(Value Held) {
@@ -174,6 +184,13 @@ struct MemberValueOutcome final {
     MemberValueOutcome Outcome;
     Outcome.Succeeded = true;
     Outcome.ConvertedValue = std::move(Held);
+    return Outcome;
+  }
+
+  [[nodiscard]] static MemberValueOutcome AcceptInstance(void *Held) {
+    MemberValueOutcome Outcome;
+    Outcome.Succeeded = true;
+    Outcome.InstanceStorage = Held;
     return Outcome;
   }
 

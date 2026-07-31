@@ -321,11 +321,19 @@ ValidateParameterShape(std::span<const ParameterDescriptor> Parameters) {
     }
 
     if (Parameter.IsDelegate()) {
-      if (Parameter.DelegateSignature() == nullptr ||
-          Parameter.Kind() != nullptr || Parameter.HasDefault() ||
-          Parameter.AcceptsNil() || Parameter.Retains())
+      const DelegateShape *Declared = Parameter.DelegateSignature();
+      if (Declared == nullptr || Parameter.Kind() != nullptr ||
+          Parameter.HasDefault() || Parameter.AcceptsNil() ||
+          Parameter.Retains())
         return ParameterShapeIssue{ParameterShapeStatus::MalformedDelegate,
                                    Position};
+      for (const DelegateParameterShape &Staged : Declared->Parameters) {
+        if (Staged.Form != DelegateValueForm::Instance)
+          continue;
+        if (Staged.Resolve == nullptr || !Staged.Resolve().IsValid())
+          return ParameterShapeIssue{
+              ParameterShapeStatus::UnregisteredInstanceClass, Position};
+      }
       if (SawRelaxed)
         return ParameterShapeIssue{ParameterShapeStatus::RequiredAfterRelaxed,
                                    Position};

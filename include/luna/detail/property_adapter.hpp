@@ -39,6 +39,9 @@ struct MemberRequest final {
   MemberConvertedWriteOperation ConvertedWrite;
 
   MemberInstanceReadOperation InstanceRead;
+  MemberInstanceWriteOperation InstanceWrite;
+
+  bool InstanceWriteRequiresMutation = false;
 
   std::string Refusal;
 
@@ -47,7 +50,8 @@ struct MemberRequest final {
            InstanceRead != nullptr;
   }
   [[nodiscard]] bool HasWriter() const noexcept {
-    return Write != nullptr || ConvertedWrite != nullptr;
+    return Write != nullptr || ConvertedWrite != nullptr ||
+           InstanceWrite != nullptr;
   }
   [[nodiscard]] bool HasChangeHandler() const noexcept {
     return Change != nullptr;
@@ -190,6 +194,70 @@ struct MemberWriteShape<Class, Target,
     : MemberWriteCallableShape<Class,
                                typename CallableSignature<Target>::Type> {};
 
+template <class Class, class Target, class = void>
+struct MemberInstanceWriteShape {
+  static constexpr bool IsSupported = false;
+  static constexpr bool RequiresMutation = false;
+  using Native = void;
+};
+
+template <class Class, class Result, class Accepted>
+struct MemberInstanceWriteShape<Class, Result (Class::*)(Accepted)> {
+  static constexpr bool IsSupported =
+      std::is_void_v<Result> && IsInstanceParameterType<Accepted>;
+  static constexpr bool RequiresMutation =
+      InstanceParameterTrait<Accepted>::RequiresMutation;
+  using Native = InstanceParameterNative<Accepted>;
+  using Mutator = Result (Class::*)(Accepted);
+
+  static void Write(void *Object, const Mutator &Setter, void *Incoming) {
+    auto *Typed = static_cast<Class *>(Object);
+    auto *Held = static_cast<Native *>(Incoming);
+    if constexpr (InstanceParameterTrait<Accepted>::IsPointer)
+      (Typed->*Setter)(Held);
+    else if constexpr (InstanceParameterTrait<Accepted>::IsCopied)
+      (Typed->*Setter)(Native(*Held));
+    else
+      (Typed->*Setter)(static_cast<Accepted>(*Held));
+  }
+};
+
+template <class Class, class Signature>
+struct MemberInstanceWriteCallableShape {
+  static constexpr bool IsSupported = false;
+  static constexpr bool RequiresMutation = false;
+  using Native = void;
+};
+
+template <class Class, class Result, class Receiver, class Accepted>
+struct MemberInstanceWriteCallableShape<Class, Result(Receiver, Accepted)> {
+  static constexpr bool IsSupported =
+      std::is_void_v<Result> &&
+      std::is_same_v<std::remove_cvref_t<Receiver>, Class> &&
+      IsInstanceParameterType<Accepted>;
+  static constexpr bool RequiresMutation =
+      InstanceParameterTrait<Accepted>::RequiresMutation;
+  using Native = InstanceParameterNative<Accepted>;
+
+  template <class Mutator>
+  static void Write(void *Object, Mutator &Setter, void *Incoming) {
+    auto *Typed = static_cast<Class *>(Object);
+    auto *Held = static_cast<Native *>(Incoming);
+    if constexpr (InstanceParameterTrait<Accepted>::IsPointer)
+      Setter(*Typed, Held);
+    else if constexpr (InstanceParameterTrait<Accepted>::IsCopied)
+      Setter(*Typed, Native(*Held));
+    else
+      Setter(*Typed, static_cast<Accepted>(*Held));
+  }
+};
+
+template <class Class, class Target>
+struct MemberInstanceWriteShape<
+    Class, Target, std::void_t<typename CallableSignature<Target>::Type>>
+    : MemberInstanceWriteCallableShape<
+          Class, typename CallableSignature<Target>::Type> {};
+
 template <class Declared>
 inline constexpr bool IsConvertedMemberValue =
     !SupportedValue<Declared> && std::is_class_v<Declared> &&
@@ -199,9 +267,14 @@ template <class Declared>
 inline constexpr bool IsInstanceMemberValue = IsInstanceReturnType<Declared>;
 
 inline constexpr std::string_view WritableInstanceMemberRefusal =
-    "a member whose value is a registered class instance publishes one object "
-    "per read, so it is read-only; declare a method taking the new value "
-    "instead of a setter.";
+    "a field whose value is a registered class instance publishes one object "
+    "per read, so it is read-only; declare a property with a getter and a "
+    "setter taking that class as an instance operand instead.";
+
+inline constexpr std::string_view InstanceMemberChangeRefusal =
+    "an on-change handler receives the newly written value as one canonical "
+    "Luna value, which a registered class instance is not, so an "
+    "instance-valued property declares no on-change handler.";
 
 [[nodiscard]] inline StableTypeKey
 SyntheticConvertedValueKey(const StableTypeKey &ClassKey,
@@ -278,6 +351,28 @@ MakeMemberInstanceReader(Target Accessor, OwnershipPolicy Declared) {
     }
     return MemberInstanceOutcome::Accept(
         AdoptInstanceReturn<Produced>(std::move(Value), Declared));
+  };
+}
+
+template <class Class, class Target>
+[[nodiscard]] MemberInstanceWriteOperation
+MakeMemberInstanceWriter(Target Mutator) {
+  using Shape = MemberInstanceWriteShape<Class, Target>;
+  static_assert(Shape::IsSupported,
+                "A Luna instance property setter is a mutator of the class, or "
+                "a callable taking the class, whose one parameter names the "
+                "same registered class as an instance operand: T, const T &, "
+                "T &, T *, or const T *.");
+
+  return [Mutator](void *Object, void *Incoming) mutable -> MemberWriteOutcome {
+    if (Object == nullptr)
+      return MemberWriteOutcome::Refuse(
+          "the generated setter received no native object.");
+    if (Incoming == nullptr)
+      return MemberWriteOutcome::Refuse(
+          "the generated setter received no incoming object.");
+    Shape::Write(Object, Mutator, Incoming);
+    return MemberWriteOutcome::Accept();
   };
 }
 
@@ -399,10 +494,9 @@ ClassifyPropertyPolicy(const PropertyPolicy &Policy, bool HasReader,
 template <class Produced>
 [[nodiscard]] inline std::string
 ClassifyInstancePropertyPolicy(const PropertyPolicy &Policy,
-                               const OwnershipPolicy &Ownership) {
-  if (Policy.PermitsWrite())
-    return std::string(WritableInstanceMemberRefusal);
-  if (std::string Refused = ClassifyPropertyPolicy(Policy, true, false);
+                               const OwnershipPolicy &Ownership,
+                               bool HasWriter = false) {
+  if (std::string Refused = ClassifyPropertyPolicy(Policy, true, HasWriter);
       !Refused.empty())
     return Refused;
   return ClassifyInstanceReturnPolicy<Produced>(Ownership);
@@ -515,7 +609,8 @@ template <class Class, class Value, class Setter>
 template <class Class, class Getter, class Setter>
 [[nodiscard]] MemberRequest
 MakePropertyRequest(const StableTypeKey &Key, const PropertyPolicy &Policy,
-                    Getter Accessor, Setter Mutator) {
+                    Getter Accessor, Setter Mutator,
+                    OwnershipPolicy Ownership = UndeclaredOwnershipPolicy()) {
   using ReadShape = MemberReadShape<Class, Getter>;
   using Produced = typename ReadShape::Declared;
 
@@ -527,13 +622,28 @@ MakePropertyRequest(const StableTypeKey &Key, const PropertyPolicy &Policy,
   Request.ReadRequiresMutableReceiver = ReadShape::RequiresMutableReceiver;
 
   if constexpr (IsInstanceMemberValue<Produced>) {
-    static_cast<void>(Mutator);
-    Request.Access = MemberAccess::ReadOnly;
+    using WriteShape = MemberInstanceWriteShape<Class, Setter>;
+    static_assert(WriteShape::IsSupported,
+                  "A Luna instance property setter is a mutator of the class, "
+                  "or a callable taking the class, whose one parameter names "
+                  "the same registered class as an instance operand: T, "
+                  "const T &, T &, T *, or const T *.");
+    static_assert(
+        std::is_same_v<typename InstanceReturnTrait<Produced>::Native,
+                       typename WriteShape::Native>,
+        "A Luna read-write instance property names one registered class for "
+        "both its getter and its setter.");
+
     Request.ValueType = InstanceMemberValueDescriptor<Produced>();
-    Request.InstanceRead = MakeMemberInstanceReader<Class, Getter>(
-        std::move(Accessor), UndeclaredOwnershipPolicy());
-    Request.Refusal = std::string(WritableInstanceMemberRefusal);
+    Request.InstanceRead =
+        MakeMemberInstanceReader<Class, Getter>(std::move(Accessor), Ownership);
+    Request.InstanceWrite =
+        MakeMemberInstanceWriter<Class, Setter>(std::move(Mutator));
+    Request.InstanceWriteRequiresMutation = WriteShape::RequiresMutation;
+    Request.Refusal =
+        ClassifyInstancePropertyPolicy<Produced>(Policy, Ownership, true);
   } else {
+    static_cast<void>(Ownership);
     using WriteShape = MemberWriteShape<Class, Setter>;
     static_assert(std::is_same_v<Produced, typename WriteShape::Declared>,
                   "A Luna read-write property declares one value type for both "
@@ -580,6 +690,7 @@ MakeConvertedPropertyRequest(const StableTypeKey &Key, std::string_view Name,
 }
 
 template <class Class, class Getter, class Setter, class OnChange>
+  requires(!std::is_same_v<std::decay_t<OnChange>, OwnershipPolicy>)
 [[nodiscard]] MemberRequest
 MakePropertyRequest(const StableTypeKey &Key, const PropertyPolicy &Policy,
                     Getter Accessor, Setter Mutator, OnChange Handler) {
@@ -589,6 +700,7 @@ MakePropertyRequest(const StableTypeKey &Key, const PropertyPolicy &Policy,
   if constexpr (IsInstanceMemberValue<
                     typename MemberReadShape<Class, Getter>::Declared>) {
     static_cast<void>(Handler);
+    Request.Refusal = std::string(InstanceMemberChangeRefusal);
   } else {
     using WriteShape = MemberWriteShape<Class, Setter>;
     Request.Change =

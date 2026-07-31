@@ -221,14 +221,6 @@ ClassifyPendingObject(const StableTypeKey &Class,
   return std::string();
 }
 
-[[nodiscard]] std::shared_ptr<const TypeGeneration>
-CapturedTypes(lua_State *State) {
-  const UserdataAccessContext *Context = ObserveUserdataAccessContext(State);
-  if (Context && Context->Types)
-    return Context->Types->Capture();
-  return TypeGeneration::Foundation();
-}
-
 bool PushTo(lua_State *State, const OwnedValue &Source,
             const TypeGeneration &Types, int Depth) {
   if (State == nullptr || Depth > MaximumBridgeDepth ||
@@ -300,8 +292,16 @@ std::string ClassifyPendingInstances(const Luna::OwnedValue &Source,
   return ClassifyPending(Source, Types, 0);
 }
 
+std::shared_ptr<const TypeGeneration> CaptureOwnedValueTypes(lua_State *State) {
+  const UserdataAccessContext *Context = ObserveUserdataAccessContext(State);
+  if (Context && Context->Types)
+    return Context->Types->Capture();
+  return TypeGeneration::Foundation();
+}
+
 bool PushOwnedValueToStack(lua_State *State, const Luna::OwnedValue &Source) {
-  const std::shared_ptr<const TypeGeneration> Types = CapturedTypes(State);
+  const std::shared_ptr<const TypeGeneration> Types =
+      CaptureOwnedValueTypes(State);
   if (!Types)
     return false;
   return PushOwnedValueToStack(State, Source, *Types);

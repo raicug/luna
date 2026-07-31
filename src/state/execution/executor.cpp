@@ -1,14 +1,19 @@
 // clang-format off
 #include "state/execution/executor.hpp"
 
+#include "state/execution/interrupt.hpp"
 #include "state/invocation/async/suspended_call.hpp"
 #include "state/testing/fault_injector.hpp"
+#include "state/type/owned_value_bridge.hpp"
+#include "state/type/type_generation.hpp"
 #include "state/vm/stack_checkpoint.hpp"
 
 #include <Luau/Compiler.h>
 #include <lua.h>
 
+#include <cstddef>
 #include <exception>
+#include <memory>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -121,6 +126,7 @@ ExecutionResult ExecuteSource(lua_State *Root, std::string_view Source,
   if (!Root)
     return InternalFailure("execution root is unavailable.");
 
+  InterruptRequest *const Pending = ObserveInterruptRequest(Root);
   StackCheckpoint RootCheckpoint(Root);
   try {
     const std::string OwnedSource(Source);
@@ -160,6 +166,11 @@ ExecutionResult ExecuteSource(lua_State *Root, std::string_view Source,
                      "call to resume.",
                      "the executed chunk yielded unexpectedly."));
       }
+      if (Pending && Pending->IsPending()) {
+        const std::string Composed = Pending->Composed();
+        Async->CancelFor(Thread, Composed);
+        return ExecutionResult::Interrupted(Composed);
+      }
       static_cast<void>(Async->Advance(Thread));
       Status = lua_resume(Thread, nullptr, 0);
     }
@@ -167,12 +178,16 @@ ExecutionResult ExecuteSource(lua_State *Root, std::string_view Source,
     if (Status != LUA_OK) {
       const bool ForceFallback =
           Faults.Consume(StateFaultPoint::ExecutionErrorDiagnostic);
+      const std::string Reported = ReadTopError(
+          Thread, "execution failed without a Luau diagnostic.", ForceFallback);
+      if (Pending && Pending->IsPending())
+        return ExecutionResult::Interrupted(Reported.find(InterruptPrefix) !=
+                                                    std::string::npos
+                                                ? Reported
+                                                : Pending->Composed());
       return ExecutionResult::Failure(
           ErrorCategory::Runtime,
-          Prefixed(RuntimePrefix,
-                   ReadTopError(Thread,
-                                "execution failed without a Luau diagnostic.",
-                                ForceFallback),
+          Prefixed(RuntimePrefix, Reported,
                    "execution failed without a Luau diagnostic."));
     }
 
@@ -181,6 +196,180 @@ ExecutionResult ExecuteSource(lua_State *Root, std::string_view Source,
     return InternalFailure(Error.what());
   } catch (...) {
     return InternalFailure("unknown failure during source execution.");
+  }
+}
+
+bool CompileChunk(lua_State *Root, std::string_view Source,
+                  std::string_view Name, std::string &Bytecode,
+                  std::string &Diagnostic) {
+  if (!Root) {
+    Diagnostic = "execution root is unavailable.";
+    return false;
+  }
+
+  try {
+    Bytecode = Luau::compile(std::string(Source));
+
+    StackCheckpoint RootCheckpoint(Root);
+    ThreadCreationContext Context;
+    const int CreationStatus =
+        lua_cpcall(Root, CreateExecutionThread, &Context);
+    DisposableExecutionThread Disposable(Root, Context);
+    if (CreationStatus != LUA_OK || !Context.Thread ||
+        Context.Reference <= LUA_REFNIL) {
+      Diagnostic = "could not create and pin a validation thread.";
+      return false;
+    }
+
+    lua_State *Thread = Disposable.Get();
+    const std::string ChunkName = std::string("=") + std::string(Name);
+    if (luau_load(Thread, ChunkName.c_str(), Bytecode.data(), Bytecode.size(),
+                  0) != LUA_OK) {
+      Diagnostic =
+          Prefixed(CompilationPrefix,
+                   ReadTopError(Thread, "compiler rejected the source."),
+                   "compiler rejected the source.");
+      Bytecode.clear();
+      return false;
+    }
+    return true;
+  } catch (const std::exception &Error) {
+    Diagnostic = Error.what();
+    Bytecode.clear();
+    return false;
+  } catch (...) {
+    Diagnostic = "unknown failure while compiling a chunk.";
+    Bytecode.clear();
+    return false;
+  }
+}
+
+ChunkResult InvokeChunk(lua_State *Root, std::string_view Bytecode,
+                        std::string_view Name, const ValuePack &Arguments,
+                        FaultInjector *Faults, AsyncCallRegistry *Async) {
+  if (!Root)
+    return ChunkResult::Failure(
+        ErrorCategory::Internal,
+        Prefixed(InternalPrefix, "execution root is unavailable.", ""));
+
+  InterruptRequest *const Pending = ObserveInterruptRequest(Root);
+  StackCheckpoint RootCheckpoint(Root);
+  try {
+    if (Faults && Faults->Consume(StateFaultPoint::ExecutionThreadCreation))
+      return ChunkResult::Failure(
+          ErrorCategory::Internal,
+          Prefixed(InternalPrefix,
+                   "could not create disposable execution thread.", ""));
+
+    ThreadCreationContext Context;
+    const int CreationStatus =
+        lua_cpcall(Root, CreateExecutionThread, &Context);
+    DisposableExecutionThread Disposable(Root, Context);
+    if (CreationStatus != LUA_OK || !Context.Thread ||
+        Context.Reference <= LUA_REFNIL)
+      return ChunkResult::Failure(
+          ErrorCategory::Internal,
+          Prefixed(InternalPrefix,
+                   "could not create and pin disposable execution thread.",
+                   ""));
+
+    lua_State *Thread = Disposable.Get();
+    const std::string ChunkName = std::string("=") + std::string(Name);
+    if (luau_load(Thread, ChunkName.c_str(), Bytecode.data(), Bytecode.size(),
+                  0) != LUA_OK)
+      return ChunkResult::Failure(
+          ErrorCategory::Compilation,
+          Prefixed(CompilationPrefix,
+                   ReadTopError(Thread, "loader rejected the bytecode."),
+                   "loader rejected the bytecode."));
+
+    const std::shared_ptr<const TypeGeneration> Types =
+        CaptureOwnedValueTypes(Thread);
+    if (!Types)
+      return ChunkResult::Failure(
+          ErrorCategory::Internal,
+          Prefixed(InternalPrefix, "the chunk has no captured type registry.",
+                   ""));
+
+    for (std::size_t Index = 0; Index < Arguments.Size(); ++Index) {
+      const std::string Refusal =
+          ClassifyPendingInstances(Arguments.At(Index), *Types);
+      if (!Refusal.empty())
+        return ChunkResult::Failure(
+            ErrorCategory::Internal,
+            Prefixed(InternalPrefix,
+                     "chunk argument " + std::to_string(Index + 1) +
+                         " cannot be published: " + Refusal,
+                     ""));
+    }
+
+    if (!lua_checkstack(Thread, static_cast<int>(Arguments.Size()) + 4))
+      return ChunkResult::Failure(
+          ErrorCategory::Internal,
+          Prefixed(InternalPrefix,
+                   "could not reserve stack capacity for the chunk arguments.",
+                   ""));
+
+    for (std::size_t Index = 0; Index < Arguments.Size(); ++Index) {
+      if (!PushOwnedValueToStack(Thread, Arguments.At(Index), *Types))
+        return ChunkResult::Failure(ErrorCategory::Internal,
+                                    Prefixed(InternalPrefix,
+                                             "chunk argument " +
+                                                 std::to_string(Index + 1) +
+                                                 " could not be published.",
+                                             ""));
+    }
+
+    const PumpedExecutionThread Pumped(Async, Thread);
+    int Status =
+        lua_resume(Thread, nullptr, static_cast<int>(Arguments.Size()));
+    while (Status == LUA_YIELD) {
+      if (!Async || !Async->HasPendingFor(Thread))
+        return ChunkResult::Failure(
+            ErrorCategory::Runtime,
+            Prefixed(RuntimePrefix,
+                     "the invoked chunk yielded without any suspended Luna "
+                     "call to resume.",
+                     ""));
+      if (Pending && Pending->IsPending()) {
+        const std::string Composed = Pending->Composed();
+        Async->CancelFor(Thread, Composed);
+        return ChunkResult::Failure(
+            ErrorDiagnostic::Create(ErrorCategory::Interrupted, Composed));
+      }
+      static_cast<void>(Async->Advance(Thread));
+      Status = lua_resume(Thread, nullptr, 0);
+    }
+
+    if (Status != LUA_OK) {
+      const std::string Reported =
+          ReadTopError(Thread, "the chunk failed without a Luau diagnostic.");
+      if (Pending && Pending->IsPending())
+        return ChunkResult::Failure(ErrorDiagnostic::Create(
+            ErrorCategory::Interrupted,
+            Reported.find(InterruptPrefix) != std::string::npos
+                ? Reported
+                : Pending->Composed()));
+      return ChunkResult::Failure(
+          ErrorCategory::Runtime,
+          Prefixed(RuntimePrefix, Reported,
+                   "the chunk failed without a Luau diagnostic."));
+    }
+
+    ValuePack Produced;
+    const int ResultCount = lua_gettop(Thread);
+    for (int Index = 1; Index <= ResultCount; ++Index)
+      Produced.Append(BuildOwnedValueFromStack(Thread, Index));
+    return ChunkResult::Delivered(std::move(Produced));
+  } catch (const std::exception &Error) {
+    return ChunkResult::Failure(
+        ErrorCategory::Internal,
+        Prefixed(InternalPrefix, Error.what(), "chunk invocation failed."));
+  } catch (...) {
+    return ChunkResult::Failure(
+        ErrorCategory::Internal,
+        Prefixed(InternalPrefix, "unknown failure during chunk invocation.",
+                 ""));
   }
 }
 

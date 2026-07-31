@@ -1,8 +1,13 @@
 #pragma once
 
 // clang-format off
+#include <luna/binding/class_construction.hpp>
+#include <luna/binding/conversion.hpp>
+#include <luna/binding/registered_class.hpp>
 #include <luna/binding/value.hpp>
+#include <luna/type/stable_type_key.hpp>
 
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <optional>
@@ -43,9 +48,57 @@ DelegateStatusText(DelegateStatus Status) noexcept {
   return "released";
 }
 
+enum class DelegateValueForm { Scalar, Instance, Owned, Pack };
+
+[[nodiscard]] constexpr std::string_view
+DelegateValueFormText(DelegateValueForm Form) noexcept {
+  switch (Form) {
+  case DelegateValueForm::Scalar:
+    return "scalar";
+  case DelegateValueForm::Instance:
+    return "instance";
+  case DelegateValueForm::Owned:
+    return "owned";
+  case DelegateValueForm::Pack:
+    return "pack";
+  }
+  return "scalar";
+}
+
+struct DelegateParameterShape final {
+  DelegateValueForm Form = DelegateValueForm::Scalar;
+  ValueKind Kind = ValueKind::Boolean;
+  Detail::ClassKeyResolver Resolve = nullptr;
+
+  [[nodiscard]] friend bool
+  operator==(const DelegateParameterShape &Left,
+             const DelegateParameterShape &Right) = default;
+};
+
 struct DelegateShape final {
-  std::vector<ValueKind> Parameters;
+  std::vector<DelegateParameterShape> Parameters;
   std::optional<ValueKind> Result;
+
+  [[nodiscard]] bool CarriesObjects() const noexcept {
+    for (const DelegateParameterShape &Declared : Parameters) {
+      if (Declared.Form != DelegateValueForm::Scalar)
+        return true;
+    }
+    return false;
+  }
+
+  [[nodiscard]] std::size_t FixedParameterCount() const noexcept {
+    std::size_t Fixed = 0;
+    for (const DelegateParameterShape &Declared : Parameters) {
+      if (Declared.Form != DelegateValueForm::Pack)
+        Fixed += 1;
+    }
+    return Fixed;
+  }
+
+  [[nodiscard]] bool CarriesPack() const noexcept {
+    return FixedParameterCount() != Parameters.size();
+  }
 
   [[nodiscard]] friend bool operator==(const DelegateShape &Left,
                                        const DelegateShape &Right) = default;
@@ -125,6 +178,56 @@ template <class Type> [[nodiscard]] constexpr ValueKind DelegateValueKind() {
     return ValueKind::String;
 }
 
+template <class Type>
+inline constexpr bool IsDelegateOwnedType =
+    std::is_same_v<std::remove_cvref_t<Type>, OwnedValue>;
+
+template <class Type>
+inline constexpr bool IsDelegatePackType =
+    std::is_same_v<std::remove_cvref_t<Type>, ValuePack>;
+
+template <class Type>
+inline constexpr bool IsDelegateInstanceType = IsInstanceReturnType<Type>;
+
+template <class Type>
+inline constexpr bool IsDelegateParameterValue =
+    IsDelegateValueType<Type> || IsDelegateOwnedType<Type> ||
+    IsDelegatePackType<Type> || IsDelegateInstanceType<Type>;
+
+template <class... Parameters> struct DelegatePackPosition;
+
+template <> struct DelegatePackPosition<> {
+  static constexpr bool IsValid = true;
+};
+
+template <class Final> struct DelegatePackPosition<Final> {
+  static constexpr bool IsValid = true;
+};
+
+template <class First, class... Rest>
+struct DelegatePackPosition<First, Rest...> {
+  static constexpr bool IsValid =
+      !IsDelegatePackType<First> && DelegatePackPosition<Rest...>::IsValid;
+};
+
+template <class Parameter>
+[[nodiscard]] DelegateParameterShape DelegateParameterShapeOf() {
+  DelegateParameterShape Declared;
+  if constexpr (IsDelegateOwnedType<Parameter>) {
+    Declared.Form = DelegateValueForm::Owned;
+  } else if constexpr (IsDelegatePackType<Parameter>) {
+    Declared.Form = DelegateValueForm::Pack;
+  } else if constexpr (IsDelegateInstanceType<Parameter>) {
+    Declared.Form = DelegateValueForm::Instance;
+    Declared.Resolve =
+        ClassKeyResolverFor<typename InstanceReturnTrait<Parameter>::Native>();
+  } else {
+    Declared.Form = DelegateValueForm::Scalar;
+    Declared.Kind = DelegateValueKind<Parameter>();
+  }
+  return Declared;
+}
+
 class DelegateTarget {
 public:
   DelegateTarget() = default;
@@ -137,6 +240,15 @@ public:
   [[nodiscard]] virtual std::uint64_t Identity() const noexcept = 0;
   [[nodiscard]] virtual DelegateCallResult
   Call(std::span<const Value> Arguments) = 0;
+
+  [[nodiscard]] virtual DelegateCallResult
+  CallOwned(std::span<const OwnedValue> Arguments) {
+    static_cast<void>(Arguments);
+    return DelegateCallResult::Refused(
+        DelegateStatus::HandlerFailed,
+        "this subscribed handler does not accept arguments carrying objects.");
+  }
+
   virtual void Release() noexcept = 0;
 };
 
@@ -146,12 +258,16 @@ template <class Return, class... Parameters>
 struct DelegateSignatureShape<Return(Parameters...)> {
   static constexpr bool IsSupported =
       (std::is_void_v<Return> || IsDelegateValueType<Return>) &&
-      (IsDelegateValueType<Parameters> && ...);
+      (IsDelegateParameterValue<Parameters> && ...) &&
+      DelegatePackPosition<Parameters...>::IsValid;
+
+  static constexpr bool CarriesObjects =
+      (false || ... || !IsDelegateValueType<Parameters>);
 
   [[nodiscard]] static DelegateShape Shape() {
     DelegateShape Declared;
-    Declared.Parameters =
-        std::vector<ValueKind>{DelegateValueKind<Parameters>()...};
+    Declared.Parameters = std::vector<DelegateParameterShape>{
+        DelegateParameterShapeOf<Parameters>()...};
     if constexpr (!std::is_void_v<Return>)
       Declared.Result = DelegateValueKind<Return>();
     return Declared;
@@ -198,18 +314,34 @@ public:
     return BoundValue;
   }
 
+  void DeclareOwnership(OwnershipPolicy Declared) {
+    OwnershipValue = std::move(Declared);
+  }
+
+  [[nodiscard]] const OwnershipPolicy &Ownership() const noexcept {
+    return OwnershipValue;
+  }
+
   [[nodiscard]] DelegateCallResult Invoke(Parameters... Arguments) const {
     if (!BoundValue)
       return DelegateCallResult::Refused(
           DelegateStatus::Released,
           "the delegate names no subscribed handler.");
 
-    std::vector<Value> Staged;
-    Staged.reserve(sizeof...(Parameters));
-    (Staged.push_back(Value(std::in_place_type<Parameters>,
-                            std::forward<Parameters>(Arguments))),
-     ...);
-    return BoundValue->Call(Staged);
+    if constexpr (Detail::DelegateSignatureShape<
+                      SignatureType>::CarriesObjects) {
+      std::vector<OwnedValue> Staged;
+      Staged.reserve(sizeof...(Parameters));
+      (StageOwned(Staged, std::forward<Parameters>(Arguments)), ...);
+      return BoundValue->CallOwned(Staged);
+    } else {
+      std::vector<Value> Staged;
+      Staged.reserve(sizeof...(Parameters));
+      (Staged.push_back(Value(std::in_place_type<Parameters>,
+                              std::forward<Parameters>(Arguments))),
+       ...);
+      return BoundValue->Call(Staged);
+    }
   }
 
   Return operator()(Parameters... Arguments) const {
@@ -227,7 +359,29 @@ public:
   }
 
 private:
+  template <class Parameter>
+  void StageOwned(std::vector<OwnedValue> &Staged, Parameter &&Argument) const {
+    using Declared = std::remove_cvref_t<Parameter>;
+    if constexpr (Detail::IsDelegatePackType<Declared>) {
+      for (std::size_t Index = 0; Index < Argument.Size(); ++Index)
+        Staged.push_back(Argument.At(Index));
+    } else if constexpr (Detail::IsDelegateOwnedType<Declared>) {
+      Staged.push_back(std::forward<Parameter>(Argument));
+    } else if constexpr (Detail::IsDelegateValueType<Declared>) {
+      Staged.push_back(OwnedValue::FromValue(Value(
+          std::in_place_type<Declared>, std::forward<Parameter>(Argument))));
+    } else if constexpr (std::is_pointer_v<Declared>) {
+      using Native = typename Detail::InstanceReturnTrait<Declared>::Native;
+      Staged.push_back(OwnedValue::Instance<Native>(Argument, OwnershipValue));
+    } else {
+      using Native = typename Detail::InstanceReturnTrait<Declared>::Native;
+      Staged.push_back(
+          OwnedValue::Instance<Native>(std::forward<Parameter>(Argument)));
+    }
+  }
+
   std::shared_ptr<Detail::DelegateTarget> BoundValue;
+  OwnershipPolicy OwnershipValue = OwnershipPolicy::LuaOwned();
 };
 
 } // namespace Luna

@@ -63,9 +63,22 @@ ShapeIsConsistent(std::span<const ParameterDescriptor> Parameters,
       const DelegateShape *Declared = Parameter.DelegateSignature();
       if (!Declared)
         return false;
-      for (const ValueKind Kind : Declared->Parameters) {
-        if (!Types.IsAvailableForWrite(CanonicalValueType(Kind)))
-          return false;
+      for (const DelegateParameterShape &Staged : Declared->Parameters) {
+        switch (Staged.Form) {
+        case DelegateValueForm::Scalar:
+          if (!Types.IsAvailableForWrite(CanonicalValueType(Staged.Kind)))
+            return false;
+          break;
+        case DelegateValueForm::Instance:
+          if (Staged.Resolve == nullptr ||
+              !Types.IsAvailableForWrite(
+                  TypeDescriptor::ForClass(Staged.Resolve())))
+            return false;
+          break;
+        case DelegateValueForm::Owned:
+        case DelegateValueForm::Pack:
+          break;
+        }
       }
       if (Declared->Result &&
           !Types.IsAvailableForRead(CanonicalValueType(*Declared->Result)))

@@ -311,6 +311,41 @@ MemberWriteResult WriteClassMember(MemberAccessContext &Context,
                                           DeclaredValueText(Context, Member))
             : Offered.Refusal);
 
+  if (Member.IsInstanceWritable()) {
+    if (Offered.InstanceStorage == nullptr)
+      return RefuseWrite(
+          MemberAccessFailure::IncompatibleValue, UserdataAccessFailure::None,
+          Offered.Refusal.empty()
+              ? DescribeMemberValueMismatch(Member.QualifiedName,
+                                            DeclaredValueText(Context, Member))
+              : Offered.Refusal);
+
+    MemberWriteOutcome Written;
+    try {
+      Written = Member.InstanceWrite(Receiver.Storage, Offered.InstanceStorage);
+    } catch (const std::exception &Error) {
+      return RefuseWrite(
+          MemberAccessFailure::ContainedException, UserdataAccessFailure::None,
+          DescribeMemberException(Member.QualifiedName, false, Error.what()));
+    } catch (...) {
+      return RefuseWrite(
+          MemberAccessFailure::ContainedException, UserdataAccessFailure::None,
+          DescribeMemberUnknownException(Member.QualifiedName, false));
+    }
+
+    if (!Written.Succeeded)
+      return RefuseWrite(MemberAccessFailure::RefusedTarget,
+                         UserdataAccessFailure::None,
+                         DescribeMemberTargetRefusal(Member.QualifiedName,
+                                                     false, Written.Refusal));
+
+    MemberWriteResult Result;
+    Result.Failure = MemberAccessFailure::None;
+    if (Context.Lazy != nullptr)
+      Result.Invalidated = Context.Lazy->InvalidateOwner(Header);
+    return Result;
+  }
+
   if (Member.IsConverted()) {
     if (!Member.ConvertedWrite || !Offered.ConvertedValue.has_value())
       return RefuseWrite(

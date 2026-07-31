@@ -74,6 +74,9 @@ struct PlannedClassMember final {
   MemberConvertedWriteOperation ConvertedWrite;
 
   MemberInstanceReadOperation InstanceRead;
+  MemberInstanceWriteOperation InstanceWrite;
+
+  bool InstanceWriteRequiresMutation = false;
 };
 
 struct PlannedClassOperator final {

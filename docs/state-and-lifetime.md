@@ -25,7 +25,9 @@ Move assignment releases any VM already owned by the destination before transfer
 
 A State has two identities. The *owner object* is the `Luna::State` variable you hold; the *logical State* is the implementation it owns. A move transfers the implementation, so the logical State keeps its identity, its committed model, and its reflection generations, while the owner object changes.
 
-The owner thread belongs to the logical State. It is the thread that constructed the implementation, and a move does not adopt the thread that performed the move. Every VM-backed operation — registration, commit, freeze, execution — must happen on that thread. Reflection snapshots are the exception: they own immutable storage and are readable from any thread.
+The owner thread belongs to the logical State. It is the thread that constructed the implementation, and a move does not adopt the thread that performed the move. Every VM-backed operation — registration, commit, freeze, execution, loading and invoking a chunk — must happen on that thread. Two exceptions are deliberate: reflection snapshots own immutable storage and are readable from any thread, and `RequestInterrupt` / `ClearInterrupt` / `IsInterruptPending` are callable from any thread, because a stop request comes from outside the thread that is busy running a script.
+
+A `Luna::Chunk` produced by `State::Load` holds a shared handle to the logical State rather than a pointer to the owner object, so a chunk survives a move of its `State` variable. Invoking a chunk whose logical State is gone reports `StateNotReady` instead of touching a closed VM.
 
 Practically: create a State on the thread that will script with it, and pass snapshots, not registries, to worker threads.
 

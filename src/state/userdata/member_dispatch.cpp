@@ -1,6 +1,7 @@
 // clang-format off
 #include "state/userdata/member_dispatch.hpp"
 
+#include "state/invocation/members/receiver.hpp"
 #include "state/testing/fault_injector.hpp"
 #include "state/testing/fault_point.hpp"
 #include "state/type/conversion_outcome.hpp"
@@ -302,8 +303,23 @@ AccessContextFor(const ResolvedMember &Resolved) {
   const TypeId Declared = Resolved.Member->ValueType;
 
   const bool IsConverted = Resolved.Member->IsConverted();
+  const RegisteredMember *const Member = Resolved.Member;
   const MemberValueSource Source = [State, &Types, &Declared, &Qualified,
+                                    Member,
                                     IsConverted]() -> MemberValueOutcome {
+    if (Member->IsInstanceWritable()) {
+      const ValidatedReceiver Bound = ValidateInstanceReceiver(
+          State, Qualified, Types, Member->ValueDescriptor,
+          Member->InstanceWriteRequiresMutation, IncomingPosition);
+      if (!Bound.IsBound())
+        return MemberValueOutcome::Refuse(DescribeMemberTargetRefusal(
+            Qualified, false,
+            Bound.Diagnostic.empty() ? std::string("the incoming value is not "
+                                                   "an instance of its class.")
+                                     : Bound.Diagnostic));
+      return MemberValueOutcome::AcceptInstance(Bound.Bound.Storage());
+    }
+
     if (IsConverted) {
       if (lua_type(State, IncomingPosition) == LUA_TNONE)
         return MemberValueOutcome::Refuse(DescribeMemberInternalRefusal(

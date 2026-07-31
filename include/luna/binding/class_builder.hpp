@@ -241,6 +241,19 @@ public:
     return *this;
   }
 
+  template <class Getter, class Setter>
+    requires(!std::is_same_v<std::decay_t<Getter>, PropertyPolicy>)
+  ClassBuilder &Property(std::string_view Name, Getter Accessor, Setter Mutator,
+                         OwnershipPolicy Ownership) {
+    const PropertyPolicy Policy = PropertyPolicy::ReadWrite();
+    Detail::MemberRequest Request =
+        Detail::MakePropertyRequest<Type, Getter, Setter>(
+            ClassKey, Policy, std::move(Accessor), std::move(Mutator),
+            std::move(Ownership));
+    Staging.StageAccessor(Name, std::move(Request));
+    return *this;
+  }
+
   template <class Accessor>
   ClassBuilder &Property(std::string_view Name, PropertyPolicy Policy,
                          Accessor Target, OwnershipPolicy Ownership) {
@@ -275,6 +288,18 @@ public:
     Detail::MemberRequest Request =
         Detail::MakePropertyRequest<Type, Getter, Setter>(
             ClassKey, Policy, std::move(Accessor), std::move(Mutator));
+    Staging.StageAccessor(Name, std::move(Request));
+    return *this;
+  }
+
+  template <class Getter, class Setter>
+  ClassBuilder &Property(std::string_view Name, PropertyPolicy Policy,
+                         Getter Accessor, Setter Mutator,
+                         OwnershipPolicy Ownership) {
+    Detail::MemberRequest Request =
+        Detail::MakePropertyRequest<Type, Getter, Setter>(
+            ClassKey, Policy, std::move(Accessor), std::move(Mutator),
+            std::move(Ownership));
     Staging.StageAccessor(Name, std::move(Request));
     return *this;
   }
@@ -342,6 +367,7 @@ public:
   }
 
   template <class Getter, class Setter, class OnChange>
+    requires(!std::is_same_v<std::decay_t<OnChange>, OwnershipPolicy>)
   ClassBuilder &Property(std::string_view Name, PropertyPolicy Policy,
                          Getter Accessor, Setter Mutator, OnChange Handler) {
     Detail::MemberRequest Request =

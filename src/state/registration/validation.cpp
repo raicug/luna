@@ -199,6 +199,9 @@ CheckTypeAvailability(const RegistrationValidationRequest &Request,
       return false;
     const std::span<const TypeDescriptor> Children = Type.Children();
     for (std::size_t Index = 0; Index < Children.size(); ++Index) {
+      const std::optional<FixedTypeKey> Fixed = Children[Index].FixedKey();
+      if (Fixed == FixedTypeKey::Value || Fixed == FixedTypeKey::ValuePack)
+        continue;
       if (!IsAvailableCanonicalType(Types, Children[Index], Index == 0))
         return false;
     }

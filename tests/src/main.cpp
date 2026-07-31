@@ -47,6 +47,7 @@ int RunDeclarationGenerationTests();
 int RunDeclaredParameterIntegrationTests();
 int RunDeclaredParameterShapeTests();
 int RunDelegateBindingTests();
+int RunDelegateObjectTests();
 int RunDescriptorPlanTests();
 int RunDispatchGenerationIntegrationTests();
 int RunDispatchSlotIndirectionTests();
@@ -54,6 +55,8 @@ int RunDocumentationGenerationTests();
 int RunDynamicModuleLifecycleProperties();
 int RunEndToEndRegistrationInvocationMatrixTests();
 int RunEnumeratorObjectTests();
+int RunChunkTests();
+int RunExecutionInterruptionTests();
 int RunExecutionRecoveryProperties();
 int RunExecutionStackBalanceProperties();
 int RunFailedRegistrationTransactionsProperties();
@@ -224,6 +227,10 @@ int main() {
                RunInstanceReturnTests},
       TestCase{"registered class instances as property and field values",
                RunInstanceMemberTests},
+      TestCase{"interruptible source execution", RunExecutionInterruptionTests},
+      TestCase{"loadable and re-entrant chunks", RunChunkTests},
+      TestCase{"delegates carrying registered class instances",
+               RunDelegateObjectTests},
       TestCase{"class-scope constants on the class table",
                RunClassConstantTests},
       TestCase{"registered class instances published at a name",

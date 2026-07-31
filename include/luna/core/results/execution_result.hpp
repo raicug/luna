@@ -24,6 +24,11 @@ public:
     return ExecutionResult(std::move(DiagnosticValue));
   }
 
+  [[nodiscard]] static ExecutionResult Interrupted(std::string Message) {
+    return ExecutionResult(ErrorDiagnostic::Create(ErrorCategory::Interrupted,
+                                                   std::move(Message)));
+  }
+
   ExecutionResult(const ExecutionResult &) = default;
   ExecutionResult &operator=(const ExecutionResult &) = default;
   ExecutionResult(ExecutionResult &&) = default;
@@ -31,6 +36,11 @@ public:
 
   [[nodiscard]] bool IsSuccess() const noexcept {
     return !DiagnosticValue.has_value();
+  }
+
+  [[nodiscard]] bool IsInterrupted() const noexcept {
+    return DiagnosticValue &&
+           DiagnosticValue->Category() == ErrorCategory::Interrupted;
   }
 
   [[nodiscard]] const ErrorDiagnostic *Diagnostic() const noexcept {

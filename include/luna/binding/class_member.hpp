@@ -277,6 +277,9 @@ struct MemberInstanceOutcome final {
 using MemberInstanceReadOperation =
     std::function<MemberInstanceOutcome(const void *Object)>;
 
+using MemberInstanceWriteOperation =
+    std::function<MemberWriteOutcome(void *Object, void *Incoming)>;
+
 } // namespace Detail
 
 } // namespace Luna

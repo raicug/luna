@@ -149,6 +149,17 @@ CaptureReturn(Invoker &&Invoke,
     return InvocationOutcome::WithOwnedValues(std::move(Produced));
   } else if constexpr (IsOwnedPackReturn<Return>) {
     return InvocationOutcome::WithOwnedValues(Invoke());
+  } else if constexpr (IsChunkReturn<Return>) {
+    const Luna::Chunk Produced = Invoke();
+    if (!Produced.IsLoaded()) {
+      const ErrorDiagnostic *Refused = Produced.Diagnostic();
+      return InvocationOutcome::InternalFailure(
+          Refused != nullptr ? Refused->Message()
+                             : std::string("the callable produced no loadable "
+                                           "chunk."));
+    }
+    return InvocationOutcome::WithChunk(std::string(Produced.Bytecode()),
+                                        std::string(Produced.Name()));
   } else if constexpr (IsFixedReturnPack<Return>::value) {
     return InvocationOutcome::WithValues(StageReturnPack(Invoke()));
   } else {
@@ -463,6 +474,8 @@ struct DescriptorMetadata<Return(Parameters...)> {
       return ReturnMetadata::ForOwnedValue();
     else if constexpr (IsOwnedPackReturn<Return>)
       return ReturnMetadata::ForOwnedPack();
+    else if constexpr (IsChunkReturn<Return>)
+      return ReturnMetadata::ForChunk();
     else if constexpr (IsInstanceReturnType<Return>)
       return ReturnMetadata::ForInstance(
           RecordedClassKey<typename InstanceReturnTrait<Return>::Native>());

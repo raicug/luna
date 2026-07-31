@@ -57,6 +57,9 @@ TypeDescriptor CanonicalReturnType(const ReturnMetadata &Return) {
     if (const StableTypeKey *Class = Return.InstanceKey())
       return TypeDescriptor::ForClass(*Class);
     break;
+  case ReturnDisposition::Chunk:
+    return TypeDescriptor::ForStructure(
+        TypeKind::Callable, {TypeDescriptor::ForFixed(FixedTypeKey::Void)});
   case ReturnDisposition::Void:
   case ReturnDisposition::Suppress:
     break;
@@ -104,6 +107,8 @@ ReturnShape ReflectedReturnShapeOf(const ReturnMetadata &Return) {
     return ReturnShape::Multiple;
   case ReturnDisposition::Instance:
     return Return.InstanceKey() ? ReturnShape::Scalar : ReturnShape::Zero;
+  case ReturnDisposition::Chunk:
+    return ReturnShape::Scalar;
   case ReturnDisposition::Void:
   case ReturnDisposition::Suppress:
     break;
@@ -149,6 +154,12 @@ MakeReflectedReturnFields(const ReturnMetadata &Return) {
   case ReturnDisposition::Instance:
     if (const StableTypeKey *Class = Return.InstanceKey())
       Reflected.push_back(Describe("Result", TypeDescriptor::ForClass(*Class)));
+    return Reflected;
+  case ReturnDisposition::Chunk:
+    Reflected.push_back(Describe(
+        "Result", TypeDescriptor::ForStructure(
+                      TypeKind::Callable,
+                      {TypeDescriptor::ForFixed(FixedTypeKey::Void)})));
     return Reflected;
   case ReturnDisposition::Void:
   case ReturnDisposition::Suppress:

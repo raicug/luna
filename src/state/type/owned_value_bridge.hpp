@@ -4,6 +4,7 @@
 #include <luna/binding/conversion.hpp>
 
 #include <cstddef>
+#include <memory>
 #include <string>
 // clang-format on
 
@@ -19,6 +20,9 @@ class TypeGeneration;
 [[nodiscard]] std::string
 ClassifyPendingInstances(const Luna::OwnedValue &Source,
                          const TypeGeneration &Types);
+
+[[nodiscard]] std::shared_ptr<const TypeGeneration>
+CaptureOwnedValueTypes(lua_State *State);
 
 [[nodiscard]] bool PushOwnedValueToStack(lua_State *State,
                                          const Luna::OwnedValue &Source);
