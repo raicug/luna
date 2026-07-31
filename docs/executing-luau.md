@@ -54,13 +54,13 @@ if (Produced.IsSuccess())
 
 `Load` validates by loading the compiled bytecode once and discarding the result, so a chunk that reports `IsLoaded()` will load again. A chunk that does not compile carries its diagnostic through the usual result type: `Diagnostic()` returns an `ErrorCategory::Compilation` failure, and invoking it repeats that diagnostic and runs nothing. The second `Load` overload names the chunk, which is the name Luau reports in error messages; the default is `LunaChunk`.
 
-Arguments and results use the shapes a registered callable already publishes. Arguments are a `ValuePack`, so a chunk receives scalars, tables, nested tables, and manufactured instances through `OwnedValue::Instance<T>`. Results are a `ValuePack` too — as many values as the chunk returned, each an `OwnedValue`, so a returned table is readable field by field. A chunk that raises reports an `ErrorCategory::Runtime` failure; Luna never throws a Luau error into consumer code.
+Arguments and results use the shapes a registered callable already publishes. Arguments are a `ValuePack`, so a chunk receives scalars, tables, nested tables, and manufactured instances through `OwnedValue::Instance<T>`. Results are a `ValuePack` too - as many values as the chunk returned, each an `OwnedValue`, so a returned table is readable field by field. A chunk that raises reports an `ErrorCategory::Runtime` failure; Luna never throws a Luau error into consumer code.
 
 A `Chunk` is an ordinary value: default-constructible, copyable, and storable. It holds a shared handle to the State that compiled it, so invoking a chunk whose State is gone reports `StateNotReady` instead of touching a closed VM. A chunk runs on that State's owner thread only.
 
 ### Re-entrancy
 
-A chunk may be invoked **from inside a native call** — a method, a delegate handler, a namespace function — which is what makes `Execute` re-entrancy defined rather than undefined:
+A chunk may be invoked **from inside a native call** - a method, a delegate handler, a namespace function - which is what makes `Execute` re-entrancy defined rather than undefined:
 
 - The nested chunk runs on **its own fresh Luau thread**, created from the root exactly as `Execute` creates one. It does *not* share the calling chunk's stack, and it has its own stack checkpoint, so a nested failure cannot leave values on the caller's stack.
 - It **shares the State's globals and its dispatch generation**: a global the outer chunk assigned is visible, and a call the nested chunk makes resolves the same dispatch slots at the same generation the rest of the execution is using.
@@ -84,11 +84,11 @@ assert(type(F) == "function")
 print(F(1, 2))      -- 3
 ```
 
-The published closure is an ordinary Luau function: it runs on the caller's thread inside the caller's protected frame, takes whatever arguments the script passes, returns as many values as it produces, sees the State's globals, and can be called any number of times. An error inside it propagates like any Luau error, so `pcall(F)` catches it. A source the compiler rejects refuses the call that produced it — the script never receives a broken function.
+The published closure is an ordinary Luau function: it runs on the caller's thread inside the caller's protected frame, takes whatever arguments the script passes, returns as many values as it produces, sees the State's globals, and can be called any number of times. An error inside it propagates like any Luau error, so `pcall(F)` catches it. A source the compiler rejects refuses the call that produced it - the script never receives a broken function.
 
 ## Interrupting execution
 
-A chunk that never calls a host callable — `while true do end` — would otherwise run until it returns. `State::RequestInterrupt(std::string Reason)` stops it:
+A chunk that never calls a host callable - `while true do end` - would otherwise run until it returns. `State::RequestInterrupt(std::string Reason)` stops it:
 
 ```cpp
 Owner.RequestInterrupt("the user pressed stop");   // any thread
@@ -101,19 +101,19 @@ Owner.ClearInterrupt();
 
 `RequestInterrupt` is callable **from any thread**, which is the point: a UI thread raises the flag while the owner thread is inside `Execute`. `ClearInterrupt()` disarms it and `IsInterruptPending()` reports the current state; all three are safe on a State whose VM never came up, where they do nothing.
 
-With an interrupt pending, the executing chunk raises a deterministic error at its next interrupt point — a loop back-edge or a call — carrying `Execution interrupted:` and the reason the host stated. The error travels the ordinary protected path, so:
+With an interrupt pending, the executing chunk raises a deterministic error at its next interrupt point - a loop back-edge or a call - carrying `Execution interrupted:` and the reason the host stated. The error travels the ordinary protected path, so:
 
 - **`pcall` catches it** like any other error, and the message it receives is the one the host stated.
 - The disposable execution thread is reset and the **root stack depth is restored**, exactly as for a script error.
 - The **State stays reusable**: registered globals, namespaces, and classes are untouched, and the next `Execute` runs normally.
-- `ExecutionResult` reports it as **interrupted, not as a script error** — `IsInterrupted()` is true and the diagnostic category is `ErrorCategory::Interrupted` — so a host can tell "the user stopped it" from "the script threw".
+- `ExecutionResult` reports it as **interrupted, not as a script error** - `IsInterrupted()` is true and the diagnostic category is `ErrorCategory::Interrupted` - so a host can tell "the user stopped it" from "the script threw".
 
 Two rules follow from the flag being sticky:
 
 - The flag **stays armed until `ClearInterrupt()`**. That is what makes the stop button work: a script that catches the error with `pcall` and keeps looping is interrupted again at the next interrupt point, so it cannot outlast the request. The cost is that the host clears the flag once the stop has been handled; a chunk started with the flag still armed is interrupted immediately.
 - **Requesting an interrupt with no chunk executing raises nothing and mutates nothing** beyond arming the flag. A host pressing stop always races the chunk finishing, so this case is a plain no-op rather than an error.
 
-If a suspended asynchronous call is outstanding when the interrupt is observed, Luna requests cancellation on that work and settles the call as cancelled — the same path a State shutdown takes — and `Execute` returns the interrupted result without resuming the chunk.
+If a suspended asynchronous call is outstanding when the interrupt is observed, Luna requests cancellation on that work and settles the call as cancelled - the same path a State shutdown takes - and `Execute` returns the interrupted result without resuming the chunk.
 
 The interrupt applies to the whole Luau global state, so a nested chunk invoked from inside a native call is interrupted too, and the error propagates out through the calling chunk.
 

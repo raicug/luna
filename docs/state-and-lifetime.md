@@ -25,7 +25,7 @@ Move assignment releases any VM already owned by the destination before transfer
 
 A State has two identities. The *owner object* is the `Luna::State` variable you hold; the *logical State* is the implementation it owns. A move transfers the implementation, so the logical State keeps its identity, its committed model, and its reflection generations, while the owner object changes.
 
-The owner thread belongs to the logical State. It is the thread that constructed the implementation, and a move does not adopt the thread that performed the move. Every VM-backed operation — registration, commit, freeze, execution, loading and invoking a chunk — must happen on that thread. Two exceptions are deliberate: reflection snapshots own immutable storage and are readable from any thread, and `RequestInterrupt` / `ClearInterrupt` / `IsInterruptPending` are callable from any thread, because a stop request comes from outside the thread that is busy running a script.
+The owner thread belongs to the logical State. It is the thread that constructed the implementation, and a move does not adopt the thread that performed the move. Every VM-backed operation - registration, commit, freeze, execution, loading and invoking a chunk - must happen on that thread. Two exceptions are deliberate: reflection snapshots own immutable storage and are readable from any thread, and `RequestInterrupt` / `ClearInterrupt` / `IsInterruptPending` are callable from any thread, because a stop request comes from outside the thread that is busy running a script.
 
 A `Luna::Chunk` produced by `State::Load` holds a shared handle to the logical State rather than a pointer to the owner object, so a chunk survives a move of its `State` variable. Invoking a chunk whose logical State is gone reports `StateNotReady` instead of touching a closed VM.
 
@@ -37,7 +37,7 @@ A logical State is *ready* and open to registration, then optionally *frozen*.
 
 | Phase | Registration | Invocation | Reflection |
 |---|---|---|---|
-| Not ready | refused | — | empty snapshot |
+| Not ready | refused | - | empty snapshot |
 | Ready | permitted | permitted | permitted |
 | Frozen | refused | permitted | permitted |
 
@@ -60,7 +60,7 @@ Getting a fresh registry at each registration site is cheap and avoids lifetime 
 
 `NamespaceBuilder`, `EnumBuilder<T>`, and `ClassBuilder<T>` own a *pending plan* rather than anything installed. Destroying one uncommitted has no effect on the VM, on reflection, or on dispatch.
 
-Each builder also carries the logical State identity, the owner-object epoch, the scope, and the lifecycle generation it was created with. Using one after the implementation moves to another owner object, after the owner is destroyed, or after its scope's lifecycle generation is replaced fails with one deterministic stale-builder diagnostic instead of touching the VM. Use from another thread reports a foreign-thread refusal, and committing against a frozen State reports a frozen-State refusal; all three are `StateNotReady`. A plan also commits once — a second `Commit()` is refused as a stale builder. So a builder is a short-lived local, staged and committed in one place.
+Each builder also carries the logical State identity, the owner-object epoch, the scope, and the lifecycle generation it was created with. Using one after the implementation moves to another owner object, after the owner is destroyed, or after its scope's lifecycle generation is replaced fails with one deterministic stale-builder diagnostic instead of touching the VM. Use from another thread reports a foreign-thread refusal, and committing against a frozen State reports a frozen-State refusal; all three are `StateNotReady`. A plan also commits once - a second `Commit()` is refused as a stale builder. So a builder is a short-lived local, staged and committed in one place.
 
 ## What a State owns
 

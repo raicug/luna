@@ -2,7 +2,7 @@
 
 A module is a named, versioned unit of registration. Luna loads each one at most once per State, resolves its dependency graph by semantic version, and publishes the whole resolved graph as one outermost transaction.
 
-Two registry calls make up the surface. `ProvideModule` makes a definition *available* to resolution without loading it — no callback runs, nothing is installed, nothing is published. Providing the same identity and version twice is idempotent when the normalized manifests compare equal, and a conflict otherwise. `RegisterModule` loads the graph rooted at a manifest.
+Two registry calls make up the surface. `ProvideModule` makes a definition *available* to resolution without loading it - no callback runs, nothing is installed, nothing is published. Providing the same identity and version twice is idempotent when the normalized manifests compare equal, and a conflict otherwise. `RegisterModule` loads the graph rooted at a manifest.
 
 ```cpp
 Luna::BindingRegistry Registry = State.Bindings();
@@ -81,7 +81,7 @@ void ConfigureUnits(Luna::NamespaceBuilder &Builder) {
 }
 ```
 
-Any callable satisfying `ModuleConfiguration` — invocable with `NamespaceBuilder &` — is accepted, so a function pointer, a lambda, or a functor all work. Nothing a callback throws may cross the boundary: the loader contains the exception, poisons the attempt, and restores the exact pre-load State.
+Any callable satisfying `ModuleConfiguration` - invocable with `NamespaceBuilder &` - is accepted, so a function pointer, a lambda, or a functor all work. Nothing a callback throws may cross the boundary: the loader contains the exception, poisons the attempt, and restores the exact pre-load State.
 
 `NamespaceBuilder::RegisterModule` stages a module load *inside* a namespace, so a module's surface can be nested under an existing scope. Its callbacks then run inside that plan's transaction, with builders scoped to that namespace.
 
@@ -90,9 +90,9 @@ Any callable satisfying `ModuleConfiguration` — invocable with `NamespaceBuild
 One load resolves the whole graph before anything runs:
 
 1. Accumulate every constraint reaching each required identity.
-2. Select, for each identity, the **highest** available version satisfying all of them — except an identity already loaded in the State, which stays pinned to its loaded version. A loaded version that violates an accumulated constraint refuses the load as a conflict naming the path.
+2. Select, for each identity, the **highest** available version satisfying all of them - except an identity already loaded in the State, which stays pinned to its loaded version. A loaded version that violates an accumulated constraint refuses the load as a conflict naming the path.
 3. Run every not-yet-loaded dependency callback plus the root callback dependency-first, in canonical order, inside one transaction.
-4. Publish the selected graph, its exports, VM values, types, reflection records, and dispatch targets atomically — or none of it.
+4. Publish the selected graph, its exports, VM values, types, reflection records, and dispatch targets atomically - or none of it.
 
 Failures are canonical, not incidental. A dependency cycle, a version conflict with no satisfying candidate, a missing definition, and a callback refusal each produce one deterministic diagnostic naming the path involved. Because the whole load is one transaction, a refused graph leaves the State exactly as it was.
 
@@ -100,7 +100,7 @@ Load-once means a repeated `RegisterModule` of an identity already loaded is ide
 
 ## Provenance
 
-Every symbol published by a module carries its origin. In reflection, `ReflectionRecord::HasModule()` and `Module()` name it, and `ModuleRecord` reports the identity, version, documentation, resolved dependencies with the versions chosen for them, declared exports, declared namespaces, and declared canonical types — all in canonical deterministic order, never in load order.
+Every symbol published by a module carries its origin. In reflection, `ReflectionRecord::HasModule()` and `Module()` name it, and `ModuleRecord` reports the identity, version, documentation, resolved dependencies with the versions chosen for them, declared exports, declared namespaces, and declared canonical types - all in canonical deterministic order, never in load order.
 
 ```cpp
 const Luna::ReflectionRecord Record = Snapshot.Find("Render.Describe");
@@ -116,7 +116,7 @@ Declaration generation can carry that provenance into its output; see [reflectio
 
 There is no public entry point that unloads, replaces, or hot reloads a loaded module. Registration is additive: once a module is loaded into a State, it stays for the life of that State. If you need a different graph, build a new State.
 
-That is a deliberate boundary rather than a missing check. The machinery those operations need is implemented and tested privately — affected-closure and blocker analysis over dependents, live userdata, rooted references, caches and retained generations; staging with reverse-order undo; and atomic publication of a new module, reflection, cache, and dispatch generation. What is absent is the decision to enable it: no State declares dynamic lifecycle support, so any such request is refused deterministically with a load-only diagnostic and changes nothing.
+That is a deliberate boundary rather than a missing check. The machinery those operations need is implemented and tested privately - affected-closure and blocker analysis over dependents, live userdata, rooted references, caches and retained generations; staging with reverse-order undo; and atomic publication of a new module, reflection, cache, and dispatch generation. What is absent is the decision to enable it: no State declares dynamic lifecycle support, so any such request is refused deterministically with a load-only diagnostic and changes nothing.
 
 ---
 

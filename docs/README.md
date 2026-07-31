@@ -4,20 +4,20 @@ Luna binds C++ to Luau without letting a single Luau type reach consumer code. A
 
 ## Reading order
 
-1. [Setup](setup.md) — add Luna with FetchContent or a local copy.
-2. [Getting started](getting-started.md) — build Luna and run a first script.
-3. [State and lifetime](state-and-lifetime.md) — VM ownership, moves, thread affinity, lifecycle.
-4. [Registering functions](registering-functions.md) — callables, overloads, parameters, returns.
-5. [Values and validation](values-and-validation.md) — supported types, canonical types, conversion.
-6. [Namespaces, constants and enums](namespaces-constants-and-enums.md) — hierarchical registration.
-7. [Classes and userdata](classes-and-userdata.md) — typed objects, members, ownership.
-8. [Modules and versioning](modules-and-versioning.md) — manifests, resolution, load-once.
-9. [Reflection and generation](reflection-and-generation.md) — snapshots, documentation, `.d.lua`.
-10. [Freeze and performance](freeze-and-performance.md) — sealing a surface and measuring it.
-11. [Executing Luau](executing-luau.md) — see how source is compiled and isolated.
-12. [Errors and results](errors-and-results.md) — handle registration and execution failures.
-13. [Architecture](architecture.md) — follow a call through Luna's private layers.
-14. [Testing and contributing](testing-and-contributing.md) — run the checks and follow project conventions.
+1. [Setup](setup.md) - add Luna with FetchContent or a local copy.
+2. [Getting started](getting-started.md) - build Luna and run a first script.
+3. [State and lifetime](state-and-lifetime.md) - VM ownership, moves, thread affinity, lifecycle.
+4. [Registering functions](registering-functions.md) - callables, overloads, parameters, returns.
+5. [Values and validation](values-and-validation.md) - supported types, canonical types, conversion.
+6. [Namespaces, constants and enums](namespaces-constants-and-enums.md) - hierarchical registration.
+7. [Classes and userdata](classes-and-userdata.md) - typed objects, members, ownership.
+8. [Modules and versioning](modules-and-versioning.md) - manifests, resolution, load-once.
+9. [Reflection and generation](reflection-and-generation.md) - snapshots, documentation, `.d.lua`.
+10. [Freeze and performance](freeze-and-performance.md) - sealing a surface and measuring it.
+11. [Executing Luau](executing-luau.md) - see how source is compiled and isolated.
+12. [Errors and results](errors-and-results.md) - handle registration and execution failures.
+13. [Architecture](architecture.md) - follow a call through Luna's private layers.
+14. [Testing and contributing](testing-and-contributing.md) - run the checks and follow project conventions.
 
 ## What Luna currently does
 
@@ -28,9 +28,9 @@ Supported today:
 - **Functions.** `Register` and `RegisterFunction` accept free functions, function pointers, lambdas, functors, static methods, and explicit member wrappers. `Overload<Signature>` selects one C++ target by its declared signature, with no macro, and several declarations under one name form a canonical overload set resolved by Pareto dominance over conversion ranks.
 - **Rich call shapes.** Trailing `std::optional` parameters, immutable defaults through `WithDefaults`, and one final variadic parameter as `ArgumentView` (callback lifetime) or `ArgumentPack` (owning).
 - **Multiple returns.** `void` publishes zero values, a supported scalar publishes one, and `std::pair`, `std::tuple`, and `ReturnPack` publish ordered multiple values, atomically. `OwnedValue::Instance<T>` and `ReturnPack::AppendInstance<T>` put an instance the call manufactured inside a returned table or pack.
-- **Published values.** `RegisterValue` names one instance of a registered class — `T`, `std::shared_ptr<T>`, or a borrowed `T *` with a declared lifetime — so `game.Workspace` and `game:GetService("X")` reach it without a call. The producer runs once, at registration.
+- **Published values.** `RegisterValue` names one instance of a registered class - `T`, `std::shared_ptr<T>`, or a borrowed `T *` with a declared lifetime - so `game.Workspace` and `game:GetService("X")` reach it without a call. The producer runs once, at registration.
 - **Hierarchy.** `RegisterNamespace` with nested `NamespaceBuilder`, `RegisterConstant`, and `RegisterEnum` with enumerators, aliases, bitflags, and an explicit unscoped opt-in. `AsObjects()` publishes each enumerator as one interned enumerator object carrying `Name`, `Value`, and `EnumName`, reporting `typeof` as `EnumItem` and comparing equal only to itself.
-- **Classes.** `RegisterClass<T>` with constructors, factories, singletons, allocators, methods, static methods, properties, fields, class-scope constants, base edges, checked casts, and operators — including `Iterate`, which makes a class usable in a Luau generic `for` loop through one declared step. Objects are typed userdata, owned by Lua, borrowed behind a `LifetimeHandle`, or shared through `std::shared_ptr`. A read-write property or a writable field may also declare an optional on-change callback, run after its write already succeeded, and its value type may be any type with its own `TypeConverter<T>`, or a registered class instance inferred from the accessor's own return type, rather than only a foundation scalar.
+- **Classes.** `RegisterClass<T>` with constructors, factories, singletons, allocators, methods, static methods, properties, fields, class-scope constants, base edges, checked casts, and operators - including `Iterate`, which makes a class usable in a Luau generic `for` loop through one declared step. Objects are typed userdata, owned by Lua, borrowed behind a `LifetimeHandle`, or shared through `std::shared_ptr`. A read-write property or a writable field may also declare an optional on-change callback, run after its write already succeeded, and its value type may be any type with its own `TypeConverter<T>`, or a registered class instance inferred from the accessor's own return type, rather than only a foundation scalar.
 - **Modules.** Load-once versioned modules with semantic versions, constraint resolution that picks the highest satisfying version, and canonical cycle and conflict diagnostics.
 - **Delegates and signals.** `Delegate<Signature>` is an ordinary reflected parameter type carrying one subscribed Luau function, held through Luna's own reference mechanism. `Signal<Signature>` owns a list of them and provides `Subscribe`, `Unsubscribe`, and `Emit`; it uses the same canonical type registry as everything else rather than a parallel callback system. A delegate's parameters may be scalars, a registered class instance, an `OwnedValue` table, or a trailing `ValuePack`, so an event carries objects instead of loose numbers.
 - **Profiling and debug-UI hooks.** `InstallProfilingHook` reports every invocation stage with the canonical identity reflection already publishes, without a second metadata schema or a change to invocation semantics.
@@ -41,7 +41,7 @@ Supported today:
 - **Freeze.** `BindingRegistry::Freeze()` validates the whole committed model, publishes generation-keyed lookup caches, then refuses further registration while invocation and reflection keep working.
 - **Transactions.** Every category registers through one outermost transaction with reverse-order undo and atomic publication: a refused attempt publishes nothing.
 
-Module lifecycle is load-only through the public API. Registration is additive, and no consumer entry point unloads, replaces, or hot reloads a loaded module. The supporting machinery exists — affected-closure and blocker analysis, staging with reverse-order undo, atomic generation publication, and retained dispatch generations — but no State enables dynamic lifecycle, so such a request is refused deterministically with a load-only diagnostic and changes nothing.
+Module lifecycle is load-only through the public API. Registration is additive, and no consumer entry point unloads, replaces, or hot reloads a loaded module. The supporting machinery exists - affected-closure and blocker analysis, staging with reverse-order undo, atomic generation publication, and retained dispatch generations - but no State enables dynamic lifecycle, so such a request is refused deterministically with a load-only diagnostic and changes nothing.
 
 Asynchronous invocation is available for namespace and root functions. A callable that returns `Luna::AsyncTask<T>` or `std::future<T>` suspends the chunk `Execute` is running, and the call resumes with the awaited value once the host settles the work. See [Registering functions](registering-functions.md#asynchronous-results).
 
@@ -57,12 +57,12 @@ IDE, autocomplete, debug-UI, and profiling integrations are available, and delib
 
 A few current limitations are worth knowing before you design a surface:
 
-- A parameter of any registered callable — root, namespaced, or a `Method`, `StaticMethod`, `Operator`, `Constructor`, `Factory`, or `Singleton` — may be any type with its own `Luna::TypeConverter<T>` specialization, read through the same probe/read boundary a converted property or field value already uses.
-- A **registered class** is also an operand type, spelled `T`, `const T &`, `T &`, `T *`, or `const T *`, once the class opts in with `Luna::RegisteredClassTrait`. The class must be *staged* before a member taking one of its instances is declared — committed by an earlier transaction, or registered earlier in the same pending plan — and a class taking its own instances always qualifies.
-- Publishing a **converted** return value is not yet supported. A method, static method, or operator does return a class instance — Lua-owned by value or shared through `std::shared_ptr<T>`, and for a method or static method also borrowed through `T *` with a declared lifetime — as well as one `OwnedValue` or a `ValuePack` of those, which is how a table crosses the boundary as a result.
-- An `OwnedValue` also carries an instance the call **manufactured**, through `OwnedValue::Instance<T>` — a Lua-owned copy, a `std::shared_ptr<T>`, or a borrowed `T *` with a declared lifetime — at any depth inside a table or a `ValuePack`, which is how a `GetChildren()`-shaped result works. `ReturnPack::AppendInstance<T>` is the same three forms for a pack, and that is what lets the `Iterate` operator yield objects. Every element is checked before anything reaches the stack, so an unregistered class, a lifetime-less borrow, or a null object refuses the whole return.
+- A parameter of any registered callable - root, namespaced, or a `Method`, `StaticMethod`, `Operator`, `Constructor`, `Factory`, or `Singleton` - may be any type with its own `Luna::TypeConverter<T>` specialization, read through the same probe/read boundary a converted property or field value already uses.
+- A **registered class** is also an operand type, spelled `T`, `const T &`, `T &`, `T *`, or `const T *`, once the class opts in with `Luna::RegisteredClassTrait`. The class must be *staged* before a member taking one of its instances is declared - committed by an earlier transaction, or registered earlier in the same pending plan - and a class taking its own instances always qualifies.
+- Publishing a **converted** return value is not yet supported. A method, static method, or operator does return a class instance - Lua-owned by value or shared through `std::shared_ptr<T>`, and for a method or static method also borrowed through `T *` with a declared lifetime - as well as one `OwnedValue` or a `ValuePack` of those, which is how a table crosses the boundary as a result.
+- An `OwnedValue` also carries an instance the call **manufactured**, through `OwnedValue::Instance<T>` - a Lua-owned copy, a `std::shared_ptr<T>`, or a borrowed `T *` with a declared lifetime - at any depth inside a table or a `ValuePack`, which is how a `GetChildren()`-shaped result works. `ReturnPack::AppendInstance<T>` is the same three forms for a pack, and that is what lets the `Iterate` operator yield objects. Every element is checked before anything reaches the stack, so an unregistered class, a lifetime-less borrow, or a null object refuses the whole return.
 - A variadic `ArgumentView`/`ArgumentPack` element may be a registered class instance, passed directly or nested inside a table, carried as `OwnedValue::Kind() == ValueCategory::Userdata` and carrying whatever its class's `ToText` operator rendered.
-- A **property or field value** may be a registered class instance — `T`, `std::shared_ptr<T>`, or a borrowed `T *` with a declared lifetime — inferred from the accessor's own return type. A **property** is read-write once it declares a setter taking that class as an instance operand, read through the instance-parameter path. A writable instance-valued **field**, and an on-change handler on an instance-valued property, are refused at registration.
+- A **property or field value** may be a registered class instance - `T`, `std::shared_ptr<T>`, or a borrowed `T *` with a declared lifetime - inferred from the accessor's own return type. A **property** is read-write once it declares a setter taking that class as an instance operand, read through the instance-parameter path. A writable instance-valued **field**, and an on-change handler on an instance-valued property, are refused at registration.
 - A **class constant** (`ClassBuilder::Constant`) carries one of the canonical constant types, so it cannot yet be a class instance; a zero-argument factory or a static method publishes an instance-valued leaf until it can.
 - Inherited **fields** are not reachable through a derived class. Reach them through a value of the class that declared them.
 

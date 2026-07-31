@@ -31,11 +31,11 @@ const Luna::RegistrationResult Second = Registry.RegisterFunction(
     "Measure", Luna::Overload<int(int, int)>(&Measure));
 ```
 
-Three target forms are accepted. A free or static function is selected by the declared signature alone. A member function pointer names its class as a second argument — `Luna::Overload<void(int), Actor>(&Actor::Move)` — and the wrapper's own declared signature gains the receiver as its first parameter. Any other callable object is accepted when it is invocable with exactly the declared parameter types and yields exactly the declared return type.
+Three target forms are accepted. A free or static function is selected by the declared signature alone. A member function pointer names its class as a second argument - `Luna::Overload<void(int), Actor>(&Actor::Move)` - and the wrapper's own declared signature gains the receiver as its first parameter. Any other callable object is accepted when it is invocable with exactly the declared parameter types and yields exactly the declared return type.
 
 A wrapper is not a cast. Its declared parameter and return types are the ones Luna canonicalizes, so a signature naming a type the registry cannot convert is still refused.
 
-At call time, candidates are ranked per argument — `Exact`, `SafeBuiltIn`, `User` — and the winner is the one that Pareto-dominates the others over the whole rank sequence. Ranks are never summed into a score, so a candidate never wins one position by losing another. Two candidates whose declared shapes no call could tell apart are refused transactionally at registration rather than left to resolve ambiguously later.
+At call time, candidates are ranked per argument - `Exact`, `SafeBuiltIn`, `User` - and the winner is the one that Pareto-dominates the others over the whole rank sequence. Ranks are never summed into a score, so a candidate never wins one position by losing another. Two candidates whose declared shapes no call could tell apart are refused transactionally at registration rather than left to resolve ambiguously later.
 
 ## Parameters
 
@@ -43,7 +43,7 @@ Beyond the plain supported value types, a parameter may be:
 
 - **Optional.** A trailing `std::optional<T>` maps both omission and an explicit `nil` to the empty value; a present non-nil value converts as its ordinary type.
 - **Defaulted.** `WithDefaults` attaches immutable default values to the trailing parameters. Each default is validated at registration and materialized only when its parameter is omitted. An explicit `nil` is a supplied value, so it follows the parameter's ordinary conversion instead of selecting the default.
-- **Variadic.** One final parameter of `Luna::ArgumentView` or `Luna::ArgumentPack` — or a `const` reference to either — consumes every remaining call argument.
+- **Variadic.** One final parameter of `Luna::ArgumentView` or `Luna::ArgumentPack` - or a `const` reference to either - consumes every remaining call argument.
 - **A delegate.** `Luna::Delegate<Signature>`, or the equivalent `std::function<Signature>`, carries one subscribed Luau function. See [delegates and signals](#delegates-and-signals).
 - **Converted.** Any type with its own `Luna::TypeConverter<T>` specialization, declared as `T` or `const T &`. Its probe runs before the native target. See [custom conversions](values-and-validation.md#custom-conversions).
 - **A registered class instance.** `T`, `const T &`, `T &`, `T *`, or `const T *`, once the class opts in with `Luna::RegisteredClassTrait` and is registered before the declaration. See [instance operands](classes-and-userdata.md#instance-operands).
@@ -62,7 +62,7 @@ A required parameter may not follow an optional or defaulted one, a variadic par
 
 ### Variadic arguments
 
-A variadic element is a boolean, number, string, table, userdata, or nil. Any other Luau value — a function included — is refused with a deterministic caller diagnostic naming the position.
+A variadic element is a boolean, number, string, table, userdata, or nil. Any other Luau value - a function included - is refused with a deterministic caller diagnostic naming the position.
 
 `ArgumentView` is callback-lifetime only. It names the argument frame Luna opened for the current invocation, reports the one-based call position of every element, and becomes inert once the invocation returns. `ToOwned()` is the documented way to keep the arguments; it yields an owning `ArgumentPack`. Declaring the parameter as `ArgumentPack` asks Luna for the owning form directly.
 
@@ -85,7 +85,7 @@ std::string Join(Luna::ArgumentView Arguments) {
 }
 ```
 
-A variadic element may also be a registered class instance — passed directly, or nested inside a table — carried as `Luna::OwnedValue::Kind() == ValueCategory::Userdata`. Its `UserdataClassName()` names the registered class whether or not the concrete C++ type is known to the reading code, and `UserdataIsLive()` reports whether the underlying object is still valid; the value itself is retained through Luna's own reference mechanism, so it stays usable for the remainder of the call even though the `ArgumentView`/`ArgumentPack` frame it came through is not the object's owner.
+A variadic element may also be a registered class instance - passed directly, or nested inside a table - carried as `Luna::OwnedValue::Kind() == ValueCategory::Userdata`. Its `UserdataClassName()` names the registered class whether or not the concrete C++ type is known to the reading code, and `UserdataIsLive()` reports whether the underlying object is still valid; the value itself is retained through Luna's own reference mechanism, so it stays usable for the remainder of the call even though the `ArgumentView`/`ArgumentPack` frame it came through is not the object's owner.
 
 ```cpp
 int CountLiveInstances(Luna::ArgumentView Arguments) {
@@ -111,7 +111,7 @@ A callable publishes returns in one of these declared shapes:
 | `Luna::ReturnPack` | ordered, count decided by the invocation, scalars plus `AppendInstance<T>` elements |
 | `Luna::OwnedValue` | exactly one, of whatever category the target built |
 | `Luna::ValuePack` | ordered, count decided by the invocation, any category |
-| a registered class instance — `T`, `std::shared_ptr<T>`, `T *` | exactly one, see [returning instances and tables](classes-and-userdata.md#returning-instances-and-tables) |
+| a registered class instance - `T`, `std::shared_ptr<T>`, `T *` | exactly one, see [returning instances and tables](classes-and-userdata.md#returning-instances-and-tables) |
 | `Luna::Chunk` | exactly one, published as a real Luau function, see [publishing a chunk](executing-luau.md#publishing-a-chunk-to-a-script) |
 | `Luna::AsyncTask<T>`, `std::future<T>` | the awaited shape, see [asynchronous results](#asynchronous-results) |
 
@@ -129,7 +129,7 @@ Luna::ReturnPack Tally(Luna::ArgumentView Arguments) {
 
 A pack is staging, not output. Luna converts and validates every element before any return is exposed, so a refused element publishes zero values rather than a partial list. The typed appends exist because a bare literal would otherwise let the value variant pick a surprising alternative.
 
-`AppendInstance<T>` appends an instance of a registered class the call manufactured — `T` by value, `std::shared_ptr<T>`, or a borrowed `T *` with an `OwnershipPolicy`. Appending one switches the pack to owned publication, carrying every scalar already appended with it, so order stays as written. See [manufactured instances](classes-and-userdata.md#manufactured-instances).
+`AppendInstance<T>` appends an instance of a registered class the call manufactured - `T` by value, `std::shared_ptr<T>`, or a borrowed `T *` with an `OwnershipPolicy`. Appending one switches the pack to owned publication, carrying every scalar already appended with it, so order stays as written. See [manufactured instances](classes-and-userdata.md#manufactured-instances).
 
 ## Published values
 
@@ -149,11 +149,11 @@ local W = game:GetService("Workspace")   -- no call on the name itself
 print(Studio.Camera.Zoom)
 ```
 
-`NamespaceBuilder::RegisterValue` is the scoped form and stages into the namespace's plan; `BindingRegistry::RegisterValue` is the root form and commits immediately as its own transaction. A constant carries one of the canonical constant types, so this is how an *object* reaches a name — see [values and validation](values-and-validation.md#constants).
+`NamespaceBuilder::RegisterValue` is the scoped form and stages into the namespace's plan; `BindingRegistry::RegisterValue` is the root form and commits immediately as its own transaction. A constant carries one of the canonical constant types, so this is how an *object* reaches a name - see [values and validation](values-and-validation.md#constants).
 
 The producer is a callable taking no arguments that returns the same three shapes an instance result declares: `T` by value (one Lua-owned object), `std::shared_ptr<T>` (shared), or `T *` with `OwnershipPolicy::Borrowed(Lifetime)` (the host's own object). Each goes through the same instance publication a method returning an instance already uses.
 
-**The producer runs once, at registration**, and the object it produced is what the name holds from then on. That is the whole mechanism: a table entry has no read hook, so per-read production would mean Luna owning a metatable on the containing table — including the globals table — which this deliberately does not do. For a host object whose *identity* is stable, this is what you want: a borrowed `game` keeps naming the host's object, and reads through it always see the object's current state. For a name whose target is *replaced* at run time, publish the owner and reach the changing part through a member or a method, which resolve on every access.
+**The producer runs once, at registration**, and the object it produced is what the name holds from then on. That is the whole mechanism: a table entry has no read hook, so per-read production would mean Luna owning a metatable on the containing table - including the globals table - which this deliberately does not do. For a host object whose *identity* is stable, this is what you want: a borrowed `game` keeps naming the host's object, and reads through it always see the object's current state. For a name whose target is *replaced* at run time, publish the owner and reach the changing part through a member or a method, which resolve on every access.
 
 Refusals are transactional and take the shape a bad instance return already takes: a producer returning a scalar, a table, or a class that never opted in with `Luna::RegisteredClassTrait`; a pointer producer with no declared lifetime; a producer returning null; an asynchronous producer; and a class this State never registered. Each publishes nothing.
 
@@ -190,7 +190,7 @@ Two boundaries are deliberate. Only the chunk `Execute` is running can suspend, 
 
 ## Delegates and signals
 
-A parameter declared as `Luna::Delegate<Signature>` — or the equivalent `std::function<Signature>` — accepts one subscribed Luau function. It is an ordinary reflected parameter of a canonical callable type; no macro, annotation, or parallel callback path is involved:
+A parameter declared as `Luna::Delegate<Signature>` - or the equivalent `std::function<Signature>` - accepts one subscribed Luau function. It is an ordinary reflected parameter of a canonical callable type; no macro, annotation, or parallel callback path is involved:
 
 ```cpp
 int Subscribe(Luna::Delegate<void(int)> Handler) {
@@ -219,7 +219,7 @@ Registry.RegisterFunction("Raise", [&Alarm](int Level) {
 What Luna guarantees:
 
 - `Subscribe` returns a positive token, or `0` when the handler is already released, so `0` is never a live subscription.
-- Unsubscribing releases the handler's native reference immediately, for every copy of that delegate — a later call through any of them reports `DelegateStatus::Released`.
+- Unsubscribing releases the handler's native reference immediately, for every copy of that delegate - a later call through any of them reports `DelegateStatus::Released`.
 - Emitting takes one snapshot of the current subscribers, so a handler may subscribe or unsubscribe while the emission is running: a handler removed during the emission is never called by it, one added during the emission is delivered starting with the next emission, and no handler is ever called twice by the same emission.
 - A handler that raises a Luau error does not fail the emission; `SignalEmission` reports how many delivered, how many were skipped, how many failed, and the first failure's message.
 - Replacing the State's lifecycle generation invalidates every handler subscribed through it; a handler that outlives its State, or a call made from a thread other than the State's owner thread, refuses deterministically rather than touching a closed or foreign virtual machine.
@@ -233,7 +233,7 @@ A delegate's declared signature is not limited to scalars. Its parameters may al
 | `T` where `RegisteredClassTrait<T>` holds | one Lua-owned copy, as userdata |
 | `std::shared_ptr<T>` | the shared object, as userdata |
 | `T *` | the host's own object, borrowed |
-| `Luna::OwnedValue` | whatever the host built — a table, nested tables, a scalar, nil, or a manufactured instance at any depth |
+| `Luna::OwnedValue` | whatever the host built - a table, nested tables, a scalar, nil, or a manufactured instance at any depth |
 | `Luna::ValuePack` | several values, spread at that position |
 
 ```cpp
@@ -255,12 +255,12 @@ Object arguments are staged as owned values and published through the same path 
 
 Four rules govern the object forms:
 
-- The **class must be registered in the publishing State**, and staged before the declaration that names the delegate — the same ordering rule instance operands follow. A delegate naming a class that never opted in, or one this State never registered, is refused at registration.
+- The **class must be registered in the publishing State**, and staged before the declaration that names the delegate - the same ordering rule instance operands follow. A delegate naming a class that never opted in, or one this State never registered, is refused at registration.
 - The **borrowed form needs a declared lifetime**, which a signature cannot carry. State it on the delegate: `Handler.DeclareOwnership(Luna::OwnershipPolicy::Borrowed(HostLifetime))` before the first call. Without it, a `T *` argument refuses the call.
 - A `ValuePack` parameter is **only valid as the final parameter**, because it spreads. A signature declaring one earlier is rejected at compile time.
-- **Refusals are transactional.** An unregistered class, a null pointer, a borrowed pointer with no declared lifetime, and a released handler each publish nothing: every argument is validated before the first one reaches the stack, so the handler is not called at all. `DelegateCallResult` keeps naming the same outcomes — `Released` for a released handler, `HandlerFailed` for an argument Luna could not publish, `ForeignThread`, `ResultMismatch`, `Ready`.
+- **Refusals are transactional.** An unregistered class, a null pointer, a borrowed pointer with no declared lifetime, and a released handler each publish nothing: every argument is validated before the first one reaches the stack, so the handler is not called at all. `DelegateCallResult` keeps naming the same outcomes - `Released` for a released handler, `HandlerFailed` for an argument Luna could not publish, `ForeignThread`, `ResultMismatch`, `Ready`.
 
-A delegate **may still declare a scalar result** while its parameters carry objects: `Delegate<bool(Vector3)>` is a valid filter, and the handler's return value is read as one canonical value exactly as before. The reverse is not available — a delegate cannot declare an object *result*, because reading an instance back out of a Luau value is the instance-operand path rather than the result path.
+A delegate **may still declare a scalar result** while its parameters carry objects: `Delegate<bool(Vector3)>` is a valid filter, and the handler's return value is read as one canonical value exactly as before. The reverse is not available - a delegate cannot declare an object *result*, because reading an instance back out of a Luau value is the instance-operand path rather than the result path.
 
 ## Names
 
@@ -275,7 +275,7 @@ When more than one problem exists, Luna reports one deterministic result in this
 
 ## Registration is transactional
 
-Every category — a root function, a namespace plan, an enum, a class, a module graph — registers through one *outermost* transaction. Luna prepares the descriptors, stages the pending model, installs the VM values, and publishes one new generation atomically. A failure undoes the completed steps in reverse order, restores any previous global value, and leaves earlier bindings exactly as they were.
+Every category - a root function, a namespace plan, an enum, a class, a module graph - registers through one *outermost* transaction. Luna prepares the descriptors, stages the pending model, installs the VM values, and publishes one new generation atomically. A failure undoes the completed steps in reverse order, restores any previous global value, and leaves earlier bindings exactly as they were.
 
 A root single-symbol call such as `Register` or `RegisterConstant` is its own outermost transaction and commits immediately. A builder chain is one transaction spanning the whole plan: nothing it stages reaches the VM before `Commit`.
 

@@ -23,7 +23,7 @@ One deliberate exception exists. `Delegate<Signature>::operator()` throws `Luna:
 |---|---|
 | `StateNotReady` | The State cannot accept the operation: no VM after failed creation or a move, a frozen State, a stale builder or captured scope, or a call from a thread other than the owner thread |
 | `InvalidGlobalName` | A name segment failed the ASCII identifier grammar |
-| `DuplicateGlobalName` | The name is already taken — an existing Luna binding, a Luna-owned member, an already declared enumerator value, or a path Luna does not own as that symbol |
+| `DuplicateGlobalName` | The name is already taken - an existing Luna binding, a Luna-owned member, an already declared enumerator value, or a path Luna does not own as that symbol |
 | `NullCallable` | A registered function pointer was null |
 | `Compilation` | Source could not be compiled or loaded |
 | `Runtime` | Protected Luau execution failed, including native caller errors |
@@ -32,7 +32,7 @@ One deliberate exception exists. `Delegate<Signature>::operator()` throws `Luna:
 
 `ExecutionResult::IsInterrupted()` is the direct test for the interrupted case, so a host does not have to compare categories to tell "the user stopped it" from "the script threw". See [interrupting execution](executing-luau.md#interrupting-execution).
 
-The category is a coarse channel; the message carries the specifics. A refused registration names what was refused and why — a stale builder, a frozen State, an ambiguous overload pair, an out-of-range enumerator, an unregistered base, an incoherent property policy, a module cycle, a version conflict. Equivalent inputs always produce the same message, which is what makes a refusal something you can assert on.
+The category is a coarse channel; the message carries the specifics. A refused registration names what was refused and why - a stale builder, a frozen State, an ambiguous overload pair, an out-of-range enumerator, an unregistered base, an incoherent property policy, a module cycle, a version conflict. Equivalent inputs always produce the same message, which is what makes a refusal something you can assert on.
 
 Compilation, runtime, and internal execution messages use stable prefixes. Luna supplies a category-specific fallback whenever an underlying layer provides no usable text, so a diagnostic message is never empty.
 

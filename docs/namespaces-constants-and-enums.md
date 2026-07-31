@@ -41,9 +41,9 @@ Studio.RegisterConstant("DefaultChannel", Channel::Info, ChannelKey());
 
 At root scope, `BindingRegistry::RegisterConstant` has the same two forms and commits immediately as its own transaction.
 
-A class table holds constants too, through `ClassBuilder::Constant`, which takes the same two forms and stages into the class's own plan — see [class constants](classes-and-userdata.md#class-constants).
+A class table holds constants too, through `ClassBuilder::Constant`, which takes the same two forms and stages into the class's own plan - see [class constants](classes-and-userdata.md#class-constants).
 
-A namespace also publishes **objects**, through `RegisterValue`, where a constant cannot: the name resolves to one registered class instance rather than to a scalar or a call — see [published values](registering-functions.md#published-values).
+A namespace also publishes **objects**, through `RegisterValue`, where a constant cannot: the name resolves to one registered class instance rather than to a scalar or a call - see [published values](registering-functions.md#published-values).
 
 ## Enumerations
 
@@ -72,7 +72,7 @@ The enumeration is checked, not guessed:
 
 ### Bitflags
 
-`Bitflags()` declares bitflag behavior with the supported-bit mask computed from the declared enumerators. `Bitflags(SupportedBits)` — taking either an enumerator or a `std::int64_t` mask — declares it with an explicit mask — every declared enumerator must be a subset of it, and a converted value carrying any other bit is rejected whole rather than masked down.
+`Bitflags()` declares bitflag behavior with the supported-bit mask computed from the declared enumerators. `Bitflags(SupportedBits)` - taking either an enumerator or a `std::int64_t` mask - declares it with an explicit mask - every declared enumerator must be a subset of it, and a converted value carrying any other bit is rejected whole rather than masked down.
 
 ```cpp
 enum class Access : unsigned int { Read = 1, Write = 2, Execute = 4 };
@@ -129,7 +129,7 @@ At root scope, `BindingRegistry::RegisterEnum` stages the enumeration in a plan 
 
 ## Annotations
 
-Three annotation calls appear on every builder — namespaces, enums, classes:
+Three annotation calls appear on every builder - namespaces, enums, classes:
 
 - `Documentation(Text)` documents the declaration itself; `Documentation(Member, Text)` documents one member already staged in it.
 - `Attribute(Name, Value)` and `Attribute(Member, Name, Value)` attach an immutable name/value pair.

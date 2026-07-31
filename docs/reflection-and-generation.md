@@ -48,13 +48,13 @@ Snapshot queries:
 
 `SymbolKind` covers `Namespace`, `Module`, `OverloadSet`, `FunctionCandidate`, `Constant`, `Enumeration`, `Enumerator`, `EnumeratorAlias`, `Class`, `Constructor`, `Factory`, `Method`, `StaticMethod`, `Property`, `Field`, `Operator`, and `Type`. An overload set is one symbol; each candidate under it is its own record naming the set through `OverloadSet()`.
 
-A `ReflectionRecord` reports its identity (`Id`, `Name`, `QualifiedName`, `Signature`, `Scope`, `Declaration`), its type (`Type`, `Descriptor`), its return shape (`Returns`, `IsAsynchronous`), its module provenance (`HasModule`/`Module`), and its declared annotations (`Documentation`, `ExampleCount`/`Example`, `AttributeCount`/`Attribute`). Parameters, returns, and type relations are exposed by count and index — `ParameterCount`/`Parameter`, `ReturnCount`/`Return`, `RelationCount`/`Relation` — so no returned view or string ever outlives the generation that owns it.
+A `ReflectionRecord` reports its identity (`Id`, `Name`, `QualifiedName`, `Signature`, `Scope`, `Declaration`), its type (`Type`, `Descriptor`), its return shape (`Returns`, `IsAsynchronous`), its module provenance (`HasModule`/`Module`), and its declared annotations (`Documentation`, `ExampleCount`/`Example`, `AttributeCount`/`Attribute`). Parameters, returns, and type relations are exposed by count and index - `ParameterCount`/`Parameter`, `ReturnCount`/`Return`, `RelationCount`/`Relation` - so no returned view or string ever outlives the generation that owns it.
 
 Kind-specific groups answer only for the symbols they apply to. A constant, enumerator, or alias reports `HasValue()` and `ValueText()`. A construction candidate reports `OwnershipResult()` and `AllocatorPolicy()`. A member reports `Receiver()`, `ReceiverPermitsConst()`, `IsReadable()`, `IsWritable()`, `AccessPolicy()`, `Evaluation()`, and `MemberOwnershipPolicy()`. Everything else reports empty views for those.
 
 A lazy property reports its *policy*, never its cache state. Reflection describes declarations, not runtime.
 
-A `Constant` record is scoped either to a namespace or to a class, and its `Descriptor()` names the canonical value type either way; a class-scope constant generates as a field of the class table rather than as a function. A property or field whose value is a registered class instance describes that class as its own type, so generated declarations name the class — `read Unit: Studio_Vector3` — exactly as an instance-returning method does.
+A `Constant` record is scoped either to a namespace or to a class, and its `Descriptor()` names the canonical value type either way; a class-scope constant generates as a field of the class table rather than as a function. A property or field whose value is a registered class instance describes that class as its own type, so generated declarations name the class - `read Unit: Studio_Vector3` - exactly as an instance-returning method does.
 
 ## Canonical ordering
 
@@ -142,7 +142,7 @@ if (!Published.IsPublished())
 
 `PublishArtifact` publishes an artifact you already generated; `PublishDocumentation` and `PublishDeclarations` generate and publish in one call, refusing before the destination is touched if generation fails.
 
-On any refusal — an incomplete artifact, non-canonical bytes, an unusable destination, or a failure while writing, verifying, or replacing — no partial artifact is exposed, no unpublished file survives, and any prior destination keeps its exact previous bytes. `PublicationStatus` names it: `IncompleteArtifact`, `NonCanonicalArtifact`, `InvalidDestination`, `DestinationUnavailable`, or `Unspecified`. A successful publication reports the exact byte count the destination now holds.
+On any refusal - an incomplete artifact, non-canonical bytes, an unusable destination, or a failure while writing, verifying, or replacing - no partial artifact is exposed, no unpublished file survives, and any prior destination keeps its exact previous bytes. `PublicationStatus` names it: `IncompleteArtifact`, `NonCanonicalArtifact`, `InvalidDestination`, `DestinationUnavailable`, or `Unspecified`. A successful publication reports the exact byte count the destination now holds.
 
 ## A practical pattern
 

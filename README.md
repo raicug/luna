@@ -160,13 +160,13 @@ The documentation under `docs/` was written with AI assistance and checked again
 - Classes as typed userdata: constructors, factories, singletons, allocators, methods, properties, fields, class constants, base edges, checked casts, and operators
 - Generic-`for` iteration of a class through the `Iterate` operator, declared as one step of the loop rather than an iterator object
 - An optional on-change callback on a read-write property or a writable field, run after a successful write
-- Property, field, and any callable parameter — root, namespaced, method, static method, operator, or construction — typed as any consumer type with its own `Luna::TypeConverter<T>`, not just the foundation scalars
-- Registered class instances as method, static-method, operator, and construction operands — spelled `T`, `const T &`, `T &`, `T *`, or `const T *`, across any registered class, each passing the same access gate a receiver passes
-- Registered class instances as method, static-method, and operator **results** — Lua-owned by value or shared through `std::shared_ptr<T>`, with a borrowed `T *` result and its declared lifetime on a method or static method
+- Property, field, and any callable parameter - root, namespaced, method, static method, operator, or construction - typed as any consumer type with its own `Luna::TypeConverter<T>`, not just the foundation scalars
+- Registered class instances as method, static-method, operator, and construction operands - spelled `T`, `const T &`, `T &`, `T *`, or `const T *`, across any registered class, each passing the same access gate a receiver passes
+- Registered class instances as method, static-method, and operator **results** - Lua-owned by value or shared through `std::shared_ptr<T>`, with a borrowed `T *` result and its declared lifetime on a method or static method
 - Registered class instances as **property and field values**, inferred from the accessor's own return type, in the same three ownership models, with a read-write property whose setter takes that class as an instance operand
-- `OwnedValue` and `ValuePack` results, so a method publishes a table — nested arrays and fields included — whose shape it decides at run time
+- `OwnedValue` and `ValuePack` results, so a method publishes a table - nested arrays and fields included - whose shape it decides at run time
 - Class instances also readable at a converted operand through `ValueView`'s read-only userdata accessors
-- Variadic `ArgumentView` / `ArgumentPack` elements carrying a registered class instance — passed directly or nested inside a table — with the text its class's `ToText` operator rendered
+- Variadic `ArgumentView` / `ArgumentPack` elements carrying a registered class instance - passed directly or nested inside a table - with the text its class's `ToText` operator rendered
 - Lua-owned, borrowed, and `std::shared_ptr` shared ownership with `LifetimeHandle` invalidation
 - Load-once versioned modules with semantic-version constraint resolution
 - Asynchronous namespace and root functions returning `AsyncTask<T>` or `std::future<T>`, resumed on the owner thread with the awaited value
@@ -231,10 +231,10 @@ The demo is deliberately not registered with CTest because it opens a window and
 
 CTest registers four checks:
 
-- `LunaTests` — the unified unit, integration, compile-boundary, and property suite
-- `LunaBuildPolicy` — C++20, dependency-boundary, layout, and test-policy checks
-- `LunaTestApp.Build` — smoke application build fixture
-- `LunaTestApp` — end-to-end State, registration, invocation, and result validation
+- `LunaTests` - the unified unit, integration, compile-boundary, and property suite
+- `LunaBuildPolicy` - C++20, dependency-boundary, layout, and test-policy checks
+- `LunaTestApp.Build` - smoke application build fixture
+- `LunaTestApp` - end-to-end State, registration, invocation, and result validation
 
 The unified suite contains 33 RapidCheck properties, each configured for at least 100 successful cases. Both Debug and Release presets are expected to pass all four CTest entries.
 
@@ -260,7 +260,7 @@ All project source paths are lowercase. C/C++ include blocks are protected with 
 
 ## Current scope
 
-Module lifecycle is **load-only through the public API**. Registration is additive, and there is no consumer entry point for unloading, replacing, or hot reloading a loaded module. The machinery those operations need is in place — stable dispatch slots, retained dispatch generations, affected-closure and blocker analysis, staging with reverse-order undo, and atomic generation publication — but no State enables dynamic lifecycle, so any such request is refused deterministically with a load-only diagnostic and mutates nothing.
+Module lifecycle is **load-only through the public API**. Registration is additive, and there is no consumer entry point for unloading, replacing, or hot reloading a loaded module. The machinery those operations need is in place - stable dispatch slots, retained dispatch generations, affected-closure and blocker analysis, staging with reverse-order undo, and atomic generation publication - but no State enables dynamic lifecycle, so any such request is refused deterministically with a load-only diagnostic and mutates nothing.
 
 Asynchronous invocation is **available for namespace and root functions**. A bound callable may return `Luna::AsyncTask<T>` or `std::future<T>` for `T` in `void`, `bool`, `int`, `double`, `std::string`, or `Luna::ReturnPack`; the call that started the work suspends the chunk `Execute` is running, Luna waits on the owner thread until the host settles the work, and the call then resumes with the awaited value. Only the executing chunk can suspend, so a script coroutine or a metamethod calling such a function is refused deterministically. Class members and operators return their value directly and refuse asynchronous delivery at registration time.
 
@@ -268,19 +268,19 @@ Delegates and signals are **available**. `Luna::Delegate<Signature>` is an ordin
 
 Not implemented at all. These are absent rather than partial:
 
-- Annotation helper macros — documentation, attributes, and examples are ordinary builder calls
+- Annotation helper macros - documentation, attributes, and examples are ordinary builder calls
 
 Each is refused explicitly rather than silently ignored: unsupported callables, parameters, and returns fail the public `SupportedCallable` constraints at compile time, and an unsupported value is refused at registration time without publishing a descriptor or touching the VM.
 
-IDE, autocomplete, debug-UI, and profiling integrations are **available**, built entirely from the public model: reflection snapshots, generated artifacts, and `Luna::ProfilingHook`. `BindingRegistry::InstallProfilingHook` installs one hook that reports every invocation's completion, failure, suspension, resumption, or cancellation, naming it with the same canonical `SymbolId` and `TypeId` reflection publishes — never a private duplicate schema. It runs on the State's owner thread, strictly after Luna has already produced the outcome it reports, so it never changes how a call resolves or what it returns. A hook that throws is contained and then uninstalled rather than reaching Luau or the calling code.
+IDE, autocomplete, debug-UI, and profiling integrations are **available**, built entirely from the public model: reflection snapshots, generated artifacts, and `Luna::ProfilingHook`. `BindingRegistry::InstallProfilingHook` installs one hook that reports every invocation's completion, failure, suspension, resumption, or cancellation, naming it with the same canonical `SymbolId` and `TypeId` reflection publishes - never a private duplicate schema. It runs on the State's owner thread, strictly after Luna has already produced the outcome it reports, so it never changes how a call resolves or what it returns. A hook that throws is contained and then uninstalled rather than reaching Luau or the calling code.
 
 A few current limitations are worth knowing before designing a surface:
 
-- An **operand** of any registered callable — root, namespaced, or a `Method`, `StaticMethod`, `Operator`, `Constructor`, `Factory`, or `Singleton` — may be any type with its own `Luna::TypeConverter<T>` specialization, read through the same probe/read boundary a converted property or field value already uses.
-- A **registered class** is an operand type too, after the class opts in with `Luna::RegisteredClassTrait`. A class has to be staged before a member taking one of its instances is declared — committed earlier, or registered earlier in the same pending plan — because a plan is validated in staging order; a class taking its own instances always qualifies.
+- An **operand** of any registered callable - root, namespaced, or a `Method`, `StaticMethod`, `Operator`, `Constructor`, `Factory`, or `Singleton` - may be any type with its own `Luna::TypeConverter<T>` specialization, read through the same probe/read boundary a converted property or field value already uses.
+- A **registered class** is an operand type too, after the class opts in with `Luna::RegisteredClassTrait`. A class has to be staged before a member taking one of its instances is declared - committed earlier, or registered earlier in the same pending plan - because a plan is validated in staging order; a class taking its own instances always qualifies.
 - Publishing a **converted** return value is not yet supported. A method, static method, or operator does return a class instance (`T` or `std::shared_ptr<T>`, plus a borrowed `T *` with a declared lifetime for a method or static method), one `OwnedValue`, or a `ValuePack` of those, so tables and objects both cross the boundary as results.
 - An `OwnedValue` carries an instance the call **manufactured**, through `OwnedValue::Instance<T>` in the same three ownership forms, so a `GetChildren()`-shaped table of new objects is expressible; `ReturnPack::AppendInstance<T>` is the matching pack form, which is what lets `Iterate` yield objects. Every element is validated before anything is published, so a class the State never registered, a borrowed form with no declared lifetime, or a null object refuses the whole return.
 - Generated `.d.lua` declarations describe an enumerator by its numeric value, so an enumeration published through `AsObjects()` still generates as `number` rather than as an enumerator type.
 - A writable instance-valued **field** is refused. An instance-valued *property* is read-write once it declares a setter taking that class as an instance operand; a field is the value the object already holds, so declare a property instead. An on-change handler is also refused on an instance-valued property, because a handler receives the written value as one canonical Luna value.
-- A **class constant** carries one of the canonical constant types — `bool`, a 32-bit integer, a floating-point value, a string, or an enum with its key — so `Vector3.zero` cannot yet be a real instance; declare a zero-argument factory or a static method instead.
+- A **class constant** carries one of the canonical constant types - `bool`, a 32-bit integer, a floating-point value, a string, or an enum with its key - so `Vector3.zero` cannot yet be a real instance; declare a zero-argument factory or a static method instead.
 - Inherited **fields** are not reachable through a derived class. Reach them through a value of the class that declared them.

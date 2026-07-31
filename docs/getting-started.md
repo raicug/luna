@@ -98,11 +98,11 @@ int main() {
 }
 ```
 
-Two details matter and are explained later. A user-defined leaf type — an enum or a class — is always identified by an explicit `StableTypeKey`, never by an RTTI name (see [values and validation](values-and-validation.md)). And builders stage a plan rather than installing anything: `Commit` publishes the whole plan or none of it (see [namespaces, constants and enums](namespaces-constants-and-enums.md)).
+Two details matter and are explained later. A user-defined leaf type - an enum or a class - is always identified by an explicit `StableTypeKey`, never by an RTTI name (see [values and validation](values-and-validation.md)). And builders stage a plan rather than installing anything: `Commit` publishes the whole plan or none of it (see [namespaces, constants and enums](namespaces-constants-and-enums.md)).
 
 ## The worked example
 
-`demo/imgui_color_text_edit/src/main.cpp` registers a representative surface — overloads, optional and defaulted and variadic parameters, both kinds of multiple return, nested namespaces, a scoped enum with an alias, a bitflag enum, an enum published as enumerator objects, a class hierarchy with operators including generic-`for` iteration, an asynchronous function, a signal with subscribed handlers, and a versioned module graph — and then lets you run scripts against it, browse the reflection, generate artifacts, and freeze the State. Build it with:
+`demo/imgui_color_text_edit/src/main.cpp` registers a representative surface - overloads, optional and defaulted and variadic parameters, both kinds of multiple return, nested namespaces, a scoped enum with an alias, a bitflag enum, an enum published as enumerator objects, a class hierarchy with operators including generic-`for` iteration, an asynchronous function, a signal with subscribed handlers, and a versioned module graph - and then lets you run scripts against it, browse the reflection, generate artifacts, and freeze the State. Build it with:
 
 ```bat
 cmake --preset ninja-debug -DLUNA_BUILD_IMGUI_DEMO=ON
