@@ -14,7 +14,7 @@ include(FetchContent)
 FetchContent_Declare(
     Luna
     GIT_REPOSITORY https://github.com/raicug/luna.git
-    GIT_TAG c17e22c7198fc18eb6abdd36d5e0dfc48a1c1c32
+    GIT_TAG c1e95a4cb20768a0e16fe4569bde18828eaf7f3a
 )
 FetchContent_MakeAvailable(Luna)
 
