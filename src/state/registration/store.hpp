@@ -17,6 +17,7 @@
 namespace Luna::Detail {
 
 class FaultInjector;
+class ProfilingRegistry;
 
 class BindingStore final {
 public:
@@ -29,6 +30,8 @@ public:
   void PublishTypes(std::shared_ptr<const TypeGeneration> Published) {
     TypesValue.Publish(std::move(Published));
   }
+
+  void BindProfiling(ProfilingRegistry *Bound) noexcept { Profiling = Bound; }
 
   [[nodiscard]] DispatchTable &Dispatch() noexcept { return DispatchValue; }
 
@@ -93,7 +96,7 @@ public:
 
     const std::string Name = Address->GlobalName();
     try {
-      DispatchValue.Bind(Slot, Name, Address, &Faults, &TypesValue);
+      DispatchValue.Bind(Slot, Name, Address, &Faults, &TypesValue, Profiling);
     } catch (...) {
       Records.erase(Name);
       throw;
@@ -134,6 +137,7 @@ private:
 
   DispatchTable DispatchValue;
   TypeGenerationSource TypesValue;
+  ProfilingRegistry *Profiling = nullptr;
   std::unordered_map<std::string, std::unique_ptr<BindingRecord>> Records;
 };
 

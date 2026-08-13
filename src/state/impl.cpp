@@ -470,6 +470,7 @@ State::Impl::Impl()
       VirtualMachine.PublishUserdataCaptureRegistry(&UserdataCaptures));
   static_cast<void>(VirtualMachine.PublishEnumItemRegistry(&EnumItems));
   static_cast<void>(VirtualMachine.PublishProfilingRegistry(&ProfilingHooks));
+  Bindings.BindProfiling(&ProfilingHooks);
   static_cast<void>(VirtualMachine.PublishInterruptRequest(&Interrupt));
   VirtualMachine.BindChunkHost(*ChunkHosting, Faults, AsyncCalls);
 }

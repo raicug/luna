@@ -33,15 +33,15 @@ because raw Luau does not provide equivalent facilities.
 ## Raw Luau comparison sample
 
 The following bounded sample was recorded by `LunaRawLuauInvocation` on
-Windows/AMD64 with Clang 22.1.5, Luau 0.730, Release mode, `--warmup=1`, and
-`--samples=3`. It is a convenient display of every current raw-Luau comparison,
+Windows/AMD64 with Clang 22.1.5, Luau 0.730, Release mode, `--warmup=3`, and
+`--samples=20`. It is a convenient display of every current raw-Luau comparison,
 not an admissible performance claim: the runner reported `claimable=false`.
 
 | Case | Raw Luau median ns/op | Luna unfrozen ns/op | Delta | Difference | Luna frozen ns/op | Delta | Difference |
 |---|---:|---:|---:|---:|---:|---:|---:|
-| VoidCall | 54 | 521 | +467 | +864.82% | 514 | +460 | +851.85% |
-| ScalarCall | 86 | 714 | +628 | +730.23% | 771 | +685 | +796.51% |
-| DynamicPackCall | 93 | 1172 | +1079 | +1160.22% | 1166 | +1073 | +1153.76% |
+| VoidCall | 50 | 477 | +427 | +854.00% | 468 | +418 | +836.00% |
+| ScalarCall | 140 | 644 | +504 | +360.00% | 697 | +557 | +397.86% |
+| DynamicPackCall | 148 | 1123 | +975 | +658.78% | 1066 | +918 | +620.27% |
 
 Regenerate this table from the `luna-benchmark comparison` records whenever the
 benchmark configuration, corpus, Luau version, compiler, or implementation

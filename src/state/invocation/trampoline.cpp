@@ -317,11 +317,11 @@ struct MemberDispatch final {
   Started.Faults = Entry.Faults;
   Started.Work = std::move(Result.Suspension->Work);
 
-  if (ProfilingRegistry *Profiling = ObserveProfilingRegistry(State)) {
-    Profiling->Report({.Kind = ProfilingEventKind::Suspended,
-                       .Symbol = Started.Symbol,
-                       .ReceiverType = Started.ReceiverType,
-                       .QualifiedName = Started.QualifiedName});
+  if (Entry.Profiling) {
+    Entry.Profiling->Report({.Kind = ProfilingEventKind::Suspended,
+                             .Symbol = Started.Symbol,
+                             .ReceiverType = Started.ReceiverType,
+                             .QualifiedName = Started.QualifiedName});
   }
 
   static_cast<void>(Registry->Suspend(std::move(Started)));
@@ -487,6 +487,7 @@ int NativeTrampoline(lua_State *State) {
   std::size_t DiagnosticLength = 0;
   bool HeapDiagnostic = false;
   FaultInjector *Faults = nullptr;
+  ProfilingRegistry *FailedProfiling = nullptr;
   SymbolId FailedSymbol;
   TypeId FailedReceiverType;
   std::string FailedQualifiedName;
@@ -546,16 +547,17 @@ int NativeTrampoline(lua_State *State) {
         return lua_yield(State, 0);
 
       if (Result.IsSuccess()) {
-        if (ProfilingRegistry *Profiling = ObserveProfilingRegistry(State)) {
-          Profiling->Report(
-              {.Kind = ProfilingEventKind::Completed,
-               .Symbol = Result.Symbol,
-               .ReceiverType = Result.ReceiverType,
-               .QualifiedName = Entry ? Entry->QualifiedName : std::string()});
+        if (Entry && Entry->Profiling) {
+          Entry->Profiling->Report({.Kind = ProfilingEventKind::Completed,
+                                    .Symbol = Result.Symbol,
+                                    .ReceiverType = Result.ReceiverType,
+                                    .QualifiedName = Entry->QualifiedName});
         }
         return Result.ReturnCount;
       }
 
+      FailedProfiling =
+          Entry ? Entry->Profiling : ObserveProfilingRegistry(State);
       FailedSymbol = Result.Symbol;
       FailedReceiverType = Result.ReceiverType;
       FailedQualifiedName = Entry ? Entry->QualifiedName : std::string();
@@ -590,11 +592,11 @@ int NativeTrampoline(lua_State *State) {
     std::memcpy(PreparedDiagnostic, Fallback, DiagnosticLength);
   }
 
-  if (ProfilingRegistry *Profiling = ObserveProfilingRegistry(State)) {
-    Profiling->Report({.Kind = ProfilingEventKind::Failed,
-                       .Symbol = FailedSymbol,
-                       .ReceiverType = FailedReceiverType,
-                       .QualifiedName = FailedQualifiedName});
+  if (FailedProfiling) {
+    FailedProfiling->Report({.Kind = ProfilingEventKind::Failed,
+                             .Symbol = FailedSymbol,
+                             .ReceiverType = FailedReceiverType,
+                             .QualifiedName = FailedQualifiedName});
   }
 
   lua_settop(State, EntryDepth);

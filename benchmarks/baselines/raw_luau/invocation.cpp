@@ -98,12 +98,15 @@ public:
       return false;
 
     const std::string Bytecode = Luau::compile(Script);
+    const int EntryDepth = lua_gettop(Root);
     lua_State *Thread = lua_newthread(Root);
     if (!Thread)
       return false;
     const int Reference = lua_ref(Root, -1);
-    if (Reference <= LUA_REFNIL)
+    if (Reference <= LUA_REFNIL) {
+      lua_settop(Root, EntryDepth);
       return false;
+    }
 
     const int Loaded =
         luau_load(Thread, "=RawLuau", Bytecode.data(), Bytecode.size(), 0);
@@ -112,6 +115,7 @@ public:
     const bool Succeeded = Resumed == LUA_OK && lua_gettop(Thread) == 0;
     lua_resetthread(Thread);
     lua_unref(Root, Reference);
+    lua_settop(Root, EntryDepth);
     return Succeeded;
   }
 

@@ -19,6 +19,7 @@ namespace Luna::Detail {
 
 class BindingRecord;
 class FaultInjector;
+class ProfilingRegistry;
 
 struct DispatchSlotId final {
   std::uint64_t Value = 0;
@@ -44,6 +45,7 @@ struct DispatchEntry final {
 
   FaultInjector *Faults = nullptr;
   const TypeGenerationSource *Types = nullptr;
+  ProfilingRegistry *Profiling = nullptr;
 
   [[nodiscard]] bool IsAvailable() const noexcept { return Target != nullptr; }
 };
@@ -187,7 +189,8 @@ public:
 
   void Bind(DispatchSlotId Slot, std::string QualifiedName,
             BindingRecord *Target, FaultInjector *Faults,
-            const TypeGenerationSource *Types);
+            const TypeGenerationSource *Types,
+            ProfilingRegistry *Profiling = nullptr);
 
   void Retire(DispatchSlotId Slot);
 

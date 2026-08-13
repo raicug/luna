@@ -65,7 +65,9 @@ DispatchRetention::DispatchRetention(
     Ledger.reset();
 }
 
-DispatchRetention::~DispatchRetention() { Release(); }
+DispatchRetention::~DispatchRetention() {
+  Release();
+}
 
 DispatchRetention::DispatchRetention(DispatchRetention &&Other) noexcept
     : HeldGeneration(std::move(Other.HeldGeneration)),
@@ -212,7 +214,8 @@ std::size_t DispatchTable::IssuedSlotCount() const noexcept {
 
 void DispatchTable::Bind(DispatchSlotId Slot, std::string QualifiedName,
                          BindingRecord *Target, FaultInjector *Faults,
-                         const TypeGenerationSource *Types) {
+                         const TypeGenerationSource *Types,
+                         ProfilingRegistry *Profiling) {
   if (!Slot.IsValid())
     return;
 
@@ -222,6 +225,7 @@ void DispatchTable::Bind(DispatchSlotId Slot, std::string QualifiedName,
   Entry.Target = Target;
   Entry.Faults = Faults;
   Entry.Types = Types;
+  Entry.Profiling = Profiling;
 
   DispatchLatchGuard Guard(Latch);
   const std::shared_ptr<const DispatchGeneration> Captured = CurrentLocked();

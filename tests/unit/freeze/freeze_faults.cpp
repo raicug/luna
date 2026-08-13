@@ -66,7 +66,9 @@ struct Widget final {
   [[nodiscard]] int Level() const { return Charge * 2; }
 };
 
-[[nodiscard]] int Increment(int Value) { return Value + 1; }
+[[nodiscard]] int Increment(int Value) {
+  return Value + 1;
+}
 
 [[nodiscard]] Luna::StableTypeKey WidgetKey() {
   return Luna::StableTypeKey("tests.freeze.faults.Widget");

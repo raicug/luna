@@ -13,6 +13,7 @@
 
 #include <lua.h>
 
+#include <array>
 #include <cstddef>
 #include <limits>
 #include <memory>
@@ -96,8 +97,13 @@ PublishReturnPack(lua_State *State, int EntryDepth,
                    "Returned pack publishes more values than one call can "
                    "carry.");
 
-  std::vector<const TypeRecord *> Writers;
-  Writers.reserve(Staged.size());
+  constexpr std::size_t InlineWriterCount = 4;
+  std::array<const TypeRecord *, InlineWriterCount> InlineWriters{};
+  std::vector<const TypeRecord *> OverflowWriters;
+  const bool UsesOverflow = Staged.size() > InlineWriters.size();
+  if (UsesOverflow)
+    OverflowWriters.reserve(Staged.size());
+
   for (std::size_t Index = 0; Index < Staged.size(); ++Index) {
     const ValueKind Kind = Metadata.HasDeclaredPackShape()
                                ? Declared[Index]
@@ -117,7 +123,10 @@ PublishReturnPack(lua_State *State, int EntryDepth,
                      Position + "exceeds the " +
                          std::to_string(*Record->MaximumByteCount) +
                          "-byte maximum.");
-    Writers.push_back(Record);
+    if (UsesOverflow)
+      OverflowWriters.push_back(Record);
+    else
+      InlineWriters[Index] = Record;
   }
 
   const int PublishedCount = static_cast<int>(Staged.size());
@@ -128,7 +137,9 @@ PublishReturnPack(lua_State *State, int EntryDepth,
                        std::to_string(PublishedCount) + " return values.");
 
   for (std::size_t Index = 0; Index < Staged.size(); ++Index) {
-    if (!Writers[Index]->Write(State, Staged[Index]))
+    const TypeRecord *Record =
+        UsesOverflow ? OverflowWriters[Index] : InlineWriters[Index];
+    if (!Record->Write(State, Staged[Index]))
       return Failure(State, EntryDepth,
                      ReturnPositionText(Index + 1) + "could not be published.");
   }
