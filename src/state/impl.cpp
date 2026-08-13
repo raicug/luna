@@ -2552,6 +2552,7 @@ RegistrationResult State::Impl::Freeze() {
         ErrorCategory::Internal, "Cannot freeze State: the committed "
                                  "generation changed during preparation.");
   FrozenCaches = std::move(Prepared);
+  Bindings.FreezeDispatch(Captured->Types().get());
   Lifecycle.Freeze();
   return RegistrationResult::Success();
 }

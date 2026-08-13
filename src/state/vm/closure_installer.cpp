@@ -19,6 +19,7 @@ namespace {
 
 struct InstallationRequest final {
   DispatchSlotId Slot;
+  const DispatchTable *Dispatch = nullptr;
   const char *GlobalName = nullptr;
   const std::vector<std::string> *Segments = nullptr;
   bool InjectFailure = false;
@@ -38,11 +39,13 @@ struct ObservationRequest final {
 [[nodiscard]] int InstallClosure(lua_State *State) {
   auto *Request =
       static_cast<InstallationRequest *>(lua_tolightuserdata(State, 1));
-  if (!Request || !Request->Slot.IsValid() || !Request->GlobalName)
+  if (!Request || !Request->Slot.IsValid() || !Request->Dispatch ||
+      !Request->GlobalName)
     return RaiseLiteral(State, "Internal error: invalid installation request.");
 
   PushDispatchSlot(State, Request->Slot);
-  lua_pushcclosurek(State, NativeTrampoline, Request->GlobalName, 1,
+  lua_pushlightuserdata(State, const_cast<DispatchTable *>(Request->Dispatch));
+  lua_pushcclosurek(State, NativeTrampoline, Request->GlobalName, 2,
                     NativeTrampolineContinuation);
   lua_setglobal(State, Request->GlobalName);
 
@@ -54,8 +57,8 @@ struct ObservationRequest final {
 [[nodiscard]] int InstallScopedClosure(lua_State *State) {
   auto *Request =
       static_cast<InstallationRequest *>(lua_tolightuserdata(State, 1));
-  if (!Request || !Request->Slot.IsValid() || !Request->GlobalName ||
-      !Request->Segments)
+  if (!Request || !Request->Slot.IsValid() || !Request->Dispatch ||
+      !Request->GlobalName || !Request->Segments)
     return RaiseLiteral(State, "Internal error: invalid installation request.");
 
   const int Checkpoint = lua_gettop(State);
@@ -67,7 +70,8 @@ struct ObservationRequest final {
   }
 
   PushDispatchSlot(State, Request->Slot);
-  lua_pushcclosurek(State, NativeTrampoline, Request->GlobalName, 1,
+  lua_pushlightuserdata(State, const_cast<DispatchTable *>(Request->Dispatch));
+  lua_pushcclosurek(State, NativeTrampoline, Request->GlobalName, 2,
                     NativeTrampolineContinuation);
   SetVmPathField(State, *Request->Segments);
   lua_settop(State, Checkpoint);
@@ -114,8 +118,9 @@ InstallAtRootScope(lua_State *State, BindingRecord &Record,
   if (!lua_checkstack(State, 5))
     return ClosureInstallationStatus::StackCapacityFailure;
 
-  InstallationRequest Request{Record.Slot(), Record.GlobalName().c_str(),
-                              nullptr, InjectFailure};
+  InstallationRequest Request{Record.Slot(), Record.Dispatch(),
+                              Record.GlobalName().c_str(), nullptr,
+                              InjectFailure};
   lua_getglobal(State, Request.GlobalName);
   lua_pushcfunction(State, InstallClosure, "Luna.InstallBindingClosure");
   lua_pushlightuserdata(State, &Request);
@@ -144,8 +149,9 @@ InstallAtScopedPath(lua_State *State, BindingRecord &Record,
   if (!ReserveStack(State, Segments.size()))
     return ClosureInstallationStatus::StackCapacityFailure;
 
-  InstallationRequest Request{Record.Slot(), Record.GlobalName().c_str(),
-                              &Segments, InjectFailure};
+  InstallationRequest Request{Record.Slot(), Record.Dispatch(),
+                              Record.GlobalName().c_str(), &Segments,
+                              InjectFailure};
   lua_pushcfunction(State, InstallScopedClosure,
                     "Luna.InstallScopedBindingClosure");
   lua_pushlightuserdata(State, &Request);

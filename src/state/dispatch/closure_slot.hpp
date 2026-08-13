@@ -18,6 +18,9 @@ void PushDispatchSlot(lua_State *State, DispatchSlotId Slot) noexcept;
 
 [[nodiscard]] DispatchSlotId ClosureDispatchSlot(lua_State *State) noexcept;
 
+[[nodiscard]] const DispatchTable *
+ClosureDispatchTable(lua_State *State) noexcept;
+
 [[nodiscard]] DispatchSlotId DispatchSlotAt(lua_State *State,
                                             int Index) noexcept;
 

@@ -4,6 +4,7 @@
 #include "state/dispatch/closure_slot.hpp"
 #include "state/identity/identity_registry.hpp"
 #include "state/invocation/async/suspended_call.hpp"
+#include "state/invocation/conversion/argument_reader.hpp"
 #include "state/invocation/conversion/return_writer.hpp"
 #include "state/invocation/members/receiver.hpp"
 #include "state/invocation/overload/dispatch.hpp"
@@ -18,10 +19,13 @@
 #include <lua.h>
 
 #include <algorithm>
+#include <array>
+#include <cmath>
 #include <cstddef>
 #include <cstdlib>
 #include <cstring>
 #include <exception>
+#include <limits>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -81,6 +85,149 @@ StartedCallFrom(InvocationOutcome &Outcome, const ReturnMetadata &Awaited,
   return Started;
 }
 
+[[nodiscard]] bool FastPathFaultPending(const ReturnMetadata &Return,
+                                        const FaultInjector &Faults) {
+  if (Faults.Pending(StateFaultPoint::MissingMetadata) != 0 ||
+      Faults.Pending(StateFaultPoint::ArgumentInspection) != 0)
+    return true;
+  switch (Return.Disposition()) {
+  case ReturnDisposition::Void:
+    return Faults.Pending(StateFaultPoint::VoidFinalization) != 0;
+  case ReturnDisposition::Value:
+  case ReturnDisposition::Pack:
+    return Faults.Pending(StateFaultPoint::ReturnStackCapacity) != 0 ||
+           Faults.Pending(StateFaultPoint::ReturnWrite) != 0;
+  default:
+    return true;
+  }
+}
+
+[[nodiscard]] bool MatchesFastValue(lua_State *State, int StackIndex,
+                                    ValueKind Kind) {
+  if (!State)
+    return false;
+  switch (Kind) {
+  case ValueKind::Boolean:
+    return lua_type(State, StackIndex) == LUA_TBOOLEAN;
+  case ValueKind::Integer: {
+    if (lua_type(State, StackIndex) != LUA_TNUMBER)
+      return false;
+    const double Number = lua_tonumberx(State, StackIndex, nullptr);
+    return std::isfinite(Number) &&
+           Number >= static_cast<double>(std::numeric_limits<int>::min()) &&
+           Number <= static_cast<double>(std::numeric_limits<int>::max()) &&
+           std::trunc(Number) == Number;
+  }
+  case ValueKind::Number:
+    return lua_type(State, StackIndex) == LUA_TNUMBER;
+  case ValueKind::String: {
+    if (lua_type(State, StackIndex) != LUA_TSTRING)
+      return false;
+    std::size_t Length = 0;
+    static_cast<void>(lua_tolstring(State, StackIndex, &Length));
+    return Length <= MaximumInvocationStringBytes;
+  }
+  }
+  return false;
+}
+
+[[nodiscard]] std::optional<InvocationResult>
+InvokeSimpleRoot(lua_State *State, BindingRecord &Record,
+                 const TypeGeneration &Types, FaultInjector &Faults) {
+  if (Record.CommittedCandidateCount() != 1)
+    return std::nullopt;
+
+  OverloadCandidate *Candidate = Record.PrimaryCandidate();
+  if (!Candidate || !Candidate->IsCommitted)
+    return std::nullopt;
+
+  ErasedCallableDescriptor &Descriptor = Candidate->Descriptor;
+  const CallableMetadata &Metadata = Descriptor.Metadata();
+  const ReturnMetadata &Return = Metadata.ReturnType();
+  const std::span<const ValueKind> Parameters = Metadata.ParameterTypes();
+  if (Metadata.HasReceiver() || Candidate->Signature.ReceiverType ||
+      Metadata.HasRichParameters() || Return.IsAsynchronous() ||
+      Parameters.size() > 4 || FastPathFaultPending(Return, Faults))
+    return std::nullopt;
+  if (Return.Disposition() != ReturnDisposition::Void &&
+      Return.Disposition() != ReturnDisposition::Value &&
+      Return.Disposition() != ReturnDisposition::Pack)
+    return std::nullopt;
+
+  const int Received = lua_gettop(State);
+  if (Received != static_cast<int>(Parameters.size()))
+    return std::nullopt;
+
+  std::array<Value, 4> Arguments;
+  for (std::size_t Index = 0; Index < Parameters.size(); ++Index) {
+    if (!MatchesFastValue(State, static_cast<int>(Index) + 1,
+                          Parameters[Index]))
+      return std::nullopt;
+  }
+  for (std::size_t Index = 0; Index < Parameters.size(); ++Index) {
+    const ArgumentReadResult Read = ReadArgument(
+        Types, State, static_cast<int>(Index) + 1, Parameters[Index], false);
+    if (!Read.IsSuccess() || !Read.ConvertedValue)
+      return std::nullopt;
+    Arguments[Index] = *Read.ConvertedValue;
+  }
+
+  const SymbolId Symbol = Candidate->Identity;
+  try {
+    InvocationOutcome Outcome = Descriptor.Invoke(
+        std::span<const Value>(Arguments.data(), Parameters.size()));
+    if (Outcome.Kind() == InvocationOutcomeKind::InternalFailure) {
+      InvocationResult Failed = Failure(
+          "Internal error for " + MemberContext(Record.GlobalName(), false) +
+          ": " + Outcome.FailureMessage());
+      Failed.Symbol = Symbol;
+      return Failed;
+    }
+    if (Outcome.Kind() == InvocationOutcomeKind::Suspended)
+      return InvocationResult{
+          .ReturnCount = -1,
+          .Diagnostic = std::string(),
+          .Suspension = StartedCallFrom(
+              Outcome, Return,
+              RetainedArguments(
+                  std::span<const Value>(Arguments.data(), Parameters.size()),
+                  1),
+              Symbol),
+          .Symbol = Symbol,
+          .ReceiverType = TypeId()};
+
+    const ReturnWriteResult Written =
+        WriteInvocationReturn(State, Return, Outcome, Types, Faults);
+    if (Written.IsSuccess())
+      return InvocationResult{.ReturnCount = Written.ReturnCount,
+                              .Diagnostic = std::string(),
+                              .Suspension = nullptr,
+                              .Symbol = Symbol,
+                              .ReceiverType = TypeId()};
+
+    const std::string Message = Written.Diagnostic
+                                    ? Written.Diagnostic->Message()
+                                    : "Return handling failed.";
+    InvocationResult Failed =
+        Failure("Internal error for " +
+                MemberContext(Record.GlobalName(), false) + ": " + Message);
+    Failed.Symbol = Symbol;
+    return Failed;
+  } catch (const std::exception &Error) {
+    InvocationResult Failed =
+        Failure("Runtime error: " + MemberContext(Record.GlobalName(), false) +
+                " threw: " + Error.what());
+    Failed.Symbol = Symbol;
+    return Failed;
+  } catch (...) {
+    InvocationResult Failed =
+        Failure("Internal error: " + MemberContext(Record.GlobalName(), false) +
+                " threw an unknown C++ exception.");
+    Failed.Symbol = Symbol;
+    return Failed;
+  }
+}
+
 struct SelectedOverload final {
   OverloadCandidate *Candidate = nullptr;
   std::string Diagnostic;
@@ -137,6 +284,10 @@ struct MemberDispatch final {
                                                FaultInjector &Faults) {
   const std::string_view GlobalName = Record.GlobalName();
   try {
+    if (std::optional<InvocationResult> Fast =
+            InvokeSimpleRoot(State, Record, Types, Faults))
+      return std::move(*Fast);
+
     const MemberDispatch Member = DescribeMember(Record);
     ValidatedReceiver Receiver;
     const InstanceReceiver *Bound = nullptr;
@@ -497,11 +648,21 @@ int NativeTrampoline(lua_State *State) {
       InvocationResult Result;
 
       const DispatchSlotId Slot = ClosureDispatchSlot(State);
-      const DispatchTable *Dispatch = ObserveDispatchTable(State);
-      DispatchRetention Retained =
-          Dispatch ? Dispatch->Retain(DispatchRetainer::Invocation)
-                   : DispatchRetention{};
-      const DispatchEntry *Entry = Retained.Find(Slot);
+      const DispatchTable *Dispatch = ClosureDispatchTable(State);
+      if (!Dispatch)
+        Dispatch = ObserveDispatchTable(State);
+      const bool FrozenDispatch =
+          Dispatch != nullptr && Dispatch->HasFrozenSnapshot();
+      DispatchRetention Retained;
+      const DispatchEntry *Entry = nullptr;
+      if (Dispatch) {
+        if (FrozenDispatch)
+          Entry = Dispatch->FindFrozen(Slot);
+        else {
+          Retained = Dispatch->Retain(DispatchRetainer::Invocation);
+          Entry = Retained.Find(Slot);
+        }
+      }
       BindingRecord *Record = Entry ? Entry->Target : nullptr;
       bool Suspend = false;
       if (!Entry) {
@@ -519,25 +680,40 @@ int NativeTrampoline(lua_State *State) {
         Faults = Entry->Faults;
         Faults->ClearCallbackStackRestoration();
 
-        std::shared_ptr<const TypeGeneration> Types =
-            Entry->Types ? Entry->Types->Capture() : nullptr;
-        if (!Types) {
+        std::shared_ptr<const TypeGeneration> Types;
+        const TypeGeneration *TypeView =
+            FrozenDispatch ? Dispatch->FrozenTypes() : nullptr;
+        if (!TypeView) {
+          Types = Entry->Types ? Entry->Types->Capture() : nullptr;
+          TypeView = Types.get();
+        }
+        if (!TypeView) {
           Result = Failure("Internal error: the canonical type registry is "
                            "unavailable for " +
                            CallableContext(Entry->QualifiedName) + ".");
         } else {
-          Result = InvokeValidated(State, *Record, *Types, *Faults);
+          Result = InvokeValidated(State, *Record, *TypeView, *Faults);
           if (Result.IsSuspended()) {
-            std::string Refusal;
-            const SymbolId SuspendedSymbol = Result.Symbol;
-            const TypeId SuspendedReceiverType = Result.ReceiverType;
-            Suspend =
-                RegisterSuspension(State, Result, *Entry, std::move(Types),
-                                   Retained, EntryDepth, Refusal);
-            if (!Suspend) {
-              Result = Failure(std::move(Refusal));
-              Result.Symbol = SuspendedSymbol;
-              Result.ReceiverType = SuspendedReceiverType;
+            if (!Types)
+              Types = Entry->Types ? Entry->Types->Capture() : nullptr;
+            if (!Types) {
+              Result = Failure("Internal error: the canonical type registry is "
+                               "unavailable for " +
+                               CallableContext(Entry->QualifiedName) + ".");
+            } else {
+              if (!Retained.IsHeld() && Dispatch)
+                Retained = Dispatch->Retain(DispatchRetainer::Invocation);
+              std::string Refusal;
+              const SymbolId SuspendedSymbol = Result.Symbol;
+              const TypeId SuspendedReceiverType = Result.ReceiverType;
+              Suspend =
+                  RegisterSuspension(State, Result, *Entry, std::move(Types),
+                                     Retained, EntryDepth, Refusal);
+              if (!Suspend) {
+                Result = Failure(std::move(Refusal));
+                Result.Symbol = SuspendedSymbol;
+                Result.ReceiverType = SuspendedReceiverType;
+              }
             }
           }
         }

@@ -196,6 +196,15 @@ public:
 
   void RetireEverything() noexcept;
 
+  void FreezeForInvocation(const TypeGeneration *Types) noexcept;
+
+  [[nodiscard]] bool HasFrozenSnapshot() const noexcept;
+
+  [[nodiscard]] const TypeGeneration *FrozenTypes() const noexcept;
+
+  [[nodiscard]] const DispatchEntry *
+  FindFrozen(DispatchSlotId Slot) const noexcept;
+
   [[nodiscard]] bool
   Publish(std::shared_ptr<const DispatchGeneration> Published) noexcept;
 
@@ -241,6 +250,8 @@ private:
   std::uint64_t NextSlot = 1;
   std::vector<SlotName> Slots;
   std::shared_ptr<const DispatchGeneration> Current;
+  std::atomic<const DispatchGeneration *> Frozen{nullptr};
+  std::atomic<const TypeGeneration *> FrozenTypeGeneration{nullptr};
 
   std::vector<std::shared_ptr<const DispatchGeneration>> Superseded;
 

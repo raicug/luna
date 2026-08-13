@@ -33,6 +33,10 @@ public:
 
   void BindProfiling(ProfilingRegistry *Bound) noexcept { Profiling = Bound; }
 
+  void FreezeDispatch(const TypeGeneration *Types) noexcept {
+    DispatchValue.FreezeForInvocation(Types);
+  }
+
   [[nodiscard]] DispatchTable &Dispatch() noexcept { return DispatchValue; }
 
   [[nodiscard]] const DispatchTable &Dispatch() const noexcept {

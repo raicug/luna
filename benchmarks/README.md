@@ -39,9 +39,9 @@ not an admissible performance claim: the runner reported `claimable=false`.
 
 | Case | Raw Luau median ns/op | Luna unfrozen ns/op | Delta | Difference | Luna frozen ns/op | Delta | Difference |
 |---|---:|---:|---:|---:|---:|---:|---:|
-| VoidCall | 50 | 477 | +427 | +854.00% | 468 | +418 | +836.00% |
-| ScalarCall | 140 | 644 | +504 | +360.00% | 697 | +557 | +397.86% |
-| DynamicPackCall | 148 | 1123 | +975 | +658.78% | 1066 | +918 | +620.27% |
+| VoidCall | 46 | 249 | +203 | +441.30% | 196 | +150 | +326.09% |
+| ScalarCall | 76 | 427 | +351 | +461.84% | 383 | +307 | +403.95% |
+| DynamicPackCall | 75 | 794 | +719 | +958.67% | 789 | +714 | +952.00% |
 
 Regenerate this table from the `luna-benchmark comparison` records whenever the
 benchmark configuration, corpus, Luau version, compiler, or implementation

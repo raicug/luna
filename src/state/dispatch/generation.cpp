@@ -274,6 +274,28 @@ void DispatchTable::RetireEverything() noexcept {
   }
 }
 
+void DispatchTable::FreezeForInvocation(const TypeGeneration *Types) noexcept {
+  if (!Types)
+    return;
+  DispatchLatchGuard Guard(Latch);
+  FrozenTypeGeneration.store(Types, std::memory_order_relaxed);
+  Frozen.store(CurrentLocked().get(), std::memory_order_release);
+}
+
+bool DispatchTable::HasFrozenSnapshot() const noexcept {
+  return Frozen.load(std::memory_order_acquire) != nullptr;
+}
+
+const TypeGeneration *DispatchTable::FrozenTypes() const noexcept {
+  return FrozenTypeGeneration.load(std::memory_order_acquire);
+}
+
+const DispatchEntry *
+DispatchTable::FindFrozen(DispatchSlotId Slot) const noexcept {
+  const DispatchGeneration *Snapshot = Frozen.load(std::memory_order_acquire);
+  return Snapshot ? Snapshot->Find(Slot) : nullptr;
+}
+
 bool DispatchTable::Publish(
     std::shared_ptr<const DispatchGeneration> Published) noexcept {
   if (!Published)
@@ -386,6 +408,8 @@ void DispatchTable::PublishLocked(
   if (!Published)
     return;
 
+  Frozen.store(nullptr, std::memory_order_release);
+  FrozenTypeGeneration.store(nullptr, std::memory_order_release);
   std::shared_ptr<const DispatchGeneration> Previous =
       std::exchange(Current, std::move(Published));
   JournalSupersededLocked(std::move(Previous));
