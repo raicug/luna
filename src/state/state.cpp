@@ -43,7 +43,9 @@ bool State::IsReady() const noexcept {
   return Implementation && Implementation->IsReady();
 }
 
-BindingRegistry State::Bindings() noexcept { return BindingRegistry(*this); }
+BindingRegistry State::Bindings() noexcept {
+  return BindingRegistry(*this);
+}
 
 RegistrationResult
 State::RegisterErased(std::string_view GlobalName,
@@ -89,16 +91,32 @@ RegistrationResult State::ClearProfilingHook() {
 }
 
 ExecutionResult State::Execute(std::string_view Source) {
+  return Execute(Source, ExecutionPolicy::Shared());
+}
+
+ExecutionResult State::Execute(std::string_view Source,
+                               const ExecutionPolicy &Policy) {
   if (!Implementation)
     return ExecutionResult::Failure(
         ErrorCategory::StateNotReady,
         "State not ready: source execution requires a ready State.");
-  return Implementation->Execute(Source);
+  return Implementation->Execute(Source, Policy);
 }
 
-Chunk State::Load(std::string_view Source) { return Load(Source, "LunaChunk"); }
+Chunk State::Load(std::string_view Source) {
+  return Load(Source, "LunaChunk", ExecutionPolicy::Shared());
+}
+
+Chunk State::Load(std::string_view Source, const ExecutionPolicy &Policy) {
+  return Load(Source, "LunaChunk", Policy);
+}
 
 Chunk State::Load(std::string_view Source, std::string_view Name) {
+  return Load(Source, Name, ExecutionPolicy::Shared());
+}
+
+Chunk State::Load(std::string_view Source, std::string_view Name,
+                  const ExecutionPolicy &Policy) {
   if (!Implementation)
     return Chunk::Refused(
         ErrorCategory::StateNotReady,
@@ -113,8 +131,8 @@ Chunk State::Load(std::string_view Source, std::string_view Name) {
                                         : ErrorCategory::StateNotReady,
                           std::move(Diagnostic));
   }
-  return Chunk(Implementation->Chunks(), std::move(Bytecode),
-               std::string(Name));
+  return Chunk(Implementation->Chunks(), std::move(Bytecode), std::string(Name),
+               Policy);
 }
 
 void State::RequestInterrupt(std::string Reason) {

@@ -35,9 +35,15 @@ public:
   [[nodiscard]] bool IsReady() const noexcept;
   [[nodiscard]] BindingRegistry Bindings() noexcept;
   [[nodiscard]] ExecutionResult Execute(std::string_view Source);
+  [[nodiscard]] ExecutionResult Execute(std::string_view Source,
+                                        const ExecutionPolicy &Policy);
 
   [[nodiscard]] Chunk Load(std::string_view Source);
+  [[nodiscard]] Chunk Load(std::string_view Source,
+                           const ExecutionPolicy &Policy);
   [[nodiscard]] Chunk Load(std::string_view Source, std::string_view Name);
+  [[nodiscard]] Chunk Load(std::string_view Source, std::string_view Name,
+                           const ExecutionPolicy &Policy);
 
   void RequestInterrupt(std::string Reason);
   void ClearInterrupt() noexcept;

@@ -40,7 +40,8 @@ public:
 
   [[nodiscard]] ChunkResult Invoke(std::string_view Bytecode,
                                    std::string_view Name,
-                                   const ValuePack &Arguments);
+                                   const ValuePack &Arguments,
+                                   const ExecutionPolicy &Policy);
 
 private:
   lua_State *RootValue = nullptr;

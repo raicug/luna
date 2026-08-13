@@ -8,7 +8,9 @@
 
 namespace Luna {
 
-ChunkResult Chunk::Invoke() const { return Invoke(ValuePack()); }
+ChunkResult Chunk::Invoke() const {
+  return Invoke(ValuePack());
+}
 
 ChunkResult Chunk::Invoke(const ValuePack &Arguments) const {
   if (DiagnosticValue)
@@ -17,7 +19,7 @@ ChunkResult Chunk::Invoke(const ValuePack &Arguments) const {
     return ChunkResult::Failure(
         ErrorCategory::StateNotReady,
         "State not ready: this chunk holds no loaded bytecode.");
-  return HostValue->Invoke(BytecodeValue, NameValue, Arguments);
+  return HostValue->Invoke(BytecodeValue, NameValue, Arguments, PolicyValue);
 }
 
 } // namespace Luna

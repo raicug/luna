@@ -10,6 +10,7 @@
 #include <string>
 #include <string_view>
 #include <utility>
+#include <vector>
 // clang-format on
 
 namespace Luna {
@@ -17,6 +18,46 @@ namespace Luna {
 namespace Detail {
 class ChunkHost;
 }
+
+class ExecutionPolicy final {
+public:
+  [[nodiscard]] static ExecutionPolicy Shared() { return ExecutionPolicy(); }
+
+  [[nodiscard]] static ExecutionPolicy Isolated() {
+    ExecutionPolicy Policy;
+    Policy.IsolatedValue = true;
+    return Policy;
+  }
+
+  [[nodiscard]] ExecutionPolicy WithAllowedGlobal(std::string Name) const {
+    ExecutionPolicy Policy = *this;
+    if (!Name.empty())
+      Policy.AllowedGlobalsValue.push_back(std::move(Name));
+    return Policy;
+  }
+
+  [[nodiscard]] ExecutionPolicy WithReadOnlyGlobals() const {
+    ExecutionPolicy Policy = *this;
+    Policy.ReadOnlyGlobalsValue = true;
+    return Policy;
+  }
+
+  [[nodiscard]] bool IsIsolated() const noexcept { return IsolatedValue; }
+
+  [[nodiscard]] bool AreGlobalsReadOnly() const noexcept {
+    return ReadOnlyGlobalsValue;
+  }
+
+  [[nodiscard]] const std::vector<std::string> &
+  AllowedGlobals() const noexcept {
+    return AllowedGlobalsValue;
+  }
+
+private:
+  bool IsolatedValue = false;
+  bool ReadOnlyGlobalsValue = false;
+  std::vector<std::string> AllowedGlobalsValue;
+};
 
 class ChunkResult final {
 public:
@@ -106,13 +147,14 @@ private:
   friend class State;
 
   Chunk(std::shared_ptr<Detail::ChunkHost> Host, std::string Bytecode,
-        std::string Name)
+        std::string Name, ExecutionPolicy Policy)
       : HostValue(std::move(Host)), BytecodeValue(std::move(Bytecode)),
-        NameValue(std::move(Name)) {}
+        NameValue(std::move(Name)), PolicyValue(std::move(Policy)) {}
 
   std::shared_ptr<Detail::ChunkHost> HostValue;
   std::string BytecodeValue;
   std::string NameValue;
+  ExecutionPolicy PolicyValue;
   std::optional<ErrorDiagnostic> DiagnosticValue;
 };
 

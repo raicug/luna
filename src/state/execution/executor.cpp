@@ -11,12 +11,14 @@
 #include <Luau/Compiler.h>
 #include <lua.h>
 
+#include <climits>
 #include <cstddef>
 #include <exception>
 #include <memory>
 #include <string>
 #include <string_view>
 #include <utility>
+#include <vector>
 // clang-format on
 
 namespace Luna::Detail {
@@ -88,6 +90,36 @@ private:
   int Reference = LUA_NOREF;
 };
 
+[[nodiscard]] int ConfigureExecutionEnvironment(lua_State *Root,
+                                                lua_State *Thread,
+                                                const ExecutionPolicy &Policy) {
+  if (!Policy.IsIsolated())
+    return 0;
+
+  const std::vector<std::string> &Allowed = Policy.AllowedGlobals();
+  if (Allowed.size() > static_cast<std::size_t>(INT_MAX - 2) ||
+      !lua_checkstack(Root, 1) ||
+      !lua_checkstack(Thread, static_cast<int>(Allowed.size()) + 2))
+    return -1;
+
+  lua_newtable(Thread);
+  const int Environment = lua_gettop(Thread);
+  lua_pushvalue(Thread, Environment);
+  lua_rawsetfield(Thread, Environment, "_G");
+
+  for (const std::string &Name : Allowed) {
+    if (Name == "_G")
+      continue;
+    lua_getglobal(Root, Name.c_str());
+    lua_xmove(Root, Thread, 1);
+    lua_rawsetfield(Thread, Environment, Name.c_str());
+  }
+
+  if (Policy.AreGlobalsReadOnly())
+    lua_setreadonly(Thread, Environment, 1);
+  return Environment;
+}
+
 [[nodiscard]] ExecutionResult InternalFailure(std::string Reason) {
   return ExecutionResult::Failure(
       ErrorCategory::Internal,
@@ -122,6 +154,7 @@ private:
 } // namespace
 
 ExecutionResult ExecuteSource(lua_State *Root, std::string_view Source,
+                              const ExecutionPolicy &Policy,
                               FaultInjector &Faults, AsyncCallRegistry *Async) {
   if (!Root)
     return InternalFailure("execution root is unavailable.");
@@ -146,8 +179,14 @@ ExecutionResult ExecuteSource(lua_State *Root, std::string_view Source,
     }
 
     lua_State *Thread = Disposable.Get();
-    if (luau_load(Thread, "=Luna", Bytecode.data(), Bytecode.size(), 0) !=
-        LUA_OK) {
+    const int Environment = ConfigureExecutionEnvironment(Root, Thread, Policy);
+    if (Environment < 0)
+      return InternalFailure("could not create the execution environment.");
+    const int LoadStatus = luau_load(Thread, "=Luna", Bytecode.data(),
+                                     Bytecode.size(), Environment);
+    if (Environment > 0)
+      lua_remove(Thread, Environment);
+    if (LoadStatus != LUA_OK) {
       return ExecutionResult::Failure(
           ErrorCategory::Compilation,
           Prefixed(CompilationPrefix,
@@ -246,7 +285,8 @@ bool CompileChunk(lua_State *Root, std::string_view Source,
 
 ChunkResult InvokeChunk(lua_State *Root, std::string_view Bytecode,
                         std::string_view Name, const ValuePack &Arguments,
-                        FaultInjector *Faults, AsyncCallRegistry *Async) {
+                        FaultInjector *Faults, AsyncCallRegistry *Async,
+                        const ExecutionPolicy &Policy) {
   if (!Root)
     return ChunkResult::Failure(
         ErrorCategory::Internal,
@@ -274,9 +314,18 @@ ChunkResult InvokeChunk(lua_State *Root, std::string_view Bytecode,
                    ""));
 
     lua_State *Thread = Disposable.Get();
+    const int Environment = ConfigureExecutionEnvironment(Root, Thread, Policy);
+    if (Environment < 0)
+      return ChunkResult::Failure(
+          ErrorCategory::Internal,
+          Prefixed(InternalPrefix,
+                   "could not create the execution environment.", ""));
     const std::string ChunkName = std::string("=") + std::string(Name);
-    if (luau_load(Thread, ChunkName.c_str(), Bytecode.data(), Bytecode.size(),
-                  0) != LUA_OK)
+    const int LoadStatus = luau_load(Thread, ChunkName.c_str(), Bytecode.data(),
+                                     Bytecode.size(), Environment);
+    if (Environment > 0)
+      lua_remove(Thread, Environment);
+    if (LoadStatus != LUA_OK)
       return ChunkResult::Failure(
           ErrorCategory::Compilation,
           Prefixed(CompilationPrefix,

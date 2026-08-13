@@ -47,6 +47,7 @@ public:
   [[nodiscard]] int StackDepth() const noexcept;
   [[nodiscard]] bool SetStackDepth(int Depth) noexcept;
   [[nodiscard]] ExecutionResult ExecuteSource(std::string_view Source,
+                                              const ExecutionPolicy &Policy,
                                               FaultInjector &Faults,
                                               AsyncCallRegistry *Async);
   [[nodiscard]] bool

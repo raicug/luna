@@ -17,6 +17,7 @@ class FaultInjector;
 
 [[nodiscard]] ExecutionResult ExecuteSource(lua_State *Root,
                                             std::string_view Source,
+                                            const ExecutionPolicy &Policy,
                                             FaultInjector &Faults,
                                             AsyncCallRegistry *Async);
 
@@ -27,6 +28,6 @@ class FaultInjector;
 [[nodiscard]] ChunkResult
 InvokeChunk(lua_State *Root, std::string_view Bytecode, std::string_view Name,
             const ValuePack &Arguments, FaultInjector *Faults,
-            AsyncCallRegistry *Async);
+            AsyncCallRegistry *Async, const ExecutionPolicy &Policy);
 
 } // namespace Luna::Detail

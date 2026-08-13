@@ -2587,7 +2587,8 @@ RegistrationResult State::Impl::ClearProfilingHook() {
   return RegistrationResult::Success();
 }
 
-ExecutionResult State::Impl::Execute(std::string_view Source) {
+ExecutionResult State::Impl::Execute(std::string_view Source,
+                                     const ExecutionPolicy &Policy) {
   if (!IsOwnerThread()) {
     return ExecutionResult::Failure(
         ErrorCategory::StateNotReady,
@@ -2600,7 +2601,7 @@ ExecutionResult State::Impl::Execute(std::string_view Source) {
         "State not ready: source execution requires a ready State.");
   }
   AsyncCalls.BindOrigin(Lifecycle.Identity(), Lifecycle.Generation());
-  return VirtualMachine.ExecuteSource(Source, Faults, &AsyncCalls);
+  return VirtualMachine.ExecuteSource(Source, Policy, Faults, &AsyncCalls);
 }
 
 bool State::Impl::CompileChunkSource(std::string_view Source,
@@ -2622,7 +2623,9 @@ void State::Impl::RequestInterrupt(std::string Reason) {
   Interrupt.Request(std::move(Reason));
 }
 
-void State::Impl::ClearInterrupt() noexcept { Interrupt.Clear(); }
+void State::Impl::ClearInterrupt() noexcept {
+  Interrupt.Clear();
+}
 
 bool State::Impl::IsInterruptPending() const noexcept {
   return Interrupt.IsPending();
@@ -2780,7 +2783,7 @@ Detail::LifecycleCommitObservation State::Impl::PublishLifecycleAttempt(
                                 std::string &Diagnostic) {
     if (Source.empty())
       return;
-    const ExecutionResult Result = Execute(Source);
+    const ExecutionResult Result = Execute(Source, ExecutionPolicy::Shared());
     Succeeded = Result.IsSuccess();
     if (const ErrorDiagnostic *Failure = Result.Diagnostic())
       Diagnostic = Failure->Message();

@@ -117,16 +117,39 @@ If a suspended asynchronous call is outstanding when the interrupt is observed, 
 
 The interrupt applies to the whole Luau global state, so a nested chunk invoked from inside a native call is interrupted too, and the error propagates out through the calling chunk.
 
+## Execution policies
+
+`State::Execute` and `State::Load` accept an `ExecutionPolicy`. The default is `ExecutionPolicy::Shared()`, which preserves the State-wide global environment. `ExecutionPolicy::Isolated()` gives one direct execution or loaded chunk a fresh global table. Its assignments stay within that execution, and it sees no root globals until the host allows them by name.
+
+```cpp
+const Luna::ExecutionPolicy Policy = Luna::ExecutionPolicy::Isolated()
+                                        .WithAllowedGlobal("Game")
+                                        .WithAllowedGlobal("print")
+                                        .WithReadOnlyGlobals();
+
+const Luna::ExecutionResult Result = State.Execute(
+    "print(Game.Name)\n"
+    "assert(_G.Game == Game)",
+    Policy);
+
+const Luna::Chunk Script = State.Load(
+    "return Game.Name", "game_name", Policy);
+```
+
+An isolated policy always exposes its own `_G`. `WithReadOnlyGlobals()` prevents direct global assignment; without it, assignments are local to that execution environment. A loaded `Chunk` retains the policy supplied to `Load` for every later `Invoke`.
+
+The allowed names are capabilities, not copies. Allowing a table or a host-provided function gives the script that value directly, so the host should expose only values whose behavior and mutability it intends the script to use. Isolation blocks unlisted root globals and prevents direct global writes from reaching the State root; it does not impose CPU, memory, filesystem, network, or deep object-mutation limits.
+
 ## Current limitations
 
 These are intentional gaps rather than partial features:
 
-- No file-loading helper and no sandbox environment. `State::Load` names a chunk, but every chunk shares the State's one global environment.
+- No file-loading helper.
 - `Execute` still discards what the script returned. Use `State::Load` and `Chunk::Invoke` when the values matter.
 - Only the chunk `Execute` is running can suspend an asynchronous call. A script coroutine or a metamethod that reaches such a callable is refused deterministically, and the started work is cancelled.
 - No annotation helper macros. Documentation, attributes, and examples are ordinary builder calls, and IDE, debug-UI, and profiling integrations are available through the public model.
 
-Execution is otherwise unrestricted: a chunk may freely call any registered function, construct registered classes, read constants and enumerators, and use module surfaces.
+Shared execution is otherwise unrestricted: a chunk may freely call any registered function, construct registered classes, read constants and enumerators, and use module surfaces.
 
 ---
 

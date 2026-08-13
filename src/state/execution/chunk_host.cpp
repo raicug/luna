@@ -66,7 +66,8 @@ bool ChunkHost::Compile(std::string_view Source, std::string_view Name,
 }
 
 ChunkResult ChunkHost::Invoke(std::string_view Bytecode, std::string_view Name,
-                              const ValuePack &Arguments) {
+                              const ValuePack &Arguments,
+                              const ExecutionPolicy &Policy) {
   if (!IsAlive())
     return ChunkResult::Failure(
         ErrorCategory::StateNotReady,
@@ -85,7 +86,7 @@ ChunkResult ChunkHost::Invoke(std::string_view Bytecode, std::string_view Name,
 
   const NestedChunkScope Nested(DepthValue);
   return InvokeChunk(RootValue, Bytecode, Name, Arguments, FaultsValue,
-                     AsyncValue);
+                     AsyncValue, Policy);
 }
 
 } // namespace Luna::Detail

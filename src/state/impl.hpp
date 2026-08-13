@@ -71,7 +71,8 @@ public:
   [[nodiscard]] RegistrationResult
   RegisterErased(std::string_view GlobalName,
                  ErasedCallableDescriptor &&Descriptor);
-  [[nodiscard]] ExecutionResult Execute(std::string_view Source);
+  [[nodiscard]] ExecutionResult Execute(std::string_view Source,
+                                        const ExecutionPolicy &Policy);
   [[nodiscard]] ReflectionSnapshot CaptureReflection() const;
   [[nodiscard]] RegistrationResult Freeze();
 
