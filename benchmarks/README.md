@@ -21,12 +21,13 @@ Individual targets are `LunaBenchmarkRegistration`, `LunaBenchmarkOverload`,
 and `LunaBenchmarkUserdata`. Each accepts `--warmup=<count>`, `--samples=<count>`,
 and `--correctness-evidence=<text>`.
 
-`-DLUNA_BUILD_RAW_LUAU_BASELINES=ON` adds `LunaRawLuauInvocation` and
-`LunaRawLuauBaselinesRun`. The executable runs the same Lua source against
-three implementations: direct Luau C closures, Luna before `Freeze()`, and
-Luna after `Freeze()`. It intentionally does not compare registration,
-overload selection, reflection, conversion policy, or userdata, because raw
-Luau does not provide equivalent facilities.
+`-DLUNA_BUILD_RAW_LUAU_BASELINES=ON` adds `LunaRawLuauInvocation`,
+`LunaRawLuauPureCall`, and `LunaRawLuauBaselinesRun`. `LunaRawLuauInvocation`
+runs the same Lua source against three implementations: direct Luau C closures,
+Luna before `Freeze()`, and Luna after `Freeze()`. `LunaRawLuauPureCall` is a
+separate C++-driven cached-closure microbenchmark. Neither target compares
+registration, overload selection, reflection, conversion policy, or userdata,
+because raw Luau does not provide equivalent facilities.
 
 ## Reading the raw Luau comparison
 
@@ -66,6 +67,32 @@ claim.
 is the useful column for judging the effect of Luna's freeze optimization.
 `Frozen / raw` is a scenario-specific ratio, not a claim that Luna implements
 the same semantics as the raw closure.
+
+### Pure C++ cached-closure calls
+
+`LunaRawLuauPureCall` measures a different question: one C++ loop invokes one
+already-bound closure 100,000 times. Before timing begins, each model creates
+its state, registers functions, freezes the frozen model, resolves each global
+closure once, and stores it in the Luau registry. The timed loop only restores
+the cached closure, pushes prebuilt arguments, invokes it with `lua_pcall`, and
+pops its declared returns. It creates no script, bytecode, coroutine, or
+binding during a measured sample.
+
+The Luna arm calls the installed Luna closure, not an erased callable or native
+function pointer. Consequently it includes Luna's normal Lua-facing dispatch:
+unfrozen calls use the generic trampoline and eligible frozen calls use the
+frozen trampoline. The raw arm uses the same cached-closure/`lua_pcall` shape
+for direct Luau C closures. These results are not comparable with the
+end-to-end script table above.
+
+Recorded on Windows/AMD64 with Clang 22.1.5, Luau 0.730, Release mode,
+`--warmup=3`, and `--samples=20`; `claimable=false`.
+
+| Case | Raw Luau ns/op | Luna unfrozen ns/op | Luna frozen ns/op | Freeze saves | Frozen / raw |
+|---|---:|---:|---:|---:|---:|
+| PureVoidCall | 37 | 276 | 99 | 177 ns/op (64.1%) | 2.68x |
+| PureScalarCall | 70 | 463 | 167 | 296 ns/op (63.9%) | 2.39x |
+| PureDynamicPackCall | 44 | 867 | 237 | 630 ns/op (72.7%) | 5.39x |
 
 ### Comparing future runs
 

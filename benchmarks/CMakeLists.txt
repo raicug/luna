@@ -111,26 +111,36 @@ set_target_properties(LunaBenchmarksRun PROPERTIES FOLDER "luna/benchmarks")
 
 if(LUNA_BUILD_RAW_LUAU_BASELINES)
     add_executable(LunaRawLuauInvocation baselines/raw_luau/invocation.cpp)
-    target_compile_features(LunaRawLuauInvocation PRIVATE cxx_std_20)
-    target_link_libraries(LunaRawLuauInvocation PRIVATE
-        Luna::BenchmarkSupport
-        Luna::Luna
-        Luau.VM
-        Luau.Compiler
-    )
-    set_target_properties(LunaRawLuauInvocation PROPERTIES
-        CXX_EXTENSIONS OFF
-        FOLDER "luna/benchmarks/baselines"
-    )
+    add_executable(LunaRawLuauPureCall baselines/raw_luau/pure_call.cpp)
+    foreach(LUNA_RAW_LUAU_TARGET IN ITEMS LunaRawLuauInvocation LunaRawLuauPureCall)
+        target_compile_features(${LUNA_RAW_LUAU_TARGET} PRIVATE cxx_std_20)
+        target_include_directories(${LUNA_RAW_LUAU_TARGET} PRIVATE
+            "${CMAKE_SOURCE_DIR}/src"
+        )
+        target_link_libraries(${LUNA_RAW_LUAU_TARGET} PRIVATE
+            Luna::BenchmarkSupport
+            Luna::Luna
+            Luau.VM
+            Luau.Compiler
+        )
+        set_target_properties(${LUNA_RAW_LUAU_TARGET} PROPERTIES
+            CXX_EXTENSIONS OFF
+            FOLDER "luna/benchmarks/baselines"
+        )
+    endforeach()
 
-    add_custom_target(LunaRawLuauBaselines DEPENDS LunaRawLuauInvocation)
+    add_custom_target(LunaRawLuauBaselines DEPENDS
+        LunaRawLuauInvocation
+        LunaRawLuauPureCall
+    )
     set_target_properties(LunaRawLuauBaselines PROPERTIES
         FOLDER "luna/benchmarks/baselines"
     )
 
     add_custom_target(LunaRawLuauBaselinesRun
         COMMAND "$<TARGET_FILE:LunaRawLuauInvocation>"
-        DEPENDS LunaRawLuauInvocation
+        COMMAND "$<TARGET_FILE:LunaRawLuauPureCall>"
+        DEPENDS LunaRawLuauInvocation LunaRawLuauPureCall
         VERBATIM
     )
     set_target_properties(LunaRawLuauBaselinesRun PROPERTIES

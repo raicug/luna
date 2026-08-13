@@ -36,6 +36,7 @@
 #include <cstdint>
 #include <memory>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -162,6 +163,16 @@ struct ClassAccessObservation final {
   std::string Diagnostic;
 };
 
+struct PreparedNativeInvocation final {
+  void *VirtualMachine = nullptr;
+  int Reference = 0;
+  int ReturnCount = 0;
+
+  [[nodiscard]] bool IsValid() const noexcept {
+    return VirtualMachine != nullptr && Reference > 0;
+  }
+};
+
 class StateTestHooks final {
 public:
   static void ResetLifecycle() noexcept;
@@ -231,6 +242,15 @@ public:
   [[nodiscard]] static NativeInvocationObservation
   InvokeBinding(State &Owner, std::string_view GlobalName,
                 const std::vector<Value> &Arguments);
+  [[nodiscard]] static std::optional<PreparedNativeInvocation>
+  PrepareBindingInvocation(State &Owner, std::string_view GlobalName,
+                           int ReturnCount);
+  [[nodiscard]] static bool
+  InvokePreparedBinding(const PreparedNativeInvocation &Prepared,
+                        std::span<const Value> Arguments);
+  static void
+  ReleasePreparedBinding(PreparedNativeInvocation &Prepared) noexcept;
+
   [[nodiscard]] static std::optional<CallbackStackRestorationObservation>
   ObserveLastCallbackStackRestoration(const State &Owner) noexcept;
 

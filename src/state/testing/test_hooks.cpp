@@ -373,6 +373,76 @@ StateTestHooks::InvokeBinding(State &Owner, std::string_view GlobalName,
   return Observation;
 }
 
+std::optional<PreparedNativeInvocation>
+StateTestHooks::PrepareBindingInvocation(State &Owner,
+                                         std::string_view GlobalName,
+                                         int ReturnCount) {
+  if (!Owner.Implementation || !Owner.Implementation->IsReady() ||
+      ReturnCount < 0)
+    return std::nullopt;
+
+  BindingRecord *Record = Owner.Implementation->Bindings.Find(GlobalName);
+  lua_State *Vm = Owner.Implementation->VirtualMachine.Handle;
+  if (!Record || !Record->IsCommitted() || !Vm || !lua_checkstack(Vm, 1))
+    return std::nullopt;
+
+  const int EntryDepth = lua_gettop(Vm);
+  lua_getglobal(Vm, Record->GlobalName().c_str());
+  if (!lua_iscfunction(Vm, -1)) {
+    lua_settop(Vm, EntryDepth);
+    return std::nullopt;
+  }
+
+  const int Reference = lua_ref(Vm, -1);
+  if (Reference <= LUA_REFNIL) {
+    lua_settop(Vm, EntryDepth);
+    return std::nullopt;
+  }
+  return PreparedNativeInvocation{Vm, Reference, ReturnCount};
+}
+
+bool StateTestHooks::InvokePreparedBinding(
+    const PreparedNativeInvocation &Prepared,
+    std::span<const Value> Arguments) {
+  auto *const Vm = static_cast<lua_State *>(Prepared.VirtualMachine);
+  if (!Prepared.IsValid() || !Vm ||
+      !lua_checkstack(Vm, static_cast<int>(Arguments.size()) + 1))
+    return false;
+
+  const int EntryDepth = lua_gettop(Vm);
+  lua_rawgeti(Vm, LUA_REGISTRYINDEX, Prepared.Reference);
+  for (const Value &Argument : Arguments) {
+    std::visit(
+        [Vm](const auto &TypedValue) {
+          using Type = std::decay_t<decltype(TypedValue)>;
+          if constexpr (std::is_same_v<Type, bool>)
+            lua_pushboolean(Vm, TypedValue ? 1 : 0);
+          else if constexpr (std::is_same_v<Type, int>)
+            lua_pushinteger(Vm, TypedValue);
+          else if constexpr (std::is_same_v<Type, double>)
+            lua_pushnumber(Vm, TypedValue);
+          else
+            lua_pushlstring(Vm, TypedValue.data(), TypedValue.size());
+        },
+        Argument);
+  }
+
+  const int Status = lua_pcall(Vm, static_cast<int>(Arguments.size()),
+                               Prepared.ReturnCount, 0);
+  const bool Succeeded =
+      Status == LUA_OK && lua_gettop(Vm) == EntryDepth + Prepared.ReturnCount;
+  lua_settop(Vm, EntryDepth);
+  return Succeeded;
+}
+
+void StateTestHooks::ReleasePreparedBinding(
+    PreparedNativeInvocation &Prepared) noexcept {
+  auto *const Vm = static_cast<lua_State *>(Prepared.VirtualMachine);
+  if (Vm && Prepared.Reference > LUA_REFNIL)
+    lua_unref(Vm, Prepared.Reference);
+  Prepared = {};
+}
+
 std::optional<CallbackStackRestorationObservation>
 StateTestHooks::ObserveLastCallbackStackRestoration(
     const State &Owner) noexcept {
