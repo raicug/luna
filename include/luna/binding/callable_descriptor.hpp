@@ -30,6 +30,28 @@ enum class InvocationOutcomeKind {
   InternalFailure
 };
 
+namespace Detail {
+
+struct PrimitiveCallValue final {
+  bool Boolean = false;
+  int Integer = 0;
+  double Number = 0.0;
+};
+
+struct PrimitiveInvocationPlan final {
+  using InvokeFunction = bool (*)(void *, std::span<const PrimitiveCallValue>,
+                                  PrimitiveCallValue &);
+
+  void *Context = nullptr;
+  InvokeFunction Invoke = nullptr;
+
+  [[nodiscard]] bool IsAvailable() const noexcept {
+    return Context != nullptr && Invoke != nullptr;
+  }
+};
+
+} // namespace Detail
+
 class InvocationOutcome {
 public:
   [[nodiscard]] static InvocationOutcome WithValue(Value ReturnedValue) {
@@ -167,13 +189,18 @@ private:
     [[nodiscard]] virtual InvocationOutcome
     InvokeDeclaredWithReceiver(const InstanceReceiver &Receiver,
                                const InvocationArguments &Arguments) = 0;
+    [[nodiscard]] virtual const Detail::PrimitiveInvocationPlan *
+    PrimitiveInvocation() const noexcept = 0;
   };
 
   template <class Adapter> class Model final : public Interface {
   public:
     template <class Source>
     explicit Model(Source &&AdapterValue)
-        : AdapterValue(std::forward<Source>(AdapterValue)) {}
+        : AdapterValue(std::forward<Source>(AdapterValue)) {
+      if constexpr (requires(Adapter &Target) { Target.PrimitiveInvocation(); })
+        PrimitivePlan = this->AdapterValue.PrimitiveInvocation();
+    }
 
     [[nodiscard]] bool HasTarget() const noexcept override {
       return AdapterValue.HasTarget();
@@ -237,8 +264,14 @@ private:
       }
     }
 
+    [[nodiscard]] const Detail::PrimitiveInvocationPlan *
+    PrimitiveInvocation() const noexcept override {
+      return PrimitivePlan.IsAvailable() ? &PrimitivePlan : nullptr;
+    }
+
   private:
     Adapter AdapterValue;
+    Detail::PrimitiveInvocationPlan PrimitivePlan;
   };
 
 public:
@@ -258,7 +291,8 @@ public:
                            Adapter &&AdapterValue)
       : MetadataValue(std::move(MetadataValue)),
         Implementation(std::make_unique<Model<std::remove_cvref_t<Adapter>>>(
-            std::forward<Adapter>(AdapterValue))) {}
+            std::forward<Adapter>(AdapterValue))),
+        PrimitivePlan(Implementation->PrimitiveInvocation()) {}
 
   ErasedCallableDescriptor(const ErasedCallableDescriptor &) = delete;
   ErasedCallableDescriptor &
@@ -280,6 +314,11 @@ public:
       return InvocationOutcome::InternalFailure(
           "Callable descriptor has no implementation.");
     return Implementation->Invoke(Arguments);
+  }
+
+  [[nodiscard]] const Detail::PrimitiveInvocationPlan *
+  PrimitiveInvocation() const noexcept {
+    return PrimitivePlan;
   }
 
   [[nodiscard]] InvocationOutcome
@@ -311,6 +350,7 @@ public:
 private:
   CallableMetadata MetadataValue;
   std::unique_ptr<Interface> Implementation;
+  const Detail::PrimitiveInvocationPlan *PrimitivePlan = nullptr;
 };
 
 } // namespace Luna

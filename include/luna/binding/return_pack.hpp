@@ -112,6 +112,16 @@ public:
     return Produced;
   }
 
+  [[nodiscard]] std::vector<Value> TakeValues() && noexcept {
+    CarriesOwnedValue = false;
+    return std::move(ValuesValue);
+  }
+
+  [[nodiscard]] ValuePack TakeOwnedValues() && noexcept {
+    CarriesOwnedValue = false;
+    return ValuePack(std::move(OwnedValuesValue));
+  }
+
   void Clear() noexcept {
     ValuesValue.clear();
     OwnedValuesValue.clear();

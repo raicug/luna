@@ -137,12 +137,11 @@ CaptureReturn(Invoker &&Invoke,
     return InvocationOutcome::WithInstance(
         AdoptInstanceReturn<Return>(Invoke(), Policy));
   } else if constexpr (IsDynamicReturnPack<Return>) {
-    const ReturnPack Produced = Invoke();
+    ReturnPack Produced = Invoke();
     if (Produced.CarriesOwnedValues())
-      return InvocationOutcome::WithOwnedValues(Produced.ToOwnedValues());
-    const std::span<const Value> Elements = Produced.Values();
-    return InvocationOutcome::WithValues(
-        std::vector<Value>(Elements.begin(), Elements.end()));
+      return InvocationOutcome::WithOwnedValues(
+          std::move(Produced).TakeOwnedValues());
+    return InvocationOutcome::WithValues(std::move(Produced).TakeValues());
   } else if constexpr (IsOwnedValueReturn<Return>) {
     ValuePack Produced;
     Produced.Append(Invoke());
@@ -171,6 +170,12 @@ CaptureReturn(Invoker &&Invoke,
 template <class... Parameters>
 inline constexpr bool HasRelaxedParameterShape =
     (false || ... || IsRelaxedParameter<Parameters>);
+
+template <class Type>
+inline constexpr bool IsPrimitiveDirectValue =
+    std::same_as<std::remove_cvref_t<Type>, bool> ||
+    std::same_as<std::remove_cvref_t<Type>, int> ||
+    std::same_as<std::remove_cvref_t<Type>, double>;
 
 template <class... Parameters>
 inline constexpr std::size_t FixedParameterCountOf =
@@ -413,7 +418,67 @@ public:
                                std::index_sequence_for<Parameters...>{});
   }
 
+  [[nodiscard]] PrimitiveInvocationPlan PrimitiveInvocation() noexcept {
+    if constexpr (!HasRelaxedParameterShape<Parameters...> &&
+                  sizeof...(Parameters) <= 4 &&
+                  (true && ... && IsPrimitiveDirectValue<Parameters>) &&
+                  (std::same_as<Return, void> ||
+                   IsPrimitiveDirectValue<Return>))
+      return {.Context = this, .Invoke = &InvokePrimitive};
+    else
+      return {};
+  }
+
 private:
+  template <class Parameter>
+  [[nodiscard]] static Parameter
+  PrimitiveArgument(const PrimitiveCallValue &Source) noexcept {
+    if constexpr (std::same_as<Parameter, bool>)
+      return Source.Boolean;
+    else if constexpr (std::same_as<Parameter, int>)
+      return Source.Integer;
+    else
+      return Source.Number;
+  }
+
+  template <class Result>
+  static void StorePrimitive(PrimitiveCallValue &Destination,
+                             Result &&Source) noexcept {
+    if constexpr (std::same_as<std::remove_cvref_t<Result>, bool>)
+      Destination.Boolean = Source;
+    else if constexpr (std::same_as<std::remove_cvref_t<Result>, int>)
+      Destination.Integer = Source;
+    else
+      Destination.Number = Source;
+  }
+
+  static bool InvokePrimitive(void *Context,
+                              std::span<const PrimitiveCallValue> Arguments,
+                              PrimitiveCallValue &Returned) {
+    auto *const Adapter = static_cast<CallableAdapter *>(Context);
+    if (!Adapter || !Adapter->HasTarget() ||
+        Arguments.size() != sizeof...(Parameters))
+      return false;
+    return Adapter->InvokePrimitiveWithIndices(
+        Arguments, Returned, std::index_sequence_for<Parameters...>{});
+  }
+
+  template <std::size_t... Indices>
+  [[nodiscard]] bool
+  InvokePrimitiveWithIndices(std::span<const PrimitiveCallValue> Arguments,
+                             PrimitiveCallValue &Returned,
+                             std::index_sequence<Indices...>) {
+    if constexpr (std::same_as<Return, void>) {
+      std::invoke(TargetValue,
+                  PrimitiveArgument<Parameters>(Arguments[Indices])...);
+    } else {
+      StorePrimitive(Returned,
+                     std::invoke(TargetValue, PrimitiveArgument<Parameters>(
+                                                  Arguments[Indices])...));
+    }
+    return true;
+  }
+
   template <std::size_t... Indices>
   [[nodiscard]] InvocationOutcome
   InvokeWithIndices(std::span<const Value> Arguments,

@@ -602,6 +602,9 @@ class ValuePack final {
 public:
   ValuePack() = default;
 
+  explicit ValuePack(std::vector<OwnedValue> Values)
+      : ValuesValue(std::move(Values)) {}
+
   [[nodiscard]] std::size_t Size() const noexcept { return ValuesValue.size(); }
 
   [[nodiscard]] bool IsEmpty() const noexcept { return ValuesValue.empty(); }

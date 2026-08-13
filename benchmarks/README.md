@@ -22,30 +22,63 @@ and `LunaBenchmarkUserdata`. Each accepts `--warmup=<count>`, `--samples=<count>
 and `--correctness-evidence=<text>`.
 
 `-DLUNA_BUILD_RAW_LUAU_BASELINES=ON` adds `LunaRawLuauInvocation` and
-`LunaRawLuauBaselinesRun`. It measures the same three invocation scripts as
-`LunaBenchmarkInvocation` through direct Luau C closures, then emits comparison
-rows pairing each `raw-luau` result with Luna's `unfrozen-uncached` and
-`frozen-cached` result. A comparison carries the median latency, per-operation
-delta, and percentage difference. It intentionally does not compare
-registration, overload selection, reflection, conversion policy, or userdata,
-because raw Luau does not provide equivalent facilities.
+`LunaRawLuauBaselinesRun`. The executable runs the same Lua source against
+three implementations: direct Luau C closures, Luna before `Freeze()`, and
+Luna after `Freeze()`. It intentionally does not compare registration,
+overload selection, reflection, conversion policy, or userdata, because raw
+Luau does not provide equivalent facilities.
 
-## Raw Luau comparison sample
+## Reading the raw Luau comparison
 
-The following bounded sample was recorded by `LunaRawLuauInvocation` on
-Windows/AMD64 with Clang 22.1.5, Luau 0.730, Release mode, `--warmup=3`, and
-`--samples=20`. It is a convenient display of every current raw-Luau comparison,
-not an admissible performance claim: the runner reported `claimable=false`.
+This is an **end-to-end invocation-script benchmark**, not a bare C-closure
+microbenchmark. The timer starts immediately before each model's `Run` call and
+stops after it returns. A raw-Luau run compiles the source, creates and pins a
+disposable coroutine, loads bytecode, resumes it, and executes the native calls.
+A Luna run executes the same source through `State::Execute`. Registration and
+freezing happen while preparing the model, before the timer begins.
 
-| Case | Raw Luau median ns/op | Luna unfrozen ns/op | Delta | Difference | Luna frozen ns/op | Delta | Difference |
-|---|---:|---:|---:|---:|---:|---:|---:|
-| VoidCall | 46 | 249 | +203 | +441.30% | 196 | +150 | +326.09% |
-| ScalarCall | 76 | 427 | +351 | +461.84% | 383 | +307 | +403.95% |
-| DynamicPackCall | 75 | 794 | +719 | +958.67% | 789 | +714 | +952.00% |
+The corpus contains 100,000 native calls per timed sample. That count is large
+enough to amortize per-run setup, so the table is useful for comparing the
+steady-state cost of this exact script. It is not comparable with the retired
+250-call sample: changing the operation count changes how much compilation and
+coroutine setup contributes to `ns/op`.
 
-Regenerate this table from the `luna-benchmark comparison` records whenever the
-benchmark configuration, corpus, Luau version, compiler, or implementation
-changes.
+Raw Luau is a lower-bound reference for these three narrow, direct-native-call
+scripts. Luna deliberately performs work the raw closures do not: dispatch and
+lifetime handling, validation, fault and profiling integration, type-erased
+callable support, and return-shape handling. The raw columns do **not** measure
+or rank Luna's broader feature set.
+
+### Current sample
+
+Recorded by `LunaRawLuauInvocation` on Windows/AMD64 with Clang 22.1.5, Luau
+0.730, Release mode, `--warmup=3`, and `--samples=20`. The runner reported
+`claimable=false`, so these are diagnostic numbers rather than a performance
+claim.
+
+| Case | Raw Luau ns/op | Luna unfrozen ns/op | Luna frozen ns/op | Freeze saves | Frozen / raw |
+|---|---:|---:|---:|---:|---:|
+| VoidCall | 20 | 239 | 151 | 88 ns/op (36.8%) | 7.55x |
+| ScalarCall | 31 | 423 | 189 | 234 ns/op (55.3%) | 6.10x |
+| DynamicPackCall | 34 | 765 | 719 | 46 ns/op (6.0%) | 21.15x |
+
+`Freeze saves` compares Luna frozen with Luna unfrozen within the same row; it
+is the useful column for judging the effect of Luna's freeze optimization.
+`Frozen / raw` is a scenario-specific ratio, not a claim that Luna implements
+the same semantics as the raw closure.
+
+### Comparing future runs
+
+Only compare results when all of these match: source corpus, operation count,
+warmup/sample counts, compiler, build type, Luau version, architecture, and
+CPU environment. Compare frozen `ns/op` with an earlier frozen `ns/op`, or
+unfrozen with unfrozen. Do not compare percentage gaps from different corpus
+sizes; the denominator changes when fixed setup is amortized differently.
+
+Regenerate this table from one successful `luna-benchmark result` set whenever
+the benchmark configuration, corpus, Luau version, compiler, or implementation
+changes. Retain the raw result rows with the table so the values remain
+auditable.
 
 ## Bounded regression checks
 

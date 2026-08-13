@@ -6,16 +6,16 @@
 
 namespace LunaBenchmark::InvocationCases {
 
-inline constexpr std::size_t LoopCount = 250;
+inline constexpr std::size_t LoopCount = 100000;
 inline constexpr std::string_view VoidName = "VoidCall";
 inline constexpr std::string_view ScalarName = "ScalarCall";
 inline constexpr std::string_view DynamicName = "DynamicPackCall";
 inline constexpr std::string_view VoidCorpus =
-    "250 nullary native calls returning no value";
+    "100000 nullary native calls returning no value";
 inline constexpr std::string_view ScalarCorpus =
-    "250 two-argument native calls returning one value";
+    "100000 two-argument native calls returning one value";
 inline constexpr std::string_view DynamicCorpus =
-    "250 native calls publishing one three-value dynamic pack";
+    "100000 native calls publishing one three-value dynamic pack";
 
 [[nodiscard]] inline std::string VoidScript() {
   return "for Index = 1, " + std::to_string(LoopCount) +

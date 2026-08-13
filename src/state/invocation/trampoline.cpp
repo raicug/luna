@@ -131,6 +131,126 @@ StartedCallFrom(InvocationOutcome &Outcome, const ReturnMetadata &Awaited,
   return false;
 }
 
+[[nodiscard]] bool ReadPrimitiveValue(lua_State *State, int StackIndex,
+                                      ValueKind Kind,
+                                      PrimitiveCallValue &Destination) {
+  if (!MatchesFastValue(State, StackIndex, Kind))
+    return false;
+  switch (Kind) {
+  case ValueKind::Boolean:
+    Destination.Boolean = lua_toboolean(State, StackIndex) != 0;
+    return true;
+  case ValueKind::Integer:
+    Destination.Integer =
+        static_cast<int>(lua_tointegerx(State, StackIndex, nullptr));
+    return true;
+  case ValueKind::Number:
+    Destination.Number = lua_tonumberx(State, StackIndex, nullptr);
+    return true;
+  case ValueKind::String:
+    return false;
+  }
+  return false;
+}
+
+[[nodiscard]] bool IsPrimitiveKind(ValueKind Kind) noexcept {
+  return Kind == ValueKind::Boolean || Kind == ValueKind::Integer ||
+         Kind == ValueKind::Number;
+}
+
+[[nodiscard]] std::optional<InvocationResult>
+InvokeFrozenPrimitiveRoot(lua_State *State, BindingRecord &Record,
+                          FaultInjector &Faults) {
+  if (Record.CommittedCandidateCount() != 1)
+    return std::nullopt;
+
+  OverloadCandidate *Candidate = Record.PrimaryCandidate();
+  if (!Candidate || !Candidate->IsCommitted)
+    return std::nullopt;
+
+  ErasedCallableDescriptor &Descriptor = Candidate->Descriptor;
+  const PrimitiveInvocationPlan *Plan = Descriptor.PrimitiveInvocation();
+  const CallableMetadata &Metadata = Descriptor.Metadata();
+  const ReturnMetadata &Return = Metadata.ReturnType();
+  const std::span<const ValueKind> Parameters = Metadata.ParameterTypes();
+  if (!Plan || !Plan->IsAvailable() || Metadata.HasReceiver() ||
+      Candidate->Signature.ReceiverType || Metadata.HasRichParameters() ||
+      Return.IsAsynchronous() || Parameters.size() > 4 ||
+      FastPathFaultPending(Return, Faults))
+    return std::nullopt;
+  if (Return.Disposition() != ReturnDisposition::Void &&
+      Return.Disposition() != ReturnDisposition::Value)
+    return std::nullopt;
+  if (Return.Disposition() == ReturnDisposition::Value &&
+      (!Return.Kind() || !IsPrimitiveKind(*Return.Kind())))
+    return std::nullopt;
+  if (lua_gettop(State) != static_cast<int>(Parameters.size()))
+    return std::nullopt;
+
+  std::array<PrimitiveCallValue, 4> Arguments;
+  for (std::size_t Index = 0; Index < Parameters.size(); ++Index) {
+    if (!IsPrimitiveKind(Parameters[Index]) ||
+        !ReadPrimitiveValue(State, static_cast<int>(Index) + 1,
+                            Parameters[Index], Arguments[Index]))
+      return std::nullopt;
+  }
+  if (Return.Disposition() == ReturnDisposition::Value &&
+      !lua_checkstack(State, 1))
+    return std::nullopt;
+
+  InvocationResult Result;
+  Result.Symbol = Candidate->Identity;
+  try {
+    PrimitiveCallValue Returned;
+    if (!Plan->Invoke(Plan->Context,
+                      std::span<const PrimitiveCallValue>(Arguments.data(),
+                                                          Parameters.size()),
+                      Returned)) {
+      Result = Failure("Internal error for " +
+                       MemberContext(Record.GlobalName(), false) +
+                       ": direct primitive invocation is unavailable.");
+      Result.Symbol = Candidate->Identity;
+      return Result;
+    }
+    if (Return.Disposition() == ReturnDisposition::Void) {
+      Result.ReturnCount = 0;
+      return Result;
+    }
+
+    switch (*Return.Kind()) {
+    case ValueKind::Boolean:
+      lua_pushboolean(State, Returned.Boolean ? 1 : 0);
+      break;
+    case ValueKind::Integer:
+      lua_pushinteger(State, Returned.Integer);
+      break;
+    case ValueKind::Number:
+      lua_pushnumber(State, Returned.Number);
+      break;
+    case ValueKind::String:
+      Result = Failure("Internal error for " +
+                       MemberContext(Record.GlobalName(), false) +
+                       ": direct primitive return metadata is invalid.");
+      Result.Symbol = Candidate->Identity;
+      return Result;
+    }
+    Result.ReturnCount = 1;
+    return Result;
+  } catch (const std::exception &Error) {
+    Result =
+        Failure("Runtime error: " + MemberContext(Record.GlobalName(), false) +
+                " threw: " + Error.what());
+    Result.Symbol = Candidate->Identity;
+    return Result;
+  } catch (...) {
+    Result =
+        Failure("Internal error: " + MemberContext(Record.GlobalName(), false) +
+                " threw an unknown C++ exception.");
+    Result.Symbol = Candidate->Identity;
+    return Result;
+  }
+}
+
 [[nodiscard]] std::optional<InvocationResult>
 InvokeSimpleRoot(lua_State *State, BindingRecord &Record,
                  const TypeGeneration &Types, FaultInjector &Faults) {
@@ -281,9 +401,15 @@ struct MemberDispatch final {
 [[nodiscard]] InvocationResult InvokeValidated(lua_State *State,
                                                BindingRecord &Record,
                                                const TypeGeneration &Types,
-                                               FaultInjector &Faults) {
+                                               FaultInjector &Faults,
+                                               bool FrozenDispatch) {
   const std::string_view GlobalName = Record.GlobalName();
   try {
+    if (FrozenDispatch) {
+      if (std::optional<InvocationResult> Fast =
+              InvokeFrozenPrimitiveRoot(State, Record, Faults))
+        return std::move(*Fast);
+    }
     if (std::optional<InvocationResult> Fast =
             InvokeSimpleRoot(State, Record, Types, Faults))
       return std::move(*Fast);
@@ -692,7 +818,8 @@ int NativeTrampoline(lua_State *State) {
                            "unavailable for " +
                            CallableContext(Entry->QualifiedName) + ".");
         } else {
-          Result = InvokeValidated(State, *Record, *TypeView, *Faults);
+          Result = InvokeValidated(State, *Record, *TypeView, *Faults,
+                                   FrozenDispatch);
           if (Result.IsSuspended()) {
             if (!Types)
               Types = Entry->Types ? Entry->Types->Capture() : nullptr;
