@@ -8,6 +8,8 @@ struct lua_State;
 
 namespace Luna::Detail {
 
+class BindingRecord;
+
 [[nodiscard]] bool PublishDispatchTable(lua_State *State,
                                         const DispatchTable *Table) noexcept;
 
@@ -20,6 +22,8 @@ void PushDispatchSlot(lua_State *State, DispatchSlotId Slot) noexcept;
 
 [[nodiscard]] const DispatchTable *
 ClosureDispatchTable(lua_State *State) noexcept;
+
+[[nodiscard]] BindingRecord *ClosureBindingRecord(lua_State *State) noexcept;
 
 [[nodiscard]] DispatchSlotId DispatchSlotAt(lua_State *State,
                                             int Index) noexcept;

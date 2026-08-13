@@ -58,9 +58,9 @@ claim.
 
 | Case | Raw Luau ns/op | Luna unfrozen ns/op | Luna frozen ns/op | Freeze saves | Frozen / raw |
 |---|---:|---:|---:|---:|---:|
-| VoidCall | 20 | 239 | 151 | 88 ns/op (36.8%) | 7.55x |
-| ScalarCall | 31 | 423 | 189 | 234 ns/op (55.3%) | 6.10x |
-| DynamicPackCall | 34 | 765 | 719 | 46 ns/op (6.0%) | 21.15x |
+| VoidCall | 18 | 269 | 119 | 150 ns/op (55.8%) | 6.61x |
+| ScalarCall | 29 | 461 | 152 | 309 ns/op (67.0%) | 5.24x |
+| DynamicPackCall | 41 | 701 | 208 | 493 ns/op (70.3%) | 5.07x |
 
 `Freeze saves` compares Luna frozen with Luna unfrozen within the same row; it
 is the useful column for judging the effect of Luna's freeze optimization.

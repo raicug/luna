@@ -425,6 +425,11 @@ public:
                   (std::same_as<Return, void> ||
                    IsPrimitiveDirectValue<Return>))
       return {.Context = this, .Invoke = &InvokePrimitive};
+    else if constexpr (!HasRelaxedParameterShape<Parameters...> &&
+                       sizeof...(Parameters) <= 4 &&
+                       (true && ... && IsPrimitiveDirectValue<Parameters>) &&
+                       std::same_as<Return, ReturnPack>)
+      return {.Context = this, .InvokePack = &InvokePrimitivePack};
     else
       return {};
   }
@@ -461,6 +466,27 @@ private:
       return false;
     return Adapter->InvokePrimitiveWithIndices(
         Arguments, Returned, std::index_sequence_for<Parameters...>{});
+  }
+
+  static bool InvokePrimitivePack(void *Context,
+                                  std::span<const PrimitiveCallValue> Arguments,
+                                  ReturnPack &Returned) {
+    auto *const Adapter = static_cast<CallableAdapter *>(Context);
+    if (!Adapter || !Adapter->HasTarget() ||
+        Arguments.size() != sizeof...(Parameters))
+      return false;
+    return Adapter->InvokePrimitivePackWithIndices(
+        Arguments, Returned, std::index_sequence_for<Parameters...>{});
+  }
+
+  template <std::size_t... Indices>
+  [[nodiscard]] bool
+  InvokePrimitivePackWithIndices(std::span<const PrimitiveCallValue> Arguments,
+                                 ReturnPack &Returned,
+                                 std::index_sequence<Indices...>) {
+    Returned = std::invoke(
+        TargetValue, PrimitiveArgument<Parameters>(Arguments[Indices])...);
+    return true;
   }
 
   template <std::size_t... Indices>

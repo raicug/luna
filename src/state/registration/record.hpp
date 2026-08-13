@@ -11,6 +11,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <memory>
+#include <span>
 #include <string>
 #include <utility>
 #include <vector>
@@ -19,6 +20,7 @@
 namespace Luna::Detail {
 
 class FaultInjector;
+class ProfilingRegistry;
 
 struct OverloadCandidate final {
   ErasedCallableDescriptor Descriptor;
@@ -32,6 +34,17 @@ struct OverloadCandidate final {
                     SymbolId IdentityValue)
       : Descriptor(std::move(DescriptorValue)),
         Signature(std::move(SignatureValue)), Identity(IdentityValue) {}
+};
+
+struct PrimitiveRootInvocation final {
+  const PrimitiveInvocationPlan *Plan = nullptr;
+  const ReturnMetadata *Return = nullptr;
+  std::span<const ValueKind> Parameters;
+  SymbolId Symbol;
+
+  [[nodiscard]] bool IsAvailable() const noexcept {
+    return Plan != nullptr && Return != nullptr;
+  }
 };
 
 [[nodiscard]] inline bool
@@ -50,10 +63,12 @@ public:
                 CallableSignatureDescriptor SignatureValue,
                 SymbolId IdentityValue, FaultInjector &FaultsValue,
                 const TypeGenerationSource &TypesValue,
-                DispatchTable &DispatchValue, DispatchSlotId SlotValue)
+                DispatchTable &DispatchValue, DispatchSlotId SlotValue,
+                ProfilingRegistry *ProfilingValue)
       : GlobalNameStorage(std::move(GlobalNameValue)),
         FaultsStorage(&FaultsValue), TypesStorage(&TypesValue),
-        DispatchStorage(&DispatchValue), SlotStorage(SlotValue) {
+        DispatchStorage(&DispatchValue), SlotStorage(SlotValue),
+        ProfilingStorage(ProfilingValue) {
     AppendCandidate(std::move(DescriptorValue), std::move(SignatureValue),
                     IdentityValue);
   }
@@ -131,6 +146,14 @@ public:
     return TypesStorage;
   }
 
+  [[nodiscard]] ProfilingRegistry *Profiling() const noexcept {
+    return ProfilingStorage;
+  }
+
+  [[nodiscard]] const PrimitiveRootInvocation *PrimitiveRoot() const noexcept {
+    return PrimitiveRootStorage.IsAvailable() ? &PrimitiveRootStorage : nullptr;
+  }
+
   [[nodiscard]] std::shared_ptr<const TypeGeneration>
   CaptureTypeGeneration() const {
     return TypesStorage ? TypesStorage->Capture() : nullptr;
@@ -142,6 +165,7 @@ private:
   OverloadCandidate *AppendCandidate(ErasedCallableDescriptor DescriptorValue,
                                      CallableSignatureDescriptor SignatureValue,
                                      SymbolId IdentityValue) {
+    PrimitiveRootStorage = {};
     Candidates.push_back(std::make_unique<OverloadCandidate>(
         std::move(DescriptorValue), std::move(SignatureValue), IdentityValue));
     return Candidates.back().get();
@@ -159,6 +183,54 @@ private:
                          return Left != nullptr;
                        return OverloadCandidatePrecedes(*Left, *Right);
                      });
+    RefreshPrimitiveRoot();
+  }
+
+  void RefreshPrimitiveRoot() noexcept {
+    PrimitiveRootStorage = {};
+    if (CommittedCandidateCount() != 1)
+      return;
+
+    OverloadCandidate *Candidate = PrimaryCandidate();
+    if (!Candidate || !Candidate->IsCommitted)
+      return;
+
+    const PrimitiveInvocationPlan *Plan =
+        Candidate->Descriptor.PrimitiveInvocation();
+    const CallableMetadata &Metadata = Candidate->Descriptor.Metadata();
+    const ReturnMetadata &Return = Metadata.ReturnType();
+    const std::span<const ValueKind> Parameters = Metadata.ParameterTypes();
+    if (!Plan || !Plan->IsAvailable() || Metadata.HasReceiver() ||
+        Candidate->Signature.ReceiverType || Metadata.HasRichParameters() ||
+        Return.IsAsynchronous() || Parameters.size() > 4)
+      return;
+    if (Return.Disposition() != ReturnDisposition::Void &&
+        Return.Disposition() != ReturnDisposition::Value &&
+        Return.Disposition() != ReturnDisposition::Pack)
+      return;
+    if (Return.Disposition() == ReturnDisposition::Value &&
+        (!Return.Kind() || !IsPrimitive(*Return.Kind())))
+      return;
+    if (Return.Disposition() == ReturnDisposition::Pack &&
+        (Return.HasDeclaredPackShape() || !Plan->HasPackInvoke()))
+      return;
+    if (Return.Disposition() != ReturnDisposition::Pack &&
+        !Plan->HasScalarInvoke())
+      return;
+    for (const ValueKind Parameter : Parameters) {
+      if (!IsPrimitive(Parameter))
+        return;
+    }
+
+    PrimitiveRootStorage = {.Plan = Plan,
+                            .Return = &Return,
+                            .Parameters = Parameters,
+                            .Symbol = Candidate->Identity};
+  }
+
+  [[nodiscard]] static bool IsPrimitive(ValueKind Kind) noexcept {
+    return Kind == ValueKind::Boolean || Kind == ValueKind::Integer ||
+           Kind == ValueKind::Number;
   }
 
   bool DiscardStagedCandidates() noexcept {
@@ -174,10 +246,12 @@ private:
 
   std::string GlobalNameStorage;
   std::vector<std::unique_ptr<OverloadCandidate>> Candidates;
+  PrimitiveRootInvocation PrimitiveRootStorage;
   FaultInjector *FaultsStorage = nullptr;
   const TypeGenerationSource *TypesStorage = nullptr;
   DispatchTable *DispatchStorage = nullptr;
   DispatchSlotId SlotStorage;
+  ProfilingRegistry *ProfilingStorage = nullptr;
 };
 
 } // namespace Luna::Detail

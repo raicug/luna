@@ -69,6 +69,13 @@ const DispatchTable *ClosureDispatchTable(lua_State *State) noexcept {
       lua_touserdata(State, lua_upvalueindex(2)));
 }
 
+BindingRecord *ClosureBindingRecord(lua_State *State) noexcept {
+  if (!State || lua_type(State, lua_upvalueindex(3)) != LUA_TLIGHTUSERDATA)
+    return nullptr;
+  return static_cast<BindingRecord *>(
+      lua_touserdata(State, lua_upvalueindex(3)));
+}
+
 DispatchSlotId DispatchSlotAt(lua_State *State, int Index) noexcept {
   if (!State)
     return DispatchSlotId{};

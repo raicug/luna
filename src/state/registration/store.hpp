@@ -90,7 +90,7 @@ public:
     Records.reserve(Records.size() + 1);
     auto Record = std::make_unique<BindingRecord>(
         std::move(GlobalName), std::move(Descriptor), std::move(Signature),
-        Identity, Faults, TypesValue, DispatchValue, Slot);
+        Identity, Faults, TypesValue, DispatchValue, Slot, Profiling);
     auto *Address = Record.get();
     const auto [Position, Inserted] =
         Records.try_emplace(Address->GlobalName(), std::move(Record));

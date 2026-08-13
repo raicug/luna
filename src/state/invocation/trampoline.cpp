@@ -30,6 +30,7 @@
 #include <string>
 #include <string_view>
 #include <utility>
+#include <variant>
 // clang-format on
 
 namespace Luna::Detail {
@@ -153,44 +154,40 @@ StartedCallFrom(InvocationOutcome &Outcome, const ReturnMetadata &Awaited,
   return false;
 }
 
-[[nodiscard]] bool IsPrimitiveKind(ValueKind Kind) noexcept {
-  return Kind == ValueKind::Boolean || Kind == ValueKind::Integer ||
-         Kind == ValueKind::Number;
+[[nodiscard]] bool IsPrimitiveValue(const Value &Value) noexcept {
+  return std::holds_alternative<bool>(Value) ||
+         std::holds_alternative<int>(Value) ||
+         std::holds_alternative<double>(Value);
+}
+
+void PushPrimitiveValue(lua_State *State, const Value &Value) {
+  if (const bool *Boolean = std::get_if<bool>(&Value)) {
+    lua_pushboolean(State, *Boolean ? 1 : 0);
+    return;
+  }
+  if (const int *Integer = std::get_if<int>(&Value)) {
+    lua_pushinteger(State, *Integer);
+    return;
+  }
+  lua_pushnumber(State, std::get<double>(Value));
 }
 
 [[nodiscard]] std::optional<InvocationResult>
 InvokeFrozenPrimitiveRoot(lua_State *State, BindingRecord &Record,
-                          FaultInjector &Faults) {
-  if (Record.CommittedCandidateCount() != 1)
+                          const TypeGeneration *Types, FaultInjector &Faults) {
+  const PrimitiveRootInvocation *Root = Record.PrimitiveRoot();
+  if (!Root || FastPathFaultPending(*Root->Return, Faults))
     return std::nullopt;
 
-  OverloadCandidate *Candidate = Record.PrimaryCandidate();
-  if (!Candidate || !Candidate->IsCommitted)
-    return std::nullopt;
-
-  ErasedCallableDescriptor &Descriptor = Candidate->Descriptor;
-  const PrimitiveInvocationPlan *Plan = Descriptor.PrimitiveInvocation();
-  const CallableMetadata &Metadata = Descriptor.Metadata();
-  const ReturnMetadata &Return = Metadata.ReturnType();
-  const std::span<const ValueKind> Parameters = Metadata.ParameterTypes();
-  if (!Plan || !Plan->IsAvailable() || Metadata.HasReceiver() ||
-      Candidate->Signature.ReceiverType || Metadata.HasRichParameters() ||
-      Return.IsAsynchronous() || Parameters.size() > 4 ||
-      FastPathFaultPending(Return, Faults))
-    return std::nullopt;
-  if (Return.Disposition() != ReturnDisposition::Void &&
-      Return.Disposition() != ReturnDisposition::Value)
-    return std::nullopt;
-  if (Return.Disposition() == ReturnDisposition::Value &&
-      (!Return.Kind() || !IsPrimitiveKind(*Return.Kind())))
-    return std::nullopt;
+  const PrimitiveInvocationPlan *Plan = Root->Plan;
+  const ReturnMetadata &Return = *Root->Return;
+  const std::span<const ValueKind> Parameters = Root->Parameters;
   if (lua_gettop(State) != static_cast<int>(Parameters.size()))
     return std::nullopt;
 
   std::array<PrimitiveCallValue, 4> Arguments;
   for (std::size_t Index = 0; Index < Parameters.size(); ++Index) {
-    if (!IsPrimitiveKind(Parameters[Index]) ||
-        !ReadPrimitiveValue(State, static_cast<int>(Index) + 1,
+    if (!ReadPrimitiveValue(State, static_cast<int>(Index) + 1,
                             Parameters[Index], Arguments[Index]))
       return std::nullopt;
   }
@@ -199,8 +196,69 @@ InvokeFrozenPrimitiveRoot(lua_State *State, BindingRecord &Record,
     return std::nullopt;
 
   InvocationResult Result;
-  Result.Symbol = Candidate->Identity;
+  Result.Symbol = Root->Symbol;
   try {
+    if (Return.Disposition() == ReturnDisposition::Pack) {
+      ReturnPack Produced;
+      if (!Plan->InvokePack(Plan->Context,
+                            std::span<const PrimitiveCallValue>(
+                                Arguments.data(), Parameters.size()),
+                            Produced)) {
+        Result = Failure("Internal error for " +
+                         MemberContext(Record.GlobalName(), false) +
+                         ": direct primitive invocation is unavailable.");
+        Result.Symbol = Root->Symbol;
+        return Result;
+      }
+
+      const std::span<const Value> Values = Produced.Values();
+      bool Direct = !Produced.CarriesOwnedValues() &&
+                    Values.size() <= static_cast<std::size_t>(
+                                         std::numeric_limits<int>::max());
+      if (Direct) {
+        for (const Value &Value : Values)
+          Direct = IsPrimitiveValue(Value);
+      }
+      if (Direct &&
+          lua_checkstack(State, static_cast<int>(Values.size()) + 1)) {
+        for (const Value &Value : Values)
+          PushPrimitiveValue(State, Value);
+        Result.ReturnCount = static_cast<int>(Values.size());
+        return Result;
+      }
+
+      InvocationOutcome Outcome =
+          Produced.CarriesOwnedValues()
+              ? InvocationOutcome::WithOwnedValues(
+                    std::move(Produced).TakeOwnedValues())
+              : InvocationOutcome::WithValues(std::move(Produced).TakeValues());
+      std::shared_ptr<const TypeGeneration> CapturedTypes;
+      if (!Types) {
+        CapturedTypes = Record.CaptureTypeGeneration();
+        Types = CapturedTypes.get();
+      }
+      if (!Types) {
+        Result = Failure("Internal error for " +
+                         MemberContext(Record.GlobalName(), false) +
+                         ": the canonical type registry is unavailable.");
+        Result.Symbol = Root->Symbol;
+        return Result;
+      }
+      const ReturnWriteResult Written =
+          WriteInvocationReturn(State, Return, Outcome, *Types, Faults);
+      if (Written.IsSuccess()) {
+        Result.ReturnCount = Written.ReturnCount;
+        return Result;
+      }
+      Result = Failure("Internal error for " +
+                       MemberContext(Record.GlobalName(), false) + ": " +
+                       (Written.Diagnostic ? Written.Diagnostic->Message()
+                                           : std::string("Return handling "
+                                                         "failed.")));
+      Result.Symbol = Root->Symbol;
+      return Result;
+    }
+
     PrimitiveCallValue Returned;
     if (!Plan->Invoke(Plan->Context,
                       std::span<const PrimitiveCallValue>(Arguments.data(),
@@ -209,7 +267,7 @@ InvokeFrozenPrimitiveRoot(lua_State *State, BindingRecord &Record,
       Result = Failure("Internal error for " +
                        MemberContext(Record.GlobalName(), false) +
                        ": direct primitive invocation is unavailable.");
-      Result.Symbol = Candidate->Identity;
+      Result.Symbol = Root->Symbol;
       return Result;
     }
     if (Return.Disposition() == ReturnDisposition::Void) {
@@ -231,7 +289,7 @@ InvokeFrozenPrimitiveRoot(lua_State *State, BindingRecord &Record,
       Result = Failure("Internal error for " +
                        MemberContext(Record.GlobalName(), false) +
                        ": direct primitive return metadata is invalid.");
-      Result.Symbol = Candidate->Identity;
+      Result.Symbol = Root->Symbol;
       return Result;
     }
     Result.ReturnCount = 1;
@@ -240,13 +298,13 @@ InvokeFrozenPrimitiveRoot(lua_State *State, BindingRecord &Record,
     Result =
         Failure("Runtime error: " + MemberContext(Record.GlobalName(), false) +
                 " threw: " + Error.what());
-    Result.Symbol = Candidate->Identity;
+    Result.Symbol = Root->Symbol;
     return Result;
   } catch (...) {
     Result =
         Failure("Internal error: " + MemberContext(Record.GlobalName(), false) +
                 " threw an unknown C++ exception.");
-    Result.Symbol = Candidate->Identity;
+    Result.Symbol = Root->Symbol;
     return Result;
   }
 }
@@ -407,7 +465,7 @@ struct MemberDispatch final {
   try {
     if (FrozenDispatch) {
       if (std::optional<InvocationResult> Fast =
-              InvokeFrozenPrimitiveRoot(State, Record, Faults))
+              InvokeFrozenPrimitiveRoot(State, Record, &Types, Faults))
         return std::move(*Fast);
     }
     if (std::optional<InvocationResult> Fast =
@@ -749,6 +807,55 @@ int NativeTrampolineContinuation(lua_State *State, int Status) {
   if (Faults)
     Faults->RecordCallbackStackRestoration(EntryDepth, RestoredDepth,
                                            lua_gettop(State));
+  lua_error(State);
+  return 0;
+}
+
+int DirectNativeTrampoline(lua_State *State) {
+  if (!State)
+    return 0;
+
+  const int EntryDepth = lua_gettop(State);
+  const DispatchTable *Dispatch = ClosureDispatchTable(State);
+  BindingRecord *Record = ClosureBindingRecord(State);
+  if (!Dispatch || !Record || !Dispatch->HasFrozenSnapshot())
+    return NativeTrampoline(State);
+
+  FaultInjector *Faults = Record->Faults();
+  if (!Faults || !Record->PrimitiveRoot())
+    return NativeTrampoline(State);
+  Faults->ClearCallbackStackRestoration();
+
+  std::optional<InvocationResult> Result =
+      InvokeFrozenPrimitiveRoot(State, *Record, nullptr, *Faults);
+  if (!Result)
+    return NativeTrampoline(State);
+
+  ProfilingRegistry *Profiling = Record->Profiling();
+  if (Result->IsSuccess()) {
+    if (Profiling) {
+      Profiling->Report({.Kind = ProfilingEventKind::Completed,
+                         .Symbol = Result->Symbol,
+                         .ReceiverType = Result->ReceiverType,
+                         .QualifiedName = Record->GlobalName()});
+    }
+    return Result->ReturnCount;
+  }
+
+  if (Profiling) {
+    Profiling->Report({.Kind = ProfilingEventKind::Failed,
+                       .Symbol = Result->Symbol,
+                       .ReceiverType = Result->ReceiverType,
+                       .QualifiedName = Record->GlobalName()});
+  }
+  std::string_view Message = Result->Diagnostic;
+  if (Message.empty())
+    Message = "Internal Luna invocation error.";
+  lua_settop(State, EntryDepth);
+  const int RestoredDepth = lua_gettop(State);
+  lua_pushlstring(State, Message.data(), Message.size());
+  Faults->RecordCallbackStackRestoration(EntryDepth, RestoredDepth,
+                                         lua_gettop(State));
   lua_error(State);
   return 0;
 }

@@ -19,6 +19,8 @@
 
 namespace Luna {
 
+class ReturnPack;
+
 enum class InvocationOutcomeKind {
   Value,
   Void,
@@ -41,12 +43,24 @@ struct PrimitiveCallValue final {
 struct PrimitiveInvocationPlan final {
   using InvokeFunction = bool (*)(void *, std::span<const PrimitiveCallValue>,
                                   PrimitiveCallValue &);
+  using InvokePackFunction = bool (*)(void *,
+                                      std::span<const PrimitiveCallValue>,
+                                      ReturnPack &);
 
   void *Context = nullptr;
   InvokeFunction Invoke = nullptr;
+  InvokePackFunction InvokePack = nullptr;
 
   [[nodiscard]] bool IsAvailable() const noexcept {
+    return Context != nullptr && (Invoke != nullptr || InvokePack != nullptr);
+  }
+
+  [[nodiscard]] bool HasScalarInvoke() const noexcept {
     return Context != nullptr && Invoke != nullptr;
+  }
+
+  [[nodiscard]] bool HasPackInvoke() const noexcept {
+    return Context != nullptr && InvokePack != nullptr;
   }
 };
 
