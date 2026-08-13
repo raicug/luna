@@ -4,13 +4,20 @@
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <optional>
 #include <string>
 #include <string_view>
 // clang-format on
 
 namespace LunaBenchmark {
 
-enum class CacheMode { UnfrozenUncached, FrozenCached };
+enum class CacheMode { UnfrozenUncached, FrozenCached, RawLuau };
+
+struct Measurement final {
+  std::size_t Operations = 0;
+  std::uint64_t MedianNanoseconds = 0;
+  std::uint64_t MedianNanosecondsPerOperation = 0;
+};
 
 [[nodiscard]] std::string_view CacheModeText(CacheMode Mode) noexcept;
 
@@ -42,9 +49,14 @@ public:
   [[nodiscard]] std::size_t Warmup() const noexcept { return WarmupCount; }
   [[nodiscard]] std::size_t Samples() const noexcept { return SampleCount; }
 
-  void Measure(std::string_view CaseName, std::string_view Corpus,
-               CacheMode Mode, std::size_t OperationCount,
-               const std::function<bool()> &Body);
+  std::optional<Measurement> Measure(std::string_view CaseName,
+                                     std::string_view Corpus, CacheMode Mode,
+                                     std::size_t OperationCount,
+                                     const std::function<bool()> &Body);
+
+  void Compare(std::string_view CaseName, std::string_view Corpus,
+               CacheMode BaselineMode, const Measurement &Baseline,
+               CacheMode CandidateMode, const Measurement &Candidate);
 
   void Block(std::string_view CaseName, std::string_view Corpus, CacheMode Mode,
              std::string_view Reason);

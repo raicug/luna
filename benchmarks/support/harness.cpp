@@ -59,6 +59,8 @@ std::string_view CacheModeText(CacheMode Mode) noexcept {
     return "unfrozen-uncached";
   case CacheMode::FrozenCached:
     return "frozen-cached";
+  case CacheMode::RawLuau:
+    return "raw-luau";
   }
   return "unknown";
 }
@@ -137,15 +139,17 @@ void Suite::Block(std::string_view CaseName, std::string_view Corpus,
             << " reason=" << Quoted(Reason) << " claimable=false" << '\n';
 }
 
-void Suite::Measure(std::string_view CaseName, std::string_view Corpus,
-                    CacheMode Mode, std::size_t OperationCount,
-                    const std::function<bool()> &Body) {
+std::optional<Measurement> Suite::Measure(std::string_view CaseName,
+                                          std::string_view Corpus,
+                                          CacheMode Mode,
+                                          std::size_t OperationCount,
+                                          const std::function<bool()> &Body) {
   ++CaseCount;
   if (!IsRunnable()) {
     std::cerr << "luna-benchmark skipped scenario=" << ScenarioValue
               << " case=" << CaseName
               << " reason=\"configuration or options incomplete\"\n";
-    return;
+    return std::nullopt;
   }
   if (OperationCount == 0) {
     ++FailureCount;
@@ -153,7 +157,7 @@ void Suite::Measure(std::string_view CaseName, std::string_view Corpus,
         << "luna-benchmark invalid scenario=" << ScenarioValue
         << " case=" << CaseName
         << " reason=\"a measured case performs at least one operation\"\n";
-    return;
+    return std::nullopt;
   }
 
   for (std::size_t Warm = 0; Warm < WarmupCount; ++Warm) {
@@ -162,7 +166,7 @@ void Suite::Measure(std::string_view CaseName, std::string_view Corpus,
     ++FailureCount;
     std::cerr << "luna-benchmark functional-failure scenario=" << ScenarioValue
               << " case=" << CaseName << " phase=warmup\n";
-    return;
+    return std::nullopt;
   }
 
   std::vector<std::uint64_t> Samples;
@@ -177,7 +181,7 @@ void Suite::Measure(std::string_view CaseName, std::string_view Corpus,
       ++FailureCount;
       std::cerr << "luna-benchmark functional-failure scenario="
                 << ScenarioValue << " case=" << CaseName << " phase=sample\n";
-      return;
+      return std::nullopt;
     }
     const auto Elapsed =
         std::chrono::duration_cast<std::chrono::nanoseconds>(Ended - Started);
@@ -209,6 +213,40 @@ void Suite::Measure(std::string_view CaseName, std::string_view Corpus,
             << " architecture=" << Quoted(ConfigurationValue.Architecture)
             << " luau_version=" << Quoted(ConfigurationValue.LuauVersion)
             << " functional=pass"
+            << " claimable=" << (CorrectnessEvidence.empty() ? "false" : "true")
+            << '\n';
+
+  return Measurement{OperationCount, Median, PerOperation};
+}
+
+void Suite::Compare(std::string_view CaseName, std::string_view Corpus,
+                    CacheMode BaselineMode, const Measurement &Baseline,
+                    CacheMode CandidateMode, const Measurement &Candidate) {
+  if (Baseline.Operations == 0 || Baseline.Operations != Candidate.Operations)
+    return;
+
+  const std::int64_t Delta =
+      static_cast<std::int64_t>(Candidate.MedianNanosecondsPerOperation) -
+      static_cast<std::int64_t>(Baseline.MedianNanosecondsPerOperation);
+  const double DifferencePercent =
+      Baseline.MedianNanosecondsPerOperation == 0
+          ? 0.0
+          : static_cast<double>(Delta) * 100.0 /
+                static_cast<double>(Baseline.MedianNanosecondsPerOperation);
+  std::cout << "luna-benchmark comparison"
+            << " scenario=" << ScenarioValue << " case=" << CaseName
+            << " corpus=" << Quoted(Corpus)
+            << " operations=" << Baseline.Operations
+            << " baseline_mode=" << CacheModeText(BaselineMode)
+            << " baseline_median_ns=" << Baseline.MedianNanoseconds
+            << " baseline_median_ns_per_operation="
+            << Baseline.MedianNanosecondsPerOperation
+            << " candidate_mode=" << CacheModeText(CandidateMode)
+            << " candidate_median_ns=" << Candidate.MedianNanoseconds
+            << " candidate_median_ns_per_operation="
+            << Candidate.MedianNanosecondsPerOperation
+            << " delta_ns_per_operation=" << Delta
+            << " difference_percent=" << DifferencePercent
             << " claimable=" << (CorrectnessEvidence.empty() ? "false" : "true")
             << '\n';
 }

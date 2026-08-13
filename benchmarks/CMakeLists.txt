@@ -45,7 +45,6 @@ target_compile_definitions(LunaBenchmarkSupport PUBLIC
     "LUNA_BENCHMARK_ARCHITECTURE=\"${LUNA_BENCHMARK_ARCHITECTURE}\""
     "LUNA_BENCHMARK_LUAU_VERSION=\"${LUNA_LUAU_VERSION}\""
 )
-target_link_libraries(LunaBenchmarkSupport PUBLIC Luna::Luna)
 set_target_properties(LunaBenchmarkSupport PROPERTIES
     CXX_EXTENSIONS OFF
     FOLDER "luna/benchmarks"
@@ -58,7 +57,10 @@ function(luna_add_benchmark BENCHMARK_NAME BENCHMARK_SOURCE)
     set(BENCHMARK_TARGET "LunaBenchmark${BENCHMARK_NAME}")
     add_executable(${BENCHMARK_TARGET} "${BENCHMARK_SOURCE}")
     target_compile_features(${BENCHMARK_TARGET} PRIVATE cxx_std_20)
-    target_link_libraries(${BENCHMARK_TARGET} PRIVATE Luna::BenchmarkSupport)
+    target_link_libraries(${BENCHMARK_TARGET} PRIVATE
+        Luna::BenchmarkSupport
+        Luna::Luna
+    )
     set_target_properties(${BENCHMARK_TARGET} PROPERTIES
         CXX_EXTENSIONS OFF
         FOLDER "luna/benchmarks"
@@ -106,3 +108,32 @@ add_custom_target(LunaBenchmarksRun
     VERBATIM
 )
 set_target_properties(LunaBenchmarksRun PROPERTIES FOLDER "luna/benchmarks")
+
+if(LUNA_BUILD_RAW_LUAU_BASELINES)
+    add_executable(LunaRawLuauInvocation baselines/raw_luau/invocation.cpp)
+    target_compile_features(LunaRawLuauInvocation PRIVATE cxx_std_20)
+    target_link_libraries(LunaRawLuauInvocation PRIVATE
+        Luna::BenchmarkSupport
+        Luna::Luna
+        Luau.VM
+        Luau.Compiler
+    )
+    set_target_properties(LunaRawLuauInvocation PROPERTIES
+        CXX_EXTENSIONS OFF
+        FOLDER "luna/benchmarks/baselines"
+    )
+
+    add_custom_target(LunaRawLuauBaselines DEPENDS LunaRawLuauInvocation)
+    set_target_properties(LunaRawLuauBaselines PROPERTIES
+        FOLDER "luna/benchmarks/baselines"
+    )
+
+    add_custom_target(LunaRawLuauBaselinesRun
+        COMMAND "$<TARGET_FILE:LunaRawLuauInvocation>"
+        DEPENDS LunaRawLuauInvocation
+        VERBATIM
+    )
+    set_target_properties(LunaRawLuauBaselinesRun PROPERTIES
+        FOLDER "luna/benchmarks/baselines"
+    )
+endif()

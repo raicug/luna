@@ -10,7 +10,10 @@ separate executables from the single `LunaTests` correctness executable and the
 ```
 cmake -S . -B build/bench -G Ninja -DCMAKE_BUILD_TYPE=Release -DLUNA_BUILD_BENCHMARKS=ON
 cmake --build build/bench --target LunaBenchmarks     # build only
-cmake --build build/bench --target LunaBenchmarksRun  # build and run every scenario
+cmake --build build/bench --target LunaBenchmarksRun  # build and run every Luna scenario
+
+cmake -S . -B build/bench-raw -G Ninja -DCMAKE_BUILD_TYPE=Release -DLUNA_BUILD_BENCHMARKS=ON -DLUNA_BUILD_RAW_LUAU_BASELINES=ON
+cmake --build build/bench-raw --target LunaRawLuauBaselinesRun
 ```
 
 Individual targets are `LunaBenchmarkRegistration`, `LunaBenchmarkOverload`,
@@ -18,8 +21,31 @@ Individual targets are `LunaBenchmarkRegistration`, `LunaBenchmarkOverload`,
 and `LunaBenchmarkUserdata`. Each accepts `--warmup=<count>`, `--samples=<count>`,
 and `--correctness-evidence=<text>`.
 
-An explicit `CMAKE_BUILD_TYPE` is required, because a measurement without its
-build is not evidence.
+`-DLUNA_BUILD_RAW_LUAU_BASELINES=ON` adds `LunaRawLuauInvocation` and
+`LunaRawLuauBaselinesRun`. It measures the same three invocation scripts as
+`LunaBenchmarkInvocation` through direct Luau C closures, then emits comparison
+rows pairing each `raw-luau` result with Luna's `unfrozen-uncached` and
+`frozen-cached` result. A comparison carries the median latency, per-operation
+delta, and percentage difference. It intentionally does not compare
+registration, overload selection, reflection, conversion policy, or userdata,
+because raw Luau does not provide equivalent facilities.
+
+## Raw Luau comparison sample
+
+The following bounded sample was recorded by `LunaRawLuauInvocation` on
+Windows/AMD64 with Clang 22.1.5, Luau 0.730, Release mode, `--warmup=1`, and
+`--samples=3`. It is a convenient display of every current raw-Luau comparison,
+not an admissible performance claim: the runner reported `claimable=false`.
+
+| Case | Raw Luau median ns/op | Luna unfrozen ns/op | Delta | Difference | Luna frozen ns/op | Delta | Difference |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| VoidCall | 54 | 521 | +467 | +864.82% | 514 | +460 | +851.85% |
+| ScalarCall | 86 | 714 | +628 | +730.23% | 771 | +685 | +796.51% |
+| DynamicPackCall | 93 | 1172 | +1079 | +1160.22% | 1166 | +1073 | +1153.76% |
+
+Regenerate this table from the `luna-benchmark comparison` records whenever the
+benchmark configuration, corpus, Luau version, compiler, or implementation
+changes.
 
 ## Bounded regression checks
 

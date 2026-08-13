@@ -2,6 +2,7 @@
 #include <luna/luna.hpp>
 
 #include "support/harness.hpp"
+#include "support/invocation_cases.hpp"
 #include "support/model.hpp"
 
 #include <cstddef>
@@ -16,9 +17,13 @@ using LunaBenchmark::ScenarioModel;
 
 std::size_t SideEffectCount = 0;
 
-void Touch() { ++SideEffectCount; }
+void Touch() {
+  ++SideEffectCount;
+}
 
-[[nodiscard]] int Add(int Left, int Right) { return Left + Right; }
+[[nodiscard]] int Add(int Left, int Right) {
+  return Left + Right;
+}
 
 [[nodiscard]] Luna::ReturnPack Dynamic(int Seed) {
   Luna::ReturnPack Published;
@@ -26,7 +31,10 @@ void Touch() { ++SideEffectCount; }
   return Published;
 }
 
-constexpr std::size_t LoopCount = 250;
+using LunaBenchmark::InvocationCases::DynamicScript;
+using LunaBenchmark::InvocationCases::LoopCount;
+using LunaBenchmark::InvocationCases::ScalarScript;
+using LunaBenchmark::InvocationCases::VoidScript;
 
 [[nodiscard]] Luna::RegistrationResult
 RegisterFixedCorpus(Luna::BindingRegistry &Registry) {
@@ -39,34 +47,6 @@ RegisterFixedCorpus(Luna::BindingRegistry &Registry) {
 [[nodiscard]] Luna::RegistrationResult
 RegisterDynamicCorpus(Luna::BindingRegistry &Registry) {
   return Registry.RegisterFunction("Dynamic", &Dynamic);
-}
-
-[[nodiscard]] std::string VoidScript() {
-  return "for Index = 1, " + std::to_string(LoopCount) +
-         " do\n"
-         "  Touch()\n"
-         "end\n";
-}
-
-[[nodiscard]] std::string ScalarScript() {
-  return "local Total = 0\n"
-         "for Index = 1, " +
-         std::to_string(LoopCount) +
-         " do\n"
-         "  Total = Total + Add(Index, 1)\n"
-         "end\n"
-         "assert(Total > 0)\n";
-}
-
-[[nodiscard]] std::string DynamicScript() {
-  return "local Total = 0\n"
-         "for Index = 1, " +
-         std::to_string(LoopCount) +
-         " do\n"
-         "  local First, Second, Third = Dynamic(Index)\n"
-         "  Total = Total + First + Second + Third\n"
-         "end\n"
-         "assert(Total > 0)\n";
 }
 
 void MeasureMode(LunaBenchmark::Suite &Suite, CacheMode Mode) {
@@ -88,14 +68,13 @@ void MeasureMode(LunaBenchmark::Suite &Suite, CacheMode Mode) {
                       [&Prepared, &Script] { return Prepared.Run(Script); });
       };
 
-  MeasureCase(Fixed, "VoidCall", "250 nullary native calls returning no value",
-              LoopCount, Void);
-  MeasureCase(Fixed, "ScalarCall",
-              "250 two-argument native calls returning one value", LoopCount,
-              Scalar);
-  MeasureCase(DynamicPacks, "DynamicPackCall",
-              "250 native calls publishing one three-value dynamic pack",
-              LoopCount, DynamicPack);
+  MeasureCase(Fixed, LunaBenchmark::InvocationCases::VoidName,
+              LunaBenchmark::InvocationCases::VoidCorpus, LoopCount, Void);
+  MeasureCase(Fixed, LunaBenchmark::InvocationCases::ScalarName,
+              LunaBenchmark::InvocationCases::ScalarCorpus, LoopCount, Scalar);
+  MeasureCase(DynamicPacks, LunaBenchmark::InvocationCases::DynamicName,
+              LunaBenchmark::InvocationCases::DynamicCorpus, LoopCount,
+              DynamicPack);
 }
 
 } // namespace
