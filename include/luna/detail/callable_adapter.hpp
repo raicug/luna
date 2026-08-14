@@ -468,25 +468,23 @@ private:
         Arguments, Returned, std::index_sequence_for<Parameters...>{});
   }
 
-  static bool InvokePrimitivePack(void *Context,
-                                  std::span<const PrimitiveCallValue> Arguments,
-                                  ReturnPack &Returned) {
+  static std::optional<ReturnPack>
+  InvokePrimitivePack(void *Context,
+                      std::span<const PrimitiveCallValue> Arguments) {
     auto *const Adapter = static_cast<CallableAdapter *>(Context);
     if (!Adapter || !Adapter->HasTarget() ||
         Arguments.size() != sizeof...(Parameters))
-      return false;
+      return std::nullopt;
     return Adapter->InvokePrimitivePackWithIndices(
-        Arguments, Returned, std::index_sequence_for<Parameters...>{});
+        Arguments, std::index_sequence_for<Parameters...>{});
   }
 
   template <std::size_t... Indices>
-  [[nodiscard]] bool
+  [[nodiscard]] ReturnPack
   InvokePrimitivePackWithIndices(std::span<const PrimitiveCallValue> Arguments,
-                                 ReturnPack &Returned,
                                  std::index_sequence<Indices...>) {
-    Returned = std::invoke(
-        TargetValue, PrimitiveArgument<Parameters>(Arguments[Indices])...);
-    return true;
+    return std::invoke(TargetValue,
+                       PrimitiveArgument<Parameters>(Arguments[Indices])...);
   }
 
   template <std::size_t... Indices>

@@ -199,11 +199,10 @@ InvokeFrozenPrimitiveRoot(lua_State *State, BindingRecord &Record,
   Result.Symbol = Root->Symbol;
   try {
     if (Return.Disposition() == ReturnDisposition::Pack) {
-      ReturnPack Produced;
-      if (!Plan->InvokePack(Plan->Context,
-                            std::span<const PrimitiveCallValue>(
-                                Arguments.data(), Parameters.size()),
-                            Produced)) {
+      std::optional<ReturnPack> Produced = Plan->InvokePack(
+          Plan->Context, std::span<const PrimitiveCallValue>(
+                             Arguments.data(), Parameters.size()));
+      if (!Produced) {
         Result = Failure("Internal error for " +
                          MemberContext(Record.GlobalName(), false) +
                          ": direct primitive invocation is unavailable.");
@@ -211,8 +210,8 @@ InvokeFrozenPrimitiveRoot(lua_State *State, BindingRecord &Record,
         return Result;
       }
 
-      const std::span<const Value> Values = Produced.Values();
-      bool Direct = !Produced.CarriesOwnedValues() &&
+      const std::span<const Value> Values = Produced->Values();
+      bool Direct = !Produced->CarriesOwnedValues() &&
                     Values.size() <= static_cast<std::size_t>(
                                          std::numeric_limits<int>::max());
       if (Direct) {
@@ -228,10 +227,11 @@ InvokeFrozenPrimitiveRoot(lua_State *State, BindingRecord &Record,
       }
 
       InvocationOutcome Outcome =
-          Produced.CarriesOwnedValues()
+          Produced->CarriesOwnedValues()
               ? InvocationOutcome::WithOwnedValues(
-                    std::move(Produced).TakeOwnedValues())
-              : InvocationOutcome::WithValues(std::move(Produced).TakeValues());
+                    std::move(*Produced).TakeOwnedValues())
+              : InvocationOutcome::WithValues(
+                    std::move(*Produced).TakeValues());
       std::shared_ptr<const TypeGeneration> CapturedTypes;
       if (!Types) {
         CapturedTypes = Record.CaptureTypeGeneration();

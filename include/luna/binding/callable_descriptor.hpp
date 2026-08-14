@@ -6,6 +6,7 @@
 #include <luna/binding/callable_metadata.hpp>
 #include <luna/binding/class_construction.hpp>
 #include <luna/binding/instance_receiver.hpp>
+#include <luna/binding/return_pack.hpp>
 
 #include <concepts>
 #include <memory>
@@ -43,9 +44,8 @@ struct PrimitiveCallValue final {
 struct PrimitiveInvocationPlan final {
   using InvokeFunction = bool (*)(void *, std::span<const PrimitiveCallValue>,
                                   PrimitiveCallValue &);
-  using InvokePackFunction = bool (*)(void *,
-                                      std::span<const PrimitiveCallValue>,
-                                      ReturnPack &);
+  using InvokePackFunction = std::optional<ReturnPack> (*)(
+      void *, std::span<const PrimitiveCallValue>);
 
   void *Context = nullptr;
   InvokeFunction Invoke = nullptr;
