@@ -36,6 +36,11 @@ enum class InvocationOutcomeKind {
 namespace Detail {
 
 struct PrimitiveCallValue final {
+  struct Uninitialized final {};
+
+  PrimitiveCallValue() = default;
+  explicit PrimitiveCallValue(Uninitialized) noexcept {}
+
   bool Boolean = false;
   int Integer = 0;
   double Number = 0.0;

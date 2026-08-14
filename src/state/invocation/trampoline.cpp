@@ -154,6 +154,40 @@ StartedCallFrom(InvocationOutcome &Outcome, const ReturnMetadata &Awaited,
   return false;
 }
 
+[[nodiscard]] bool ReadScalarPrimitiveValue(lua_State *State, int StackIndex,
+                                            ValueKind Kind,
+                                            PrimitiveCallValue &Destination) {
+  if (!State)
+    return false;
+  switch (Kind) {
+  case ValueKind::Boolean:
+    if (lua_type(State, StackIndex) != LUA_TBOOLEAN)
+      return false;
+    Destination.Boolean = lua_toboolean(State, StackIndex) != 0;
+    return true;
+  case ValueKind::Integer: {
+    if (lua_type(State, StackIndex) != LUA_TNUMBER)
+      return false;
+    const double Number = lua_tonumberx(State, StackIndex, nullptr);
+    if (!std::isfinite(Number) ||
+        Number < static_cast<double>(std::numeric_limits<int>::min()) ||
+        Number > static_cast<double>(std::numeric_limits<int>::max()) ||
+        std::trunc(Number) != Number)
+      return false;
+    Destination.Integer = static_cast<int>(Number);
+    return true;
+  }
+  case ValueKind::Number:
+    if (lua_type(State, StackIndex) != LUA_TNUMBER)
+      return false;
+    Destination.Number = lua_tonumberx(State, StackIndex, nullptr);
+    return true;
+  case ValueKind::String:
+    return false;
+  }
+  return false;
+}
+
 [[nodiscard]] bool IsPrimitiveValue(const Value &Value) noexcept {
   return Value.index() < 3;
 }
@@ -188,9 +222,15 @@ InvokeFrozenPrimitiveRoot(lua_State *State, BindingRecord &Record,
     return std::nullopt;
 
   std::array<PrimitiveCallValue, 4> Arguments;
+  const bool ScalarReturn = Return.Disposition() == ReturnDisposition::Value;
   for (std::size_t Index = 0; Index < Parameters.size(); ++Index) {
-    if (!ReadPrimitiveValue(State, static_cast<int>(Index) + 1,
-                            Parameters[Index], Arguments[Index]))
+    const bool Read =
+        ScalarReturn
+            ? ReadScalarPrimitiveValue(State, static_cast<int>(Index) + 1,
+                                       Parameters[Index], Arguments[Index])
+            : ReadPrimitiveValue(State, static_cast<int>(Index) + 1,
+                                 Parameters[Index], Arguments[Index]);
+    if (!Read)
       return std::nullopt;
   }
   if (Return.Disposition() == ReturnDisposition::Value &&
@@ -261,7 +301,23 @@ InvokeFrozenPrimitiveRoot(lua_State *State, BindingRecord &Record,
       return Result;
     }
 
-    PrimitiveCallValue Returned;
+    if (Return.Disposition() == ReturnDisposition::Void) {
+      PrimitiveCallValue Returned;
+      if (!Plan->Invoke(Plan->Context,
+                        std::span<const PrimitiveCallValue>(Arguments.data(),
+                                                            Parameters.size()),
+                        Returned)) {
+        Result = Failure("Internal error for " +
+                         MemberContext(Record.GlobalName(), false) +
+                         ": direct primitive invocation is unavailable.");
+        Result.Symbol = Root->Symbol;
+        return Result;
+      }
+      Result.ReturnCount = 0;
+      return Result;
+    }
+
+    PrimitiveCallValue Returned(PrimitiveCallValue::Uninitialized{});
     if (!Plan->Invoke(Plan->Context,
                       std::span<const PrimitiveCallValue>(Arguments.data(),
                                                           Parameters.size()),
@@ -270,10 +326,6 @@ InvokeFrozenPrimitiveRoot(lua_State *State, BindingRecord &Record,
                        MemberContext(Record.GlobalName(), false) +
                        ": direct primitive invocation is unavailable.");
       Result.Symbol = Root->Symbol;
-      return Result;
-    }
-    if (Return.Disposition() == ReturnDisposition::Void) {
-      Result.ReturnCount = 0;
       return Result;
     }
 
