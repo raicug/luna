@@ -65,23 +65,17 @@ public:
   }
 
   ReturnPack &AppendBoolean(bool Element) {
-    Append(Value(std::in_place_type<bool>, Element));
-    return *this;
+    return AppendDirect<bool>(Element);
   }
 
-  ReturnPack &AppendInteger(int Element) {
-    Append(Value(std::in_place_type<int>, Element));
-    return *this;
-  }
+  ReturnPack &AppendInteger(int Element) { return AppendDirect<int>(Element); }
 
   ReturnPack &AppendNumber(double Element) {
-    Append(Value(std::in_place_type<double>, Element));
-    return *this;
+    return AppendDirect<double>(Element);
   }
 
   ReturnPack &AppendText(std::string Element) {
-    Append(Value(std::in_place_type<std::string>, std::move(Element)));
-    return *this;
+    return AppendDirect<std::string>(std::move(Element));
   }
 
   template <class Type> ReturnPack &AppendInstance(Type Element) {
@@ -166,6 +160,24 @@ public:
 
 private:
   static constexpr std::size_t InlineCapacity = 3;
+
+  template <class Type, class... Arguments>
+  ReturnPack &AppendDirect(Arguments &&...Source) {
+    if (CarriesOwnedValue) {
+      Append(
+          Value(std::in_place_type<Type>, std::forward<Arguments>(Source)...));
+      return *this;
+    }
+    if (!UsesHeapValues && InlineSize < InlineCapacity) {
+      InlineValues[InlineSize++].template emplace<Type>(
+          std::forward<Arguments>(Source)...);
+      return *this;
+    }
+    PromoteInlineValues();
+    HeapValues.emplace_back(std::in_place_type<Type>,
+                            std::forward<Arguments>(Source)...);
+    return *this;
+  }
 
   void PromoteInlineValues() {
     if (UsesHeapValues)
