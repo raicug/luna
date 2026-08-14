@@ -8,6 +8,7 @@
 #include "state/type/type_generation.hpp"
 
 #include <optional>
+#include <span>
 #include <string>
 // clang-format on
 
@@ -34,6 +35,12 @@ struct ReturnWriteResult final {
     return Status != ReturnWriteStatus::InternalFailure;
   }
 };
+
+[[nodiscard]] ReturnWriteResult
+WriteDynamicReturnPack(lua_State *State, const ReturnMetadata &Metadata,
+                       std::span<const Value> Values,
+                       const TypeGeneration &Types,
+                       FaultInjector &Faults) noexcept;
 
 [[nodiscard]] ReturnWriteResult
 WriteInvocationReturn(lua_State *State, const ReturnMetadata &Metadata,

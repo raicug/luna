@@ -59,9 +59,9 @@ claim.
 
 | Case | Raw Luau ns/op | Luna unfrozen ns/op | Luna frozen ns/op | Freeze saves | Frozen / raw |
 |---|---:|---:|---:|---:|---:|
-| VoidCall | 18 | 256 | 107 | 149 ns/op (58.2%) | 5.94x |
-| ScalarCall | 30 | 425 | 146 | 279 ns/op (65.6%) | 4.87x |
-| DynamicPackCall | 33 | 619 | 178 | 441 ns/op (71.2%) | 5.39x |
+| VoidCall | 18 | 246 | 112 | 134 ns/op (54.5%) | 6.22x |
+| ScalarCall | 29 | 422 | 144 | 278 ns/op (65.9%) | 4.97x |
+| DynamicPackCall | 33 | 641 | 173 | 468 ns/op (73.0%) | 5.24x |
 
 `Freeze saves` compares Luna frozen with Luna unfrozen within the same row; it
 is the useful column for judging the effect of Luna's freeze optimization.
@@ -90,9 +90,9 @@ Recorded on Windows/AMD64 with Clang 22.1.5, Luau 0.730, Release mode,
 
 | Case | Raw Luau ns/op | Luna unfrozen ns/op | Luna frozen ns/op | Freeze saves | Frozen / raw |
 |---|---:|---:|---:|---:|---:|
-| PureVoidCall | 28 | 222 | 72 | 150 ns/op (67.6%) | 2.57x |
-| PureScalarCall | 38 | 406 | 111 | 295 ns/op (72.7%) | 2.92x |
-| PureDynamicPackCall | 39 | 615 | 131 | 484 ns/op (78.7%) | 3.36x |
+| PureVoidCall | 27 | 216 | 77 | 139 ns/op (64.4%) | 2.85x |
+| PureScalarCall | 42 | 397 | 113 | 284 ns/op (71.5%) | 2.69x |
+| PureDynamicPackCall | 40 | 588 | 132 | 456 ns/op (77.6%) | 3.30x |
 
 ### Comparing future runs
 

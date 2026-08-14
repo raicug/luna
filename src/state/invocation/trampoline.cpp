@@ -155,21 +155,23 @@ StartedCallFrom(InvocationOutcome &Outcome, const ReturnMetadata &Awaited,
 }
 
 [[nodiscard]] bool IsPrimitiveValue(const Value &Value) noexcept {
-  return std::holds_alternative<bool>(Value) ||
-         std::holds_alternative<int>(Value) ||
-         std::holds_alternative<double>(Value);
+  return Value.index() < 3;
 }
 
 void PushPrimitiveValue(lua_State *State, const Value &Value) {
-  if (const bool *Boolean = std::get_if<bool>(&Value)) {
-    lua_pushboolean(State, *Boolean ? 1 : 0);
+  switch (Value.index()) {
+  case 0:
+    lua_pushboolean(State, std::get<bool>(Value) ? 1 : 0);
     return;
-  }
-  if (const int *Integer = std::get_if<int>(&Value)) {
-    lua_pushinteger(State, *Integer);
+  case 1:
+    lua_pushinteger(State, std::get<int>(Value));
     return;
+  case 2:
+    lua_pushnumber(State, std::get<double>(Value));
+    return;
+  default:
+    std::abort();
   }
-  lua_pushnumber(State, std::get<double>(Value));
 }
 
 [[nodiscard]] std::optional<InvocationResult>
@@ -226,12 +228,6 @@ InvokeFrozenPrimitiveRoot(lua_State *State, BindingRecord &Record,
         return Result;
       }
 
-      InvocationOutcome Outcome =
-          Produced->CarriesOwnedValues()
-              ? InvocationOutcome::WithOwnedValues(
-                    std::move(*Produced).TakeOwnedValues())
-              : InvocationOutcome::WithValues(
-                    std::move(*Produced).TakeValues());
       std::shared_ptr<const TypeGeneration> CapturedTypes;
       if (!Types) {
         CapturedTypes = Record.CaptureTypeGeneration();
@@ -244,8 +240,14 @@ InvokeFrozenPrimitiveRoot(lua_State *State, BindingRecord &Record,
         Result.Symbol = Root->Symbol;
         return Result;
       }
-      const ReturnWriteResult Written =
-          WriteInvocationReturn(State, Return, Outcome, *Types, Faults);
+      ReturnWriteResult Written;
+      if (Produced->CarriesOwnedValues()) {
+        InvocationOutcome Outcome = InvocationOutcome::WithOwnedValues(
+            std::move(*Produced).TakeOwnedValues());
+        Written = WriteInvocationReturn(State, Return, Outcome, *Types, Faults);
+      } else {
+        Written = WriteDynamicReturnPack(State, Return, Values, *Types, Faults);
+      }
       if (Written.IsSuccess()) {
         Result.ReturnCount = Written.ReturnCount;
         return Result;

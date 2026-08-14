@@ -78,14 +78,8 @@ namespace {
 
 [[nodiscard]] ReturnWriteResult
 PublishReturnPack(lua_State *State, int EntryDepth,
-                  const ReturnMetadata &Metadata,
-                  const InvocationOutcome &Outcome, const TypeGeneration &Types,
-                  FaultInjector &Faults) {
-  if (Outcome.Kind() != InvocationOutcomeKind::Values)
-    return Failure(State, EntryDepth,
-                   "Pack return metadata did not match callable outcome.");
-
-  const std::span<const Value> Staged = Outcome.ReturnedValues();
+                  const ReturnMetadata &Metadata, std::span<const Value> Staged,
+                  const TypeGeneration &Types, FaultInjector &Faults) {
   const std::span<const ValueKind> Declared = Metadata.PackKinds();
   if (Metadata.HasDeclaredPackShape() && Declared.size() != Staged.size())
     return Failure(State, EntryDepth,
@@ -208,6 +202,35 @@ PublishOwnedValues(lua_State *State, int EntryDepth, bool IsSingleValue,
 
 } // namespace
 
+ReturnWriteResult WriteDynamicReturnPack(lua_State *State,
+                                         const ReturnMetadata &Metadata,
+                                         std::span<const Value> Values,
+                                         const TypeGeneration &Types,
+                                         FaultInjector &Faults) noexcept {
+  const int EntryDepth = State ? lua_gettop(State) : 0;
+  try {
+    if (!State)
+      return Failure(State, EntryDepth,
+                     "Return writer has no invocation stack.");
+    if (Metadata.Disposition() != ReturnDisposition::Pack ||
+        Metadata.HasDeclaredPackShape())
+      return Failure(State, EntryDepth,
+                     "Dynamic pack return metadata did not match callable "
+                     "outcome.");
+    return PublishReturnPack(State, EntryDepth, Metadata, Values, Types,
+                             Faults);
+  } catch (...) {
+    try {
+      return Failure(State, EntryDepth,
+                     "Unexpected internal return conversion failure.");
+    } catch (...) {
+      if (State)
+        lua_settop(State, EntryDepth);
+      return {};
+    }
+  }
+}
+
 ReturnWriteResult WriteInvocationReturn(lua_State *State,
                                         const ReturnMetadata &Metadata,
                                         const InvocationOutcome &Outcome,
@@ -235,8 +258,11 @@ ReturnWriteResult WriteInvocationReturn(lua_State *State,
       if (Outcome.Kind() == InvocationOutcomeKind::OwnedValues)
         return PublishOwnedValues(State, EntryDepth, false, Outcome, Types,
                                   Faults);
-      return PublishReturnPack(State, EntryDepth, Metadata, Outcome, Types,
-                               Faults);
+      if (Outcome.Kind() != InvocationOutcomeKind::Values)
+        return Failure(State, EntryDepth,
+                       "Pack return metadata did not match callable outcome.");
+      return PublishReturnPack(State, EntryDepth, Metadata,
+                               Outcome.ReturnedValues(), Types, Faults);
     }
 
     case ReturnDisposition::Value: {

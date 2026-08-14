@@ -11,8 +11,10 @@
 #include <cstddef>
 #include <iterator>
 #include <memory>
+#include <new>
 #include <span>
 #include <string>
+#include <type_traits>
 #include <utility>
 #include <vector>
 // clang-format on
@@ -25,6 +27,56 @@ public:
 
   explicit ReturnPack(std::vector<Value> Values)
       : HeapValues(std::move(Values)), UsesHeapValues(true) {}
+
+  ReturnPack(const ReturnPack &Source)
+      : HeapValues(Source.HeapValues),
+        OwnedValuesValue(Source.OwnedValuesValue),
+        UsesHeapValues(Source.UsesHeapValues),
+        CarriesOwnedValue(Source.CarriesOwnedValue) {
+    try {
+      CopyInlineValues(Source);
+    } catch (...) {
+      DestroyInlineValues();
+      throw;
+    }
+  }
+
+  ReturnPack(ReturnPack &&Source) noexcept(
+      std::is_nothrow_move_constructible_v<Value> &&
+      std::is_nothrow_move_constructible_v<std::vector<Value>> &&
+      std::is_nothrow_move_constructible_v<std::vector<OwnedValue>>)
+      : HeapValues(std::move(Source.HeapValues)),
+        OwnedValuesValue(std::move(Source.OwnedValuesValue)),
+        UsesHeapValues(Source.UsesHeapValues),
+        CarriesOwnedValue(Source.CarriesOwnedValue) {
+    MoveInlineValues(Source);
+    Source.ResetMovedFrom();
+  }
+
+  ReturnPack &operator=(const ReturnPack &Source) {
+    if (this == &Source)
+      return *this;
+    ReturnPack Copied(Source);
+    return *this = std::move(Copied);
+  }
+
+  ReturnPack &operator=(ReturnPack &&Source) noexcept(
+      std::is_nothrow_move_assignable_v<Value> &&
+      std::is_nothrow_move_assignable_v<std::vector<Value>> &&
+      std::is_nothrow_move_assignable_v<std::vector<OwnedValue>>) {
+    if (this == &Source)
+      return *this;
+    Clear();
+    HeapValues = std::move(Source.HeapValues);
+    OwnedValuesValue = std::move(Source.OwnedValuesValue);
+    UsesHeapValues = Source.UsesHeapValues;
+    CarriesOwnedValue = Source.CarriesOwnedValue;
+    MoveInlineValues(Source);
+    Source.ResetMovedFrom();
+    return *this;
+  }
+
+  ~ReturnPack() { DestroyInlineValues(); }
 
   [[nodiscard]] static ReturnPack Empty() { return ReturnPack(); }
 
@@ -44,7 +96,7 @@ public:
   [[nodiscard]] std::span<const Value> Values() const noexcept {
     if (UsesHeapValues)
       return HeapValues;
-    return std::span<const Value>(InlineValues.data(), InlineSize);
+    return std::span<const Value>(InlineData(), InlineSize);
   }
 
   [[nodiscard]] std::size_t Position(std::size_t Index) const noexcept {
@@ -57,7 +109,7 @@ public:
       return;
     }
     if (!UsesHeapValues && InlineSize < InlineCapacity) {
-      InlineValues[InlineSize++] = std::move(Element);
+      ConstructInline(std::move(Element));
       return;
     }
     PromoteInlineValues();
@@ -96,17 +148,22 @@ public:
   }
 
   void AppendOwned(OwnedValue Element) {
-    if (!CarriesOwnedValue) {
-      const std::size_t ValueCount = Size();
-      CarriesOwnedValue = true;
-      OwnedValuesValue.reserve(ValueCount + 1);
-      for (const Value &Existing : Values())
-        OwnedValuesValue.push_back(OwnedValue::FromValue(Existing));
-      InlineSize = 0;
-      HeapValues.clear();
-      UsesHeapValues = false;
+    if (CarriesOwnedValue) {
+      OwnedValuesValue.push_back(std::move(Element));
+      return;
     }
-    OwnedValuesValue.push_back(std::move(Element));
+
+    std::vector<OwnedValue> Staged;
+    Staged.reserve(Size() + 1);
+    for (const Value &Existing : Values())
+      Staged.push_back(OwnedValue::FromValue(Existing));
+    Staged.push_back(std::move(Element));
+
+    DestroyInlineValues();
+    HeapValues.clear();
+    UsesHeapValues = false;
+    OwnedValuesValue = std::move(Staged);
+    CarriesOwnedValue = true;
   }
 
   [[nodiscard]] bool CarriesOwnedValues() const noexcept {
@@ -124,9 +181,13 @@ public:
     CarriesOwnedValue = false;
     if (UsesHeapValues)
       return std::move(HeapValues);
-    return std::vector<Value>(
-        std::make_move_iterator(InlineValues.begin()),
-        std::make_move_iterator(InlineValues.begin() + InlineSize));
+
+    std::vector<Value> Produced;
+    Produced.reserve(InlineSize);
+    for (std::size_t Index = 0; Index < InlineSize; ++Index)
+      Produced.push_back(std::move(InlineAt(Index)));
+    DestroyInlineValues();
+    return Produced;
   }
 
   [[nodiscard]] ValuePack TakeOwnedValues() && noexcept {
@@ -135,7 +196,7 @@ public:
   }
 
   void Clear() noexcept {
-    InlineSize = 0;
+    DestroyInlineValues();
     HeapValues.clear();
     UsesHeapValues = false;
     OwnedValuesValue.clear();
@@ -161,6 +222,51 @@ public:
 private:
   static constexpr std::size_t InlineCapacity = 3;
 
+  [[nodiscard]] Value *InlineData() noexcept {
+    return reinterpret_cast<Value *>(InlineStorage.data());
+  }
+
+  [[nodiscard]] const Value *InlineData() const noexcept {
+    return reinterpret_cast<const Value *>(InlineStorage.data());
+  }
+
+  [[nodiscard]] Value &InlineAt(std::size_t Index) noexcept {
+    return *std::launder(InlineData() + Index);
+  }
+
+  [[nodiscard]] const Value &InlineAt(std::size_t Index) const noexcept {
+    return *std::launder(InlineData() + Index);
+  }
+
+  template <class... Arguments> void ConstructInline(Arguments &&...Source) {
+    std::construct_at(InlineData() + InlineSize,
+                      std::forward<Arguments>(Source)...);
+    ++InlineSize;
+  }
+
+  void DestroyInlineValues() noexcept {
+    while (InlineSize != 0)
+      std::destroy_at(InlineData() + --InlineSize);
+  }
+
+  void CopyInlineValues(const ReturnPack &Source) {
+    for (std::size_t Index = 0; Index < Source.InlineSize; ++Index)
+      ConstructInline(Source.InlineAt(Index));
+  }
+
+  void MoveInlineValues(ReturnPack &Source) noexcept(
+      std::is_nothrow_move_constructible_v<Value>) {
+    for (std::size_t Index = 0; Index < Source.InlineSize; ++Index)
+      ConstructInline(std::move(Source.InlineAt(Index)));
+    Source.DestroyInlineValues();
+  }
+
+  void ResetMovedFrom() noexcept {
+    InlineSize = 0;
+    UsesHeapValues = false;
+    CarriesOwnedValue = false;
+  }
+
   template <class Type, class... Arguments>
   ReturnPack &AppendDirect(Arguments &&...Source) {
     if (CarriesOwnedValue) {
@@ -169,8 +275,8 @@ private:
       return *this;
     }
     if (!UsesHeapValues && InlineSize < InlineCapacity) {
-      InlineValues[InlineSize++].template emplace<Type>(
-          std::forward<Arguments>(Source)...);
+      ConstructInline(std::in_place_type<Type>,
+                      std::forward<Arguments>(Source)...);
       return *this;
     }
     PromoteInlineValues();
@@ -184,12 +290,13 @@ private:
       return;
     HeapValues.reserve(InlineSize + 1);
     for (std::size_t Index = 0; Index < InlineSize; ++Index)
-      HeapValues.push_back(std::move(InlineValues[Index]));
-    InlineSize = 0;
+      HeapValues.push_back(std::move(InlineAt(Index)));
+    DestroyInlineValues();
     UsesHeapValues = true;
   }
 
-  std::array<Value, InlineCapacity> InlineValues;
+  alignas(Value)
+      std::array<std::byte, InlineCapacity * sizeof(Value)> InlineStorage;
   std::size_t InlineSize = 0;
   std::vector<Value> HeapValues;
   std::vector<OwnedValue> OwnedValuesValue;
