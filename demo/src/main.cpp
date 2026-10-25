@@ -1,9 +1,3 @@
-// Win32 + Direct3D 11 shell for the luna demo.
-//
-// This file is deliberately boring: a window, a swap chain, and a frame loop.
-// Everything the demo demonstrates lives in harness.cpp, behind the library's
-// public API.
-
 #include "harness.hpp"
 
 #include <imgui.h>
@@ -16,16 +10,12 @@
 #include <cstdio>
 #include <iterator>
 
-// The backend header leaves this declaration inside an `#if 0` so that it does
-// not force <windows.h> on every consumer. Copying it here is the documented
-// way to wire up the message handler.
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND Window,
                                                              UINT Message,
                                                              WPARAM WParam,
                                                              LPARAM LParam);
 
 namespace {
-
 ID3D11Device *Device = nullptr;
 ID3D11DeviceContext *Context = nullptr;
 IDXGISwapChain *SwapChain = nullptr;
@@ -63,17 +53,14 @@ bool CreateDevice(HWND Window) {
   Description.SampleDesc.Count = 1;
   Description.Windowed = TRUE;
   Description.SwapEffect = DXGI_SWAP_EFFECT_DISCARD;
-
   const D3D_FEATURE_LEVEL Requested[] = {D3D_FEATURE_LEVEL_11_0,
                                          D3D_FEATURE_LEVEL_10_0};
   D3D_FEATURE_LEVEL Obtained = D3D_FEATURE_LEVEL_11_0;
-
   HRESULT Result = D3D11CreateDeviceAndSwapChain(
       nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, 0, Requested,
       static_cast<UINT>(std::size(Requested)), D3D11_SDK_VERSION, &Description,
       &SwapChain, &Device, &Obtained, &Context);
 
-  // A machine with no usable GPU driver still runs the demo, just slowly.
   if (FAILED(Result)) {
     Result = D3D11CreateDeviceAndSwapChain(
         nullptr, D3D_DRIVER_TYPE_WARP, nullptr, 0, Requested,
@@ -106,7 +93,6 @@ void DestroyDevice() {
 
 LRESULT WINAPI WindowProc(HWND Window, UINT Message, WPARAM WParam,
                           LPARAM LParam) {
-  // The backend needs first look, or it loses track of mouse capture and keys.
   if (ImGui_ImplWin32_WndProcHandler(Window, Message, WParam, LParam))
     return 1;
 
@@ -115,7 +101,6 @@ LRESULT WINAPI WindowProc(HWND Window, UINT Message, WPARAM WParam,
     if (WParam == SIZE_MINIMIZED)
       return 0;
     SwapChainOccluded = false;
-    // Deferred: the swap chain cannot be resized while a frame is in flight.
     ResizeWidth = static_cast<UINT>(LOWORD(LParam));
     ResizeHeight = static_cast<UINT>(HIWORD(LParam));
     return 0;
@@ -137,7 +122,6 @@ LRESULT WINAPI WindowProc(HWND Window, UINT Message, WPARAM WParam,
 
 void ApplyStyle() {
   ImGui::StyleColorsDark();
-
   ImGuiStyle &Style = ImGui::GetStyle();
   Style.WindowRounding = 5.0f;
   Style.ChildRounding = 4.0f;
@@ -148,7 +132,6 @@ void ApplyStyle() {
   Style.WindowBorderSize = 0.0f;
   Style.FramePadding = ImVec2(7.0f, 4.0f);
   Style.ItemSpacing = ImVec2(7.0f, 6.0f);
-
   ImVec4 *Colors = Style.Colors;
   Colors[ImGuiCol_WindowBg] = ImVec4(0.082f, 0.090f, 0.110f, 1.00f);
   Colors[ImGuiCol_ChildBg] = ImVec4(0.067f, 0.074f, 0.090f, 1.00f);
@@ -176,12 +159,10 @@ void ApplyStyle() {
   Colors[ImGuiCol_Text] = ImVec4(0.878f, 0.894f, 0.937f, 1.00f);
   Colors[ImGuiCol_TextDisabled] = ImVec4(0.478f, 0.510f, 0.580f, 1.00f);
 }
-
 } // namespace
 
 int WINAPI wWinMain(HINSTANCE Instance, HINSTANCE, PWSTR, int) {
   ImGui_ImplWin32_EnableDpiAwareness();
-
   WNDCLASSEXW Class = {};
   Class.cbSize = sizeof(Class);
   Class.style = CS_CLASSDC;
@@ -190,10 +171,9 @@ int WINAPI wWinMain(HINSTANCE Instance, HINSTANCE, PWSTR, int) {
   Class.hCursor = LoadCursor(nullptr, IDC_ARROW);
   Class.lpszClassName = L"LunaDemoWindow";
   RegisterClassExW(&Class);
-
-  HWND Window = CreateWindowW(Class.lpszClassName, L"luna demo",
-                              WS_OVERLAPPEDWINDOW, 120, 80, 1500, 940, nullptr,
-                              nullptr, Instance, nullptr);
+  HWND Window =
+      CreateWindowW(Class.lpszClassName, L"luna demo", WS_OVERLAPPEDWINDOW, 120,
+                    80, 1500, 940, nullptr, nullptr, Instance, nullptr);
   if (!Window) {
     std::fprintf(stderr, "CreateWindow failed\n");
     return 1;
@@ -209,26 +189,18 @@ int WINAPI wWinMain(HINSTANCE Instance, HINSTANCE, PWSTR, int) {
 
   ShowWindow(Window, SW_SHOWDEFAULT);
   UpdateWindow(Window);
-
   IMGUI_CHECKVERSION();
   ImGui::CreateContext();
-
   ImGuiIO &Input = ImGui::GetIO();
   Input.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
-  // No ini file: the layout is fixed, and a stray imgui.ini next to the exe
-  // would only confuse whoever copies it around.
   Input.IniFilename = nullptr;
-
   ApplyStyle();
   ImGui::GetStyle().FontScaleDpi = ImGui_ImplWin32_GetDpiScaleForHwnd(Window);
-
   ImGui_ImplWin32_Init(Window);
   ImGui_ImplDX11_Init(Device, Context);
-
   int ExitCode = 0;
   {
     demo::Harness Harness;
-
     bool Running = true;
     while (Running) {
       MSG Message;
@@ -241,15 +213,12 @@ int WINAPI wWinMain(HINSTANCE Instance, HINSTANCE, PWSTR, int) {
       if (!Running)
         break;
 
-      // While minimised there is nothing to draw, so the loop idles instead of
-      // spinning the GPU.
       if (SwapChainOccluded &&
           SwapChain->Present(0, DXGI_PRESENT_TEST) == DXGI_STATUS_OCCLUDED) {
         Sleep(10);
         continue;
       }
       SwapChainOccluded = false;
-
       if (ResizeWidth != 0 && ResizeHeight != 0) {
         ReleaseRenderTarget();
         SwapChain->ResizeBuffers(0, ResizeWidth, ResizeHeight,
@@ -262,16 +231,13 @@ int WINAPI wWinMain(HINSTANCE Instance, HINSTANCE, PWSTR, int) {
       ImGui_ImplDX11_NewFrame();
       ImGui_ImplWin32_NewFrame();
       ImGui::NewFrame();
-
       Harness.Draw();
-
       ImGui::Render();
       const ImVec4 Clear = ImGui::GetStyle().Colors[ImGuiCol_WindowBg];
       const float ClearColor[4] = {Clear.x, Clear.y, Clear.z, 1.0f};
       Context->OMSetRenderTargets(1, &RenderTarget, nullptr);
       Context->ClearRenderTargetView(RenderTarget, ClearColor);
       ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
-
       if (SwapChain->Present(1, 0) == DXGI_STATUS_OCCLUDED)
         SwapChainOccluded = true;
 
@@ -285,7 +251,6 @@ int WINAPI wWinMain(HINSTANCE Instance, HINSTANCE, PWSTR, int) {
   ImGui_ImplDX11_Shutdown();
   ImGui_ImplWin32_Shutdown();
   ImGui::DestroyContext();
-
   DestroyDevice();
   DestroyWindow(Window);
   UnregisterClassW(Class.lpszClassName, Instance);

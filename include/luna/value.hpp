@@ -1,15 +1,6 @@
 #pragma once
 
-// luna : value carriers.
-//
-// Three distinct jobs, deliberately kept apart:
-//
-//   Value        a read-only view of a value already on the stack
-//   OwnedValue   a value built by host code, written into Lua later
-//   ValuePack    an ordered list of OwnedValue, published as N return values
-//
-// No Luau type appears here. The stack is reached only through void* in members
-// that are defined in src/.
+// Values whose shape is decided at runtime, owned or viewed.
 
 #include <luna/fwd.hpp>
 
@@ -23,9 +14,6 @@
 #include <vector>
 
 namespace luna {
-
-// Mirrors the VM's own tags one-for-one, so a host switch is exhaustive without
-// needing a parallel type system.
 enum class ValueCategory : std::uint8_t {
   None = 0,
   Nil,
@@ -41,15 +29,28 @@ enum class ValueCategory : std::uint8_t {
 class Value {
 public:
   Value() = default;
-
   [[nodiscard]] ValueCategory Category() const noexcept { return Kind; }
-  [[nodiscard]] bool IsNil() const noexcept { return Kind == ValueCategory::Nil; }
-  [[nodiscard]] bool IsNumber() const noexcept { return Kind == ValueCategory::Number; }
-  [[nodiscard]] bool IsString() const noexcept { return Kind == ValueCategory::String; }
-  [[nodiscard]] bool IsBoolean() const noexcept { return Kind == ValueCategory::Boolean; }
-  [[nodiscard]] bool IsTable() const noexcept { return Kind == ValueCategory::Table; }
-  [[nodiscard]] bool IsUserdata() const noexcept { return Kind == ValueCategory::Userdata; }
-  [[nodiscard]] bool IsFunction() const noexcept { return Kind == ValueCategory::Function; }
+  [[nodiscard]] bool IsNil() const noexcept {
+    return Kind == ValueCategory::Nil;
+  }
+  [[nodiscard]] bool IsNumber() const noexcept {
+    return Kind == ValueCategory::Number;
+  }
+  [[nodiscard]] bool IsString() const noexcept {
+    return Kind == ValueCategory::String;
+  }
+  [[nodiscard]] bool IsBoolean() const noexcept {
+    return Kind == ValueCategory::Boolean;
+  }
+  [[nodiscard]] bool IsTable() const noexcept {
+    return Kind == ValueCategory::Table;
+  }
+  [[nodiscard]] bool IsUserdata() const noexcept {
+    return Kind == ValueCategory::Userdata;
+  }
+  [[nodiscard]] bool IsFunction() const noexcept {
+    return Kind == ValueCategory::Function;
+  }
 
   [[nodiscard]] double AsNumber(double Fallback = 0.0) const noexcept {
     return Kind == ValueCategory::Number ? Number_ : Fallback;
@@ -57,19 +58,17 @@ public:
   [[nodiscard]] bool AsBoolean(bool Fallback = false) const noexcept {
     return Kind == ValueCategory::Boolean ? Flag : Fallback;
   }
-  // Valid while the value is still on the stack it was read from.
+
   [[nodiscard]] std::string_view AsString() const noexcept {
     return Kind == ValueCategory::String ? Text : std::string_view{};
   }
 
-  // Typed dispatch without a visitor ceremony.
   template <class F> decltype(auto) Visit(F &&Visitor) const {
     return Visitor(*this);
   }
 
 private:
   friend class ArgumentPack;
-
   ValueCategory Kind = ValueCategory::None;
   double Number_ = 0.0;
   bool Flag = false;
@@ -85,14 +84,10 @@ public:
     std::shared_ptr<void> Object;
     const void *TypeToken = nullptr;
   };
-
-  // monostate is nil. A table payload is shared, so copying an OwnedValue is
-  // cheap and appending through a copy fills the same table.
   using Payload = std::variant<std::monostate, bool, double, std::string,
                                std::shared_ptr<OwnedTable>, InstanceRef>;
 
   OwnedValue() = default;
-
   OwnedValue(bool Value) : Data(Value) {}
   OwnedValue(double Value) : Data(Value) {}
   OwnedValue(float Value) : Data(static_cast<double>(Value)) {}
@@ -105,6 +100,13 @@ public:
   OwnedValue(const char *Value) : Data(std::string(Value ? Value : "")) {}
 
   static OwnedValue Table();
+  // An instance the host already holds a shared pointer to, by class token.
+  static OwnedValue FromInstance(std::shared_ptr<void> Object,
+                                 const void *TypeToken) {
+    OwnedValue Result;
+    Result.Data = InstanceRef{std::move(Object), TypeToken};
+    return Result;
+  }
   static OwnedValue Nil() { return OwnedValue(); }
   static OwnedValue Boolean(bool Value) { return OwnedValue(Value); }
   static OwnedValue Number(double Value) { return OwnedValue(Value); }
@@ -116,9 +118,8 @@ public:
 
   template <class T> static OwnedValue Instance(std::shared_ptr<T> Value) {
     OwnedValue Result;
-    Result.Data = InstanceRef{
-        std::shared_ptr<void>(std::move(Value)),
-        static_cast<const void *>(&detail::TypeToken<T>)};
+    Result.Data = InstanceRef{std::shared_ptr<void>(std::move(Value)),
+                              static_cast<const void *>(&detail::TypeToken<T>)};
     return Result;
   }
 
@@ -162,30 +163,23 @@ public:
     return std::get_if<InstanceRef>(&Data);
   }
 
-  // Appends a keyed field. Returns *this so a table builds in one expression,
-  // which keeps the existing SetField chains working unchanged.
   OwnedValue &SetField(std::string_view Name, OwnedValue FieldValue);
-  // Appends a positional element.
   OwnedValue &Append(OwnedValue Item);
-
   [[nodiscard]] const Payload &Get() const noexcept { return Data; }
 
 private:
   Payload Data;
 };
 
-// A table whose shape the host decides at run time.
 struct OwnedTable {
   struct Entry {
     std::string Key;
     OwnedValue Value;
   };
-
   std::vector<Entry> Fields;
   std::vector<OwnedValue> Items;
 };
 
-// N values published as N return values.
 class ValuePack {
 public:
   ValuePack() = default;
@@ -213,9 +207,6 @@ private:
   std::vector<OwnedValue> Values_;
 };
 
-// A read-only view over the arguments of the call currently running. Reading is
-// lazy: At() touches the stack when called, so a variadic callable pays only for
-// the arguments it inspects.
 class ArgumentPack {
 public:
   ArgumentPack() = default;
@@ -228,7 +219,6 @@ public:
   [[nodiscard]] bool Empty() const noexcept { return Size() == 0; }
   [[nodiscard]] void *GetVM() const noexcept { return VM_; }
 
-  // Defined in src/convert.cpp, because they read the VM stack.
   [[nodiscard]] OwnedValue At(std::size_t Index) const;
   [[nodiscard]] Value View(std::size_t Index) const;
 
@@ -237,10 +227,6 @@ private:
   int First_ = 0;
   int Count_ = 0;
 };
-
-// ---------------------------------------------------------------------------
-// Tag dispatch for the codec layer
-// ---------------------------------------------------------------------------
 
 template <class T> struct IsOwnedValue : std::false_type {};
 template <> struct IsOwnedValue<OwnedValue> : std::true_type {};
@@ -259,8 +245,8 @@ inline constexpr bool IsOwnedValueV = IsOwnedValue<std::remove_cv_t<T>>::value;
 template <class T>
 inline constexpr bool IsValuePackV = IsValuePack<std::remove_cv_t<T>>::value;
 template <class T>
-inline constexpr bool IsArgumentPackV = IsArgumentPack<std::remove_cv_t<T>>::value;
+inline constexpr bool IsArgumentPackV =
+    IsArgumentPack<std::remove_cv_t<T>>::value;
 template <class T>
 inline constexpr bool IsValueV = IsValue<std::remove_cv_t<T>>::value;
-
 } // namespace luna

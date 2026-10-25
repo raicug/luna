@@ -10,10 +10,6 @@
 #include <stdexcept>
 #include <utility>
 
-// ---------------------------------------------------------------------------
-// Bound types
-// ---------------------------------------------------------------------------
-
 std::string Shape::ToText() const {
   char Buffer[96];
   std::snprintf(Buffer, sizeof Buffer, "Shape(%s %.0fx%.0f at %.0f,%.0f)",
@@ -26,10 +22,6 @@ void Shape::Move(float Dx, float Dy) {
   Y += Dy;
 }
 
-// One-based, because that is what a Lua author expects from both `scene[i]` and
-// the index the iterate cursor yields. Const because reaching a shape is not a
-// mutation of the container, while the shape it returns is the host's to write.
-// A deque keeps those pointers stable across a push_back.
 Shape *Scene::Get(int Index) const {
   if (Index < 1 || Index > static_cast<int>(Shapes.size()))
     return nullptr;
@@ -43,9 +35,6 @@ Shape *Scene::Add(std::string Name, float X, float Y, float Size, float Hue) {
 
 namespace demo {
 namespace {
-
-// --- samples ---------------------------------------------------------------
-
 struct Sample {
   const char *Label;
   const char *Source;
@@ -111,8 +100,9 @@ print("still running, shapes:", scene.Count)
 
     {"Runaway loop",
      R"(
--- This never yields, so nothing but an interrupt can stop it. The demo arms one
--- before running, otherwise the window would freeze at this line.
+-- This never yields, and an empty while-true loop carries no interrupt check at
+-- all, so only single-stepping can stop it. The state runs with an instruction
+-- budget, which is what halts this line.
 print("entering the loop")
 while true do end
 )",
@@ -156,19 +146,14 @@ const char *KindName(luna::SymbolKind Kind) {
   return "?";
 }
 
-// Both ExecutionResult and RegistrationResult carry a diagnostic, so the demo
-// reports them the same way.
 template <class Result> std::string Describe(const Result &Value) {
   if (Value.Diagnostic() && !Value.Diagnostic()->Message().empty())
     return Value.Diagnostic()->Message();
   return Value.IsSuccess() ? std::string() : std::string("(no message)");
 }
 
-// Lua prints 2 as "2", not "2.000000", so the console does too: a demo whose
-// output looks wrong is a demo nobody trusts.
 std::string FormatNumber(double Value) {
   char Buffer[40];
-
   if (std::isfinite(Value) && Value == std::floor(Value) &&
       std::fabs(Value) < 1e15) {
     std::snprintf(Buffer, sizeof Buffer, "%.0f", Value);
@@ -190,15 +175,12 @@ ImVec4 LevelColor(LogLevel Level) {
   case LogLevel::Host:
     break;
   }
-  // Dimmer than the rest: host chatter should not compete with the script's.
+
   return ImVec4(0.52f, 0.72f, 0.95f, 1.0f);
 }
 
-// A UI edit has to travel the same path a script write does, or the write hook
-// would not fire and the demo would be proving nothing. Booleans are written as
-// true/false because 0.0 is truthy in Lua.
-void WriteNumber(luna::State &State, int Index, const char *Member, double Value,
-                 std::string &Error) {
+void WriteNumber(luna::State &State, int Index, const char *Member,
+                 double Value, std::string &Error) {
   char Buffer[192];
   std::snprintf(Buffer, sizeof Buffer,
                 "local Target = scene[%d]\n"
@@ -222,17 +204,11 @@ void WriteBoolean(luna::State &State, int Index, const char *Member, bool Value,
   if (!Result.IsSuccess())
     Error = Describe(Result);
 }
-
 } // namespace
-
-// ---------------------------------------------------------------------------
-// Construction
-// ---------------------------------------------------------------------------
 
 Harness::Harness() {
   SelectSample(0);
   ReseedScene();
-
   if (!State.IsReady()) {
     Log(LogLevel::Error, "the VM failed to start");
     return;
@@ -240,9 +216,8 @@ Harness::Harness() {
 
   Bind();
   RebuildSymbolTree();
-
-  Log(LogLevel::Host, "luna demo ready: " + std::to_string(SymbolCount) +
-                          " symbols bound");
+  Log(LogLevel::Host,
+      "luna demo ready: " + std::to_string(SymbolCount) + " symbols bound");
   Log(LogLevel::Host,
       "Run a sample, then drag a shape in the Scene tab: the UI writes through "
       "the same setter a script uses.");
@@ -253,9 +228,6 @@ void Harness::Bind() {
   BindFunctions(Registry);
   BindShape(Registry);
   BindScene(Registry);
-
-  // Published once, at commit. Borrowed because the scene outlives the VM: the
-  // userdata holds a pointer into SceneData and must not try to free it.
   const luna::RegistrationResult Published = Registry.RegisterValue(
       "scene", [this]() -> Scene * { return &SceneData; },
       luna::OwnershipPolicy::Borrowed(luna::LifetimeHandle()));
@@ -265,8 +237,6 @@ void Harness::Bind() {
 }
 
 void Harness::BindFunctions(luna::BindingRegistry &Registry) {
-  // print is variadic on purpose: the console has to handle whatever a script
-  // hands it, which is what ArgumentPack is for.
   Registry.RegisterFunction("print", [this](luna::ArgumentPack Args) {
     std::string Line;
     for (std::size_t Index = 0; Index < Args.Size(); ++Index) {
@@ -305,45 +275,31 @@ void Harness::BindFunctions(luna::BindingRegistry &Registry) {
     }
     Log(LogLevel::Script, std::move(Line));
   });
-
   Registry.RegisterFunction("warn", [this](std::string Text) {
     Log(LogLevel::Warning, std::move(Text));
   });
-
-  // A bound callable that throws is turned into a Lua error instead of unwinding
-  // through the VM, so a script can pcall it.
-  Registry.RegisterFunction("fail", [](std::string Text) {
-    throw std::runtime_error(Text);
-  });
-
+  Registry.RegisterFunction(
+      "fail", [](std::string Text) { throw std::runtime_error(Text); });
   luna::NamespaceBuilder Task = Registry.RegisterNamespace("task");
-
-  // wait suspends the running chunk instead of parking a thread. The trampoline
-  // turns the request into a yield.
   Task.RegisterFunction("wait", [](double Seconds) { luna::Suspend(Seconds); });
   Task.RegisterFunction("pending", [this]() { return State.PendingTasks(); });
   Task.Commit();
-
   luna::NamespaceBuilder Job = Registry.RegisterNamespace("job");
-
   Job.RegisterFunction("progress", [this](double Slot, double Value) {
     const auto Index = static_cast<std::size_t>(Slot);
     if (Index >= 1 && Index <= Progress.size())
       Progress[Index - 1] = std::clamp(Value, 0.0, 1.0);
   });
-
   Job.RegisterFunction("done", [this](double Slot) {
     const auto Index = static_cast<std::size_t>(Slot);
     if (Index >= 1 && Index <= Progress.size())
       Progress[Index - 1] = 1.0;
   });
-
   Job.Commit();
-
   luna::NamespaceBuilder App = Registry.RegisterNamespace("app");
   App.RegisterConstant("Version", "0.1.0");
-  App.RegisterFunction(
-      "symbols", [this]() { return static_cast<double>(SymbolCount); });
+  App.RegisterFunction("symbols",
+                       [this]() { return static_cast<double>(SymbolCount); });
   App.Commit();
 }
 
@@ -351,19 +307,18 @@ void Harness::BindShape(luna::BindingRegistry &Registry) {
   luna::ClassBuilder<Shape> Shapes =
       Registry.RegisterClass<Shape>("Shape", luna::StableTypeKey("demo.Shape"));
 
-  Shapes.Factory("new", [](std::string Name, float X, float Y, float Size) {
-          return Shape{std::move(Name), X, Y, Size};
-        })
+  Shapes
+      .Factory("new",
+               [](std::string Name, float X, float Y, float Size) {
+                 return Shape{std::move(Name), X, Y, Size};
+               })
       .Method("Area", &Shape::Area)
       .Method("Move", &Shape::Move)
 
-      // Read-only: the name is identity, not layout.
-      .Property("Name", [](const Shape &Self) -> const std::string & {
-        return Self.Name;
-      })
+      .Property(
+          "Name",
+          [](const Shape &Self) -> const std::string & { return Self.Name; })
 
-      // Every writable property runs the same hook, so the write counter in the
-      // Scene tab is the host's proof that a write went through the binding.
       .Property(
           "X", [](const Shape &Self) { return Self.X; },
           [](Shape &Self, float Value) { Self.X = Value; },
@@ -386,7 +341,9 @@ void Harness::BindShape(luna::BindingRegistry &Registry) {
 
       .Property(
           "Hue", [](const Shape &Self) { return Self.Hue; },
-          [](Shape &Self, float Value) { Self.Hue = Value - std::floor(Value); },
+          [](Shape &Self, float Value) {
+            Self.Hue = Value - std::floor(Value);
+          },
           luna::PropertyPolicy::Notify(
               [](Shape &Self, std::string_view) { ++Self.Writes; }))
 
@@ -396,7 +353,6 @@ void Harness::BindShape(luna::BindingRegistry &Registry) {
           luna::PropertyPolicy::Notify(
               [](Shape &Self, std::string_view) { ++Self.Writes; }))
 
-      // Readable so a script can assert on the hook's own count.
       .Property("Writes", [](const Shape &Self) { return Self.Writes; })
 
       .Operator(luna::ClassOperator::ToText, &Shape::ToText);
@@ -414,25 +370,16 @@ void Harness::BindScene(luna::BindingRegistry &Registry) {
       .Method("Get", &Scene::Get)
       .Method("Add", &Scene::Add)
 
-      // scene[i] reads the same pointer Get returns.
       .Operator(luna::ClassOperator::Index, &Scene::Get)
 
-      // for index, shape in scene do -- the cursor receives a zero-based
-      // control and yields (control + 1, shape), so the loop variable agrees
-      // with scene[i].
-      .Operator(luna::ClassOperator::Iterate,
-                [](const Scene &Self, int Control) {
-                  return Self.Get(Control + 1);
-                });
+      .Operator(
+          luna::ClassOperator::Iterate,
+          [](const Scene &Self, int Control) { return Self.Get(Control + 1); });
 
   const luna::RegistrationResult Committed = Scenes.Commit();
   if (!Committed.IsSuccess())
     Log(LogLevel::Error, "Scene failed: " + Describe(Committed));
 }
-
-// ---------------------------------------------------------------------------
-// Logging and samples
-// ---------------------------------------------------------------------------
 
 void Harness::Log(LogLevel Level, std::string Text) {
   Entries.push_back(LogEntry{Level, std::move(Text)});
@@ -446,42 +393,28 @@ void Harness::SelectSample(int Index) {
 }
 
 void Harness::ReseedScene() {
-  // The shapes a script borrows point into this deque, so clearing it is only
-  // safe between runs: nothing in Lua outlives the reset.
   SceneData.Shapes.clear();
   SceneData.Add("panel", 16.0f, 14.0f, 120.0f, 0.55f);
   SceneData.Add("marker", 150.0f, 46.0f, 64.0f, 0.08f);
 }
-
-// ---------------------------------------------------------------------------
-// Running
-// ---------------------------------------------------------------------------
 
 void Harness::RunSource() {
   if (!State.IsReady())
     return;
 
   const bool Runaway = Samples[SampleIndex].Runaway;
-
-  // A loop that never yields cannot be stopped from this thread once it starts,
-  // because the UI is the same thread. Arming first is how a host halts one.
-  if (Runaway && !State.IsInterruptPending()) {
-    State.RequestInterrupt("armed by the demo before a non-yielding chunk");
+  if (Runaway)
     Log(LogLevel::Warning,
-        "armed an interrupt before running, or the window would freeze");
-  }
+        "this sample never yields; the state's instruction budget halts it");
 
   Log(LogLevel::Host, "run: " + std::string(Samples[SampleIndex].Label));
-
   const auto Start = std::chrono::steady_clock::now();
   const luna::ExecutionResult Result = State.Execute(Source);
   const auto Stop = std::chrono::steady_clock::now();
-
   LastMilliseconds =
       std::chrono::duration<double, std::milli>(Stop - Start).count();
   LastFailed = !Result.IsSuccess();
   LastRunWasInterrupted = Result.IsInterrupted();
-
   if (Result.IsSuccess()) {
     LastStatus = "ok";
   } else if (Result.IsInterrupted()) {
@@ -492,19 +425,15 @@ void Harness::RunSource() {
     Log(LogLevel::Error, Describe(Result));
   }
 
-  // An armed interrupt is one-shot: clear it so the next run starts clean.
   if (State.IsInterruptPending())
     State.ClearInterrupt();
 }
 
 void Harness::SpawnWorkers() {
   ResetWorkers();
-
   if (!State.IsReady())
     return;
 
-  // Spawning from the host: one chunk per script, each with its slot baked in.
-  // Every one of them becomes a coroutine on the same thread.
   for (int Slot = 1; Slot <= static_cast<int>(Tasks.size()); ++Slot) {
     char Buffer[256];
     std::snprintf(Buffer, sizeof Buffer,
@@ -535,13 +464,9 @@ void Harness::ResetWorkers() {
 
 void Harness::CancelWorkers() {
   ResetWorkers();
-  Log(LogLevel::Host, "cancelled; " + std::to_string(State.PendingTasks()) +
-                          " pending");
+  Log(LogLevel::Host,
+      "cancelled; " + std::to_string(State.PendingTasks()) + " pending");
 }
-
-// ---------------------------------------------------------------------------
-// Self test
-// ---------------------------------------------------------------------------
 
 int Harness::RunSelfTest() {
   int Failures = 0;
@@ -550,19 +475,15 @@ int Harness::RunSelfTest() {
     if (!Condition)
       ++Failures;
   };
-
   if (!State.IsReady()) {
     std::printf("  FAIL  the VM did not start\n");
     return 1;
   }
 
   std::printf("demo self test\n");
-
   Expect(SymbolCount > 10, "the palette carries the binding");
   Expect(SceneData.Count() == 2, "the scene is seeded");
   std::fflush(stdout);
-
-  // Samples 0..3 read, write, suspend and recover. Sample 4 is the runaway.
   for (int Index = 0; Index < SampleCount - 1; ++Index) {
     SelectSample(Index);
     RunSource();
@@ -578,55 +499,36 @@ int Harness::RunSelfTest() {
     std::fflush(stdout);
   }
 
-  // Execute runs a chunk to completion, jumping the clock over its waits, so it
-  // must leave nothing behind.
   Expect(State.PendingTasks() == 0, "Execute drains its own suspensions");
-
-  // The writes went through the bound setter, so the hook must have counted them.
   Expect(SceneData.Shapes[0].Writes > 0, "the write hook ran");
   Expect(SceneData.Count() == 3, "a shape was added from script");
-
-  // A spawned task stops at its first suspension and needs the host to tick.
   ReseedScene();
   SpawnWorkers();
   Expect(State.PendingTasks() == 8, "eight coroutines on one thread");
-
   for (int Step = 0; Step < 14; ++Step)
     State.Tick(0.2);
 
   Expect(State.PendingTasks() == 0, "every coroutine finished");
   Expect(Progress[0] >= 0.99, "a script reported its progress");
-
   SpawnWorkers();
   Expect(State.PendingTasks() == 8, "re-spawned");
   CancelWorkers();
   Expect(State.PendingTasks() == 0, "cancel drops every task");
-
-  // The runaway sample arms its own interrupt; it must be reported, not hung.
   SelectSample(SampleCount - 1);
   RunSource();
   Expect(LastRunWasInterrupted, "a non-yielding loop was interrupted");
-
-  // The state is usable after all of that.
   SelectSample(0);
   RunSource();
   Expect(!LastFailed, "the state survived the interrupt");
-
-  std::printf("\n%s (%d failure%s)\n", Failures == 0 ? "PASS" : "FAIL", Failures,
-              Failures == 1 ? "" : "s");
+  std::printf("\n%s (%d failure%s)\n", Failures == 0 ? "PASS" : "FAIL",
+              Failures, Failures == 1 ? "" : "s");
   return Failures;
 }
-
-// ---------------------------------------------------------------------------
-// Frame
-// ---------------------------------------------------------------------------
 
 void Harness::Draw() {
   const auto Now = std::chrono::steady_clock::now();
   FrameSeconds = std::chrono::duration<float>(Now - LastFrame).count();
   LastFrame = Now;
-
-  // F5 and Ctrl+Enter run the editor, which is what a script console should do.
   if (ImGui::IsKeyPressed(ImGuiKey_F5, false) ||
       ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_Enter)) {
     RunSource();
@@ -635,13 +537,10 @@ void Harness::Draw() {
   FrameHistory[static_cast<std::size_t>(FrameCount) % FrameHistory.size()] =
       FrameSeconds * 1000.0f;
   ++FrameCount;
-
   DrawToolbar();
-
   const ImGuiViewport *Viewport = ImGui::GetMainViewport();
   ImGui::SetNextWindowPos(Viewport->WorkPos);
   ImGui::SetNextWindowSize(Viewport->WorkSize);
-
   ImGui::Begin("##root", nullptr,
                ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
                    ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse |
@@ -657,9 +556,7 @@ void Harness::Draw() {
                     ImGuiChildFlags_Borders);
   DrawEditor();
   ImGui::EndChild();
-
   ImGui::SameLine();
-
   ImGui::BeginChild("##right", ImVec2(0, BodyHeight), ImGuiChildFlags_Borders);
   if (ImGui::BeginTabBar("##tabs")) {
     if (ImGui::BeginTabItem("Scene")) {
@@ -681,13 +578,10 @@ void Harness::Draw() {
     ImGui::EndTabBar();
   }
   ImGui::EndChild();
-
   ImGui::BeginChild("##console", ImVec2(0, 0), ImGuiChildFlags_Borders);
   DrawConsole();
   ImGui::EndChild();
-
   ImGui::End();
-
   if (AboutPending) {
     ImGui::OpenPopup("About luna");
     AboutPending = false;
@@ -725,21 +619,18 @@ void Harness::DrawToolbar() {
     ImGui::EndMenu();
   }
 
-  // Right-aligned status, so the cost of the demo is always visible.
   char Status[192];
   std::snprintf(Status, sizeof Status,
-                "%.2f ms/frame  |  %s  |  %.3f ms last run", FrameSeconds * 1000.0f,
-                LastStatus.c_str(), LastMilliseconds);
+                "%.2f ms/frame  |  %s  |  %.3f ms last run",
+                FrameSeconds * 1000.0f, LastStatus.c_str(), LastMilliseconds);
   const float Width = ImGui::CalcTextSize(Status).x;
   ImGui::SameLine(std::max(0.0f, ImGui::GetWindowWidth() - Width - 16.0f));
   ImGui::TextDisabled("%s", Status);
-
   ImGui::EndMainMenuBar();
 }
 
 void Harness::DrawEditor() {
   ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(8, 6));
-
   if (ImGui::Button("Run", ImVec2(80, 0)))
     RunSource();
 
@@ -750,8 +641,8 @@ void Harness::DrawEditor() {
   }
   if (ImGui::IsItemHovered())
     ImGui::SetTooltip(
-        "Arms an interrupt. A chunk that never yields stops at its next\n"
-        "safepoint, which is the only way to halt one.");
+        "Arms an interrupt. It takes effect at the next call boundary, so a\n"
+        "chunk that never yields is only stopped by the instruction budget.");
 
   ImGui::SameLine();
   if (ImGui::Button("Clear")) {
@@ -770,9 +661,7 @@ void Harness::DrawEditor() {
   }
 
   ImGui::PopStyleVar();
-
   ImGui::Separator();
-
   ImGui::InputTextMultiline("##source", &Source, ImVec2(-1, -1),
                             ImGuiInputTextFlags_AllowTabInput);
 
@@ -786,21 +675,17 @@ void Harness::DrawEditor() {
 
 void Harness::DrawScenePanel() {
   ImGui::Separator();
-
   ImGui::TextDisabled("%d shapes, owned by the host and borrowed by the VM",
                       SceneData.Count());
   ImGui::SameLine();
   if (ImGui::SmallButton("Reset scene"))
     ReseedScene();
 
-  // A canvas, so a script's writes are visible without reading numbers.
   const ImVec2 Origin = ImGui::GetCursorScreenPos();
   const float Width = ImGui::GetContentRegionAvail().x;
   const float Height = 150.0f;
-
   ImGui::InvisibleButton("##canvas", ImVec2(Width, Height));
   ImDrawList *Draw = ImGui::GetWindowDrawList();
-
   Draw->AddRectFilled(Origin, ImVec2(Origin.x + Width, Origin.y + Height),
                       IM_COL32(18, 20, 26, 255), 4.0f);
   Draw->AddRect(Origin, ImVec2(Origin.x + Width, Origin.y + Height),
@@ -810,23 +695,20 @@ void Harness::DrawScenePanel() {
     if (!Item.Visible)
       continue;
 
-    // The scene stores a top-left origin and a size; the canvas scales them in.
     const float Scale = 1.2f;
     const ImVec2 Min(Origin.x + Item.X * Scale + 10.0f,
                      Origin.y + Item.Y * Scale + 10.0f);
     const float Side = Item.Size * Scale * 0.5f;
     const ImVec2 Max(Min.x + Side, Min.y + Side);
-
     float Red = 0.0f;
     float Green = 0.0f;
     float Blue = 0.0f;
     ImGui::ColorConvertHSVtoRGB(Item.Hue, 0.62f, 0.95f, Red, Green, Blue);
-
-    Draw->AddRectFilled(
-        Min, Max,
-        IM_COL32(static_cast<int>(Red * 255.0f), static_cast<int>(Green * 255.0f),
-                 static_cast<int>(Blue * 255.0f), 210),
-        3.0f);
+    Draw->AddRectFilled(Min, Max,
+                        IM_COL32(static_cast<int>(Red * 255.0f),
+                                 static_cast<int>(Green * 255.0f),
+                                 static_cast<int>(Blue * 255.0f), 210),
+                        3.0f);
     Draw->AddRect(Min, Max, IM_COL32(0, 0, 0, 120), 3.0f);
     Draw->AddText(ImVec2(Min.x + 4.0f, Min.y + 3.0f), IM_COL32(10, 10, 12, 220),
                   Item.Name.c_str());
@@ -840,46 +722,38 @@ void Harness::DrawScenePanel() {
 
   ImGui::Spacing();
   ImGui::SeparatorText("Members");
-
   for (int Index = 0; Index < SceneData.Count(); ++Index) {
     Shape &Item = SceneData.Shapes[static_cast<std::size_t>(Index)];
-
     ImGui::PushID(Index);
-
     char Header[96];
     std::snprintf(Header, sizeof Header, "%s  ##%d", Item.Name.c_str(), Index);
-
     if (ImGui::CollapsingHeader(Header)) {
       ImGui::TextDisabled("%s", Item.ToText().c_str());
-
-      // Each control reads the C++ member and writes through the VM, so the
-      // write hook fires exactly as it does for a script.
       std::string WriteError;
-
+      // scene[i] is one-based, while the panel walks the deque from zero.
+      const int Slot = Index + 1;
       float Value = Item.X;
       if (ImGui::SliderFloat("X", &Value, 0.0f, 260.0f, "%.0f"))
-        WriteNumber(State, Index, "X", Value, WriteError);
+        WriteNumber(State, Slot, "X", Value, WriteError);
 
       Value = Item.Y;
       if (ImGui::SliderFloat("Y", &Value, 0.0f, 140.0f, "%.0f"))
-        WriteNumber(State, Index, "Y", Value, WriteError);
+        WriteNumber(State, Slot, "Y", Value, WriteError);
 
       Value = Item.Size;
       if (ImGui::SliderFloat("Size", &Value, 4.0f, 240.0f, "%.0f"))
-        WriteNumber(State, Index, "Size", Value, WriteError);
+        WriteNumber(State, Slot, "Size", Value, WriteError);
 
       Value = Item.Hue;
       if (ImGui::SliderFloat("Hue", &Value, 0.0f, 1.0f, "%.2f"))
-        WriteNumber(State, Index, "Hue", Value, WriteError);
+        WriteNumber(State, Slot, "Hue", Value, WriteError);
 
       bool Shown = Item.Visible;
       if (ImGui::Checkbox("Visible", &Shown))
-        WriteBoolean(State, Index, "Visible", Shown, WriteError);
+        WriteBoolean(State, Slot, "Visible", Shown, WriteError);
 
-      // Proof the setter ran: the hook increments this on the C++ object.
       ImGui::SameLine();
       ImGui::TextDisabled("writes %d   area %.0f", Item.Writes, Item.Area());
-
       if (!WriteError.empty())
         Log(LogLevel::Error, WriteError);
     }
@@ -895,7 +769,6 @@ void Harness::DrawSchedulerPanel() {
       State.PendingTasks());
 
   ImGui::Separator();
-
   if (ImGui::Button("Spawn 8"))
     SpawnWorkers();
   ImGui::SameLine();
@@ -903,7 +776,6 @@ void Harness::DrawSchedulerPanel() {
     CancelWorkers();
   ImGui::SameLine();
   ImGui::Checkbox("Tick 0.1s per frame", &AutoTick);
-
   if (AutoTick) {
     State.Tick(0.1);
     VirtualTime += 0.1;
@@ -914,20 +786,19 @@ void Harness::DrawSchedulerPanel() {
   ImGui::Text("virtual time  %.1f s", VirtualTime);
   ImGui::Text("tick calls    %llu", static_cast<unsigned long long>(TickCount));
   ImGui::Text("pending       %u", State.PendingTasks());
-
-  // The oldest sample sits at the slot the next write will overwrite.
-  const int Plotted = std::min(FrameCount, static_cast<int>(FrameHistory.size()));
+  const int Plotted =
+      std::min(FrameCount, static_cast<int>(FrameHistory.size()));
   const int Offset = FrameCount % static_cast<int>(FrameHistory.size());
   ImGui::PlotLines("##frame", FrameHistory.data(), Plotted, Offset, "ms/frame",
                    0.0f, 33.0f, ImVec2(-1, 56));
 
   ImGui::SeparatorText("Per-script progress");
-
   for (std::size_t Index = 0; Index < Progress.size(); ++Index) {
     ImGui::PushID(static_cast<int>(Index));
     char Label[32];
     std::snprintf(Label, sizeof Label, "script %zu", Index + 1);
-    ImGui::ProgressBar(static_cast<float>(Progress[Index]), ImVec2(-1, 0), Label);
+    ImGui::ProgressBar(static_cast<float>(Progress[Index]), ImVec2(-1, 0),
+                       Label);
     ImGui::PopID();
   }
 
@@ -939,7 +810,6 @@ void Harness::DrawConsole() {
   ImGui::Checkbox("Auto-scroll", &ScrollConsole);
   ImGui::SameLine();
   ImGui::TextDisabled("%zu entries", Entries.size());
-
   ImGui::BeginChild("##log", ImVec2(0, 0), ImGuiChildFlags_Borders,
                     ImGuiWindowFlags_HorizontalScrollbar);
 
@@ -958,15 +828,14 @@ void Harness::DrawConsole() {
 void Harness::DrawInterruptPanel() {
   ImGui::TextWrapped(
       "RequestInterrupt is safe from any thread and stops the running chunk at "
-      "its next safepoint. This demo runs the script on the UI thread, so an "
-      "interrupt has to be armed before the run: a chunk that never yields gives "
-      "the host no chance to press the button.");
+      "its next safepoint, a loop iteration or a call. This demo runs the "
+      "script "
+      "on the UI thread, so an interrupt has to be armed before the run; the "
+      "state's instruction budget is what halts a chunk on its own.");
 
   ImGui::SeparatorText("Reason");
-
   ImGui::SetNextItemWidth(-1);
   ImGui::InputText("##reason", ReasonBuffer, IM_ARRAYSIZE(ReasonBuffer));
-
   if (ImGui::Button("Arm interrupt"))
     State.RequestInterrupt(ReasonBuffer);
   ImGui::SameLine();
@@ -980,7 +849,6 @@ void Harness::DrawInterruptPanel() {
   }
 
   ImGui::Separator();
-
   if (State.IsInterruptPending())
     ImGui::TextColored(LevelColor(LogLevel::Warning),
                        "pending: the next safepoint stops the chunk");
@@ -1006,7 +874,6 @@ void Harness::DrawReflection() {
     FilterSymbols(FilterBuffer);
 
   ImGui::BeginChild("##symbols", ImVec2(0, 0));
-
   if (FilterBuffer[0] == '\0') {
     for (const auto &Entry : SymbolTree.Children)
       DrawNode(Entry.second, Entry.first.c_str());
@@ -1031,7 +898,6 @@ void Harness::DrawNode(const TreeNode &Node, const char *Label) {
     Flags |= ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen;
 
   const bool Open = ImGui::TreeNodeEx(Label, Flags);
-
   if (Node.HasLeaf) {
     ImGui::SameLine();
     ImGui::TextDisabled("%s", KindName(Node.LeafKind));
@@ -1048,18 +914,15 @@ void Harness::RebuildSymbolTree() {
   SymbolTree = TreeNode();
   SymbolCache.clear();
   SymbolMatches.clear();
-
   const luna::SymbolRange Symbols = State.Symbols();
   SymbolCache.reserve(Symbols.Size());
   for (const luna::Symbol &Entry : Symbols)
     SymbolCache.push_back(Entry);
 
   SymbolCount = SymbolCache.size();
-
   for (const luna::Symbol &Entry : SymbolCache) {
     TreeNode *Node = &SymbolTree;
     const std::string &Path = Entry.QualifiedName();
-
     std::size_t Start = 0;
     while (true) {
       const std::size_t Dot = Path.find('.', Start);
@@ -1095,7 +958,6 @@ void Harness::FilterSymbols(std::string_view Query) {
 void Harness::DrawAboutPopup() {
   const ImVec2 Center = ImGui::GetMainViewport()->GetCenter();
   ImGui::SetNextWindowPos(Center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
-
   if (!ImGui::BeginPopupModal("About luna", nullptr,
                               ImGuiWindowFlags_AlwaysAutoResize))
     return;
@@ -1109,12 +971,10 @@ void Harness::DrawAboutPopup() {
       "binding shows up as a broken panel rather than a failed assert.");
   ImGui::Spacing();
   ImGui::Text("Dear ImGui %s", ImGui::GetVersion());
-
   ImGui::Spacing();
   if (ImGui::Button("Close", ImVec2(120, 0)))
     ImGui::CloseCurrentPopup();
 
   ImGui::EndPopup();
 }
-
 } // namespace demo

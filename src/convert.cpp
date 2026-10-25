@@ -6,15 +6,17 @@
 #include <lua.h>
 #include <lualib.h>
 
+#include <cmath>
+#include <cstdio>
 #include <string>
 #include <utility>
 
 namespace luna {
 namespace detail {
 namespace {
+// Tables nest, and a cycle is bounded by this rather than followed.
+constexpr int kMaxDepth = 32;
 
-// Reads a value off the stack into an OwnedValue. Tables are copied, bounded so
-// a self-referential table cannot spin.
 OwnedValue ReadOwned(lua_State *L, int Index, int Depth) {
   switch (lua_type(L, Index)) {
   case LUA_TNIL:
@@ -32,31 +34,63 @@ OwnedValue ReadOwned(lua_State *L, int Index, int Depth) {
     return OwnedValue::Text(std::string_view(Text, Length));
   }
 
+  case LUA_TUSERDATA: {
+    // Only an instance the VM shares with the host can come back as a value;
+    // one the VM owns or merely borrows cannot outlive the VM, so it reads as
+    // nil.
+    auto *Instance = static_cast<Object *>(lua_touserdata(L, Index));
+    if (!Instance || Instance->Magic != kObjectMagic ||
+        static_cast<ObjectTag>(Instance->Tag) != ObjectTag::Shared ||
+        !Instance->Shared || !IsObjectUsable(Instance))
+      return OwnedValue();
+    Model *World = ModelFromLua(L);
+    const ClassInfo *Info = World ? World->Class(Instance->ClassId) : nullptr;
+    if (!Info || !Info->Token)
+      return OwnedValue();
+    return OwnedValue::FromInstance(*Instance->Shared, Info->Token);
+  }
+
   case LUA_TTABLE: {
     OwnedValue Result = OwnedValue::Table();
-    if (Depth >= 8)
+    if (Depth >= kMaxDepth)
       return Result;
 
-    const int Absolute =
-        Index < 0 && Index > LUA_REGISTRYINDEX ? lua_gettop(L) + Index + 1
-                                               : Index;
+    const int Absolute = Index < 0 && Index > LUA_REGISTRYINDEX
+                             ? lua_gettop(L) + Index + 1
+                             : Index;
 
+    // The sequence keeps its positions, holes included.
+    const int Length = static_cast<int>(lua_objlen(L, Absolute));
+    for (int Position = 1; Position <= Length; ++Position) {
+      lua_rawgeti(L, Absolute, Position);
+      Result.Append(ReadOwned(L, lua_gettop(L), Depth + 1));
+      lua_pop(L, 1);
+    }
+
+    // Everything else is a named field. A number outside the sequence keeps its
+    // value as text, rather than being appended in whatever order lua_next
+    // gives.
     lua_pushnil(L);
     while (lua_next(L, Absolute) != 0) {
-      // Key is at -2, value at -1.
       const int ValueIndex = lua_gettop(L);
       const int KeyIndex = ValueIndex - 1;
-
-      if (lua_type(L, KeyIndex) == LUA_TNUMBER) {
-        Result.Append(ReadOwned(L, ValueIndex, Depth + 1));
-      } else if (lua_type(L, KeyIndex) == LUA_TSTRING) {
-        std::size_t Length = 0;
-        const char *Text = lua_tolstring(L, KeyIndex, &Length);
-        Result.SetField(std::string_view(Text, Length),
+      if (lua_type(L, KeyIndex) == LUA_TSTRING) {
+        std::size_t KeyLength = 0;
+        const char *Text = lua_tolstring(L, KeyIndex, &KeyLength);
+        Result.SetField(std::string_view(Text, KeyLength),
                         ReadOwned(L, ValueIndex, Depth + 1));
+      } else if (lua_type(L, KeyIndex) == LUA_TNUMBER) {
+        const double Key = lua_tonumber(L, KeyIndex);
+        const bool InSequence =
+            Key >= 1.0 && Key <= Length && std::floor(Key) == Key;
+        if (!InSequence) {
+          char Buffer[40];
+          std::snprintf(Buffer, sizeof(Buffer), "%.14g", Key);
+          Result.SetField(Buffer, ReadOwned(L, ValueIndex, Depth + 1));
+        }
       }
 
-      lua_pop(L, 1); // pop the value, keep the key for the next iteration
+      lua_pop(L, 1);
     }
     return Result;
   }
@@ -65,20 +99,12 @@ OwnedValue ReadOwned(lua_State *L, int Index, int Depth) {
     return OwnedValue();
   }
 }
-
 } // namespace
-
 } // namespace detail
-
-// ---------------------------------------------------------------------------
-// OwnedValue
-// ---------------------------------------------------------------------------
 
 OwnedValue OwnedValue::Table() {
   OwnedValue Result;
   auto Table = std::make_shared<OwnedTable>();
-  // A record like a Drawing entry is eight fields and a couple of instances;
-  // reserving that up front turns eight growth reallocations into none.
   Table->Fields.reserve(16);
   Table->Items.reserve(8);
   Result.Data = std::move(Table);
@@ -92,8 +118,6 @@ OwnedValue &OwnedValue::SetField(std::string_view Name, OwnedValue FieldValue) {
     Slot = std::get_if<std::shared_ptr<OwnedTable>>(&Data);
   }
 
-  // Appending to a copy must not mutate a table someone else holds, so a table
-  // that is shared gets cloned on first write.
   if (Slot->use_count() > 1)
     *Slot = std::make_shared<OwnedTable>(**Slot);
 
@@ -115,29 +139,22 @@ OwnedValue &OwnedValue::Append(OwnedValue Item) {
   return *this;
 }
 
-// ---------------------------------------------------------------------------
-// Reflection into Lua
-// ---------------------------------------------------------------------------
-
 namespace detail {
-
 int PushOwnedValue(lua_State *L, const OwnedValue &Value) {
   if (const auto *Instance = Value.AsInstance()) {
     if (!Instance->Object)
       return 0;
-    const bool Ok = PushBorrowedInstance(L, Instance->TypeToken,
-                                         Instance->Object.get(), nullptr);
-    if (Ok)
+    // Shares the object with the VM, so the userdata cannot outlive its owner.
+    if (PushSharedInstance(L, Instance->TypeToken, Instance->Object))
       return 1;
-    lua_pushnil(L);
-    return 1;
+    throw MarshalError("an instance of a class that is not registered cannot "
+                       "be passed to Lua");
   }
 
   if (const OwnedTable *Table = Value.AsTable()) {
     const auto FieldCount = static_cast<int>(Table->Fields.size());
     const auto ItemCount = static_cast<int>(Table->Items.size());
     lua_createtable(L, ItemCount, FieldCount);
-
     for (const OwnedTable::Entry &Field : Table->Fields) {
       PushOwnedValue(L, Field.Value);
       lua_setfield(L, -2, Field.Key.c_str());
@@ -179,12 +196,7 @@ int PushValuePack(lua_State *L, const ValuePack &Pack) {
     Pushed += PushOwnedValue(L, Value);
   return Pushed;
 }
-
 } // namespace detail
-
-// ---------------------------------------------------------------------------
-// ArgumentPack
-// ---------------------------------------------------------------------------
 
 OwnedValue ArgumentPack::At(std::size_t Index) const {
   if (!VM_ || Index >= Size())
@@ -201,7 +213,6 @@ Value ArgumentPack::View(std::size_t Index) const {
 
   auto *L = static_cast<lua_State *>(VM_);
   const int Absolute = First_ + static_cast<int>(Index);
-
   switch (lua_type(L, Absolute)) {
   case LUA_TNIL:
     Result.Kind = ValueCategory::Nil;
@@ -240,17 +251,13 @@ Value ArgumentPack::View(std::size_t Index) const {
 }
 
 namespace detail {
-
-// Stores the value on top of the stack at Table[Name]. lua_setfield pops it, so
-// the table index is resolved first.
 bool SetTableField(lua_State *L, int TableIndex, const char *Name) {
-  const int Absolute = TableIndex < 0 ? lua_gettop(L) + TableIndex + 1
-                                      : TableIndex;
+  const int Absolute =
+      TableIndex < 0 ? lua_gettop(L) + TableIndex + 1 : TableIndex;
   if (!lua_istable(L, Absolute) || !Name)
     return false;
   lua_setfield(L, Absolute, Name);
   return true;
 }
-
 } // namespace detail
 } // namespace luna

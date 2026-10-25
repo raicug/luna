@@ -1,14 +1,8 @@
 #pragma once
 
-// luna : foundation types.
-//
-// Nothing in this header (or any other public header) names a Luau type. The VM
-// stays entirely inside src/, so a consumer includes <luna/luna.hpp> and links
-// luna::luna without an include path or a compile definition for Luau.
+// Foundation types; no public header names a Luau type.
 
-// The Windows headers (and some SDKs) define names that collide with
-// this API. Consumers should not have to #undef them by hand; here the
-// headers defend themselves so the prologue can be deleted.
+// Windows headers define these names, so the API defends itself here.
 #pragma push_macro("RegisterClass")
 #pragma push_macro("Register")
 #pragma push_macro("min")
@@ -31,21 +25,11 @@
 #include <vector>
 
 namespace luna {
-
-// ---------------------------------------------------------------------------
-// Identity
-// ---------------------------------------------------------------------------
-
-// Dense indices into the State's append-only model. Not content hashes: they are
-// only meaningful inside one State, which is all a binding ever needs.
 using TypeId = std::uint32_t;
 using SymbolId = std::uint32_t;
 
 inline constexpr TypeId NoType = 0;
 
-// An optional stable string that identifies a class across runs. Used for the
-// symbol palette, diagnostics and generated artifacts. It is never hashed into
-// an identity.
 class StableTypeKey {
 public:
   constexpr explicit StableTypeKey(std::string_view Value) noexcept
@@ -59,10 +43,6 @@ private:
   std::string_view Text;
 };
 
-// ---------------------------------------------------------------------------
-// Diagnostics and results
-// ---------------------------------------------------------------------------
-
 enum class ErrorCategory : std::uint8_t {
   None = 0,
   Compile,
@@ -74,20 +54,39 @@ enum class ErrorCategory : std::uint8_t {
 class ErrorDiagnostic {
 public:
   ErrorDiagnostic() = default;
-
   ErrorDiagnostic(ErrorCategory Category, std::string Text)
       : Category_(Category), Text_(std::move(Text)) {}
 
+  // Chunk and line are split out of Luau's "chunk:line: message" prefix.
+  ErrorDiagnostic(ErrorCategory Category, std::string Text, std::string Chunk,
+                  int Line, std::string Traceback)
+      : Category_(Category), Text_(std::move(Text)), Chunk_(std::move(Chunk)),
+        Line_(Line), Traceback_(std::move(Traceback)) {}
+
   [[nodiscard]] ErrorCategory Category() const noexcept { return Category_; }
   [[nodiscard]] const std::string &Message() const noexcept { return Text_; }
+  [[nodiscard]] const std::string &Chunk() const noexcept { return Chunk_; }
+  [[nodiscard]] int Line() const noexcept { return Line_; }
+  [[nodiscard]] const std::string &Traceback() const noexcept {
+    return Traceback_;
+  }
+  [[nodiscard]] bool HasLocation() const noexcept { return Line_ > 0; }
+
+  // "chunk:line: message", or the message alone when it already carries it.
+  [[nodiscard]] std::string Where() const {
+    if (!HasLocation() || Chunk_.empty() || Text_.rfind(Chunk_ + ":", 0) == 0)
+      return Text_;
+    return Chunk_ + ":" + std::to_string(Line_) + ": " + Text_;
+  }
 
 private:
   ErrorCategory Category_ = ErrorCategory::None;
   std::string Text_;
+  std::string Chunk_;
+  int Line_ = 0;
+  std::string Traceback_;
 };
 
-// Owned result of a fallible operation. Always cheap to return by value and
-// never throws; a failure carries a message the host can display verbatim.
 class RegistrationResult {
 public:
   RegistrationResult() = default;
@@ -117,12 +116,20 @@ public:
     return Failure && Failure->Category() == ErrorCategory::Interrupted;
   }
 
+  // A success that is not completion: the script is parked waiting on a signal,
+  // and only a later Tick finishes it.
+  static ExecutionResult Pending() {
+    ExecutionResult Result;
+    Result.Parked = true;
+    return Result;
+  }
+  [[nodiscard]] bool IsPending() const noexcept { return Parked; }
+
 private:
   std::optional<ErrorDiagnostic> Failure;
+  bool Parked = false;
 };
 
-// Builder-local diagnostic accumulator. Registration reports the first problem
-// it finds and keeps going only to finish the builder chain.
 class Diag {
 public:
   [[nodiscard]] bool Ok() const noexcept { return Message_.empty(); }
@@ -145,10 +152,6 @@ private:
   std::string Message_;
 };
 
-// ---------------------------------------------------------------------------
-// Reflection vocabulary
-// ---------------------------------------------------------------------------
-
 enum class SymbolKind : std::uint8_t {
   None = 0,
   Function,
@@ -167,28 +170,31 @@ enum class SymbolKind : std::uint8_t {
   OverloadSet,
 };
 
-// One entry of the palette a host uses for autocomplete. Names are owned so a
-// range stays readable after the State that produced it is gone.
 class Symbol {
 public:
   Symbol() = default;
-  Symbol(std::string Name, std::string Qualified, SymbolKind Kind)
-      : Name_(std::move(Name)), Qualified_(std::move(Qualified)), Kind_(Kind) {}
+  // Required is how many arguments cannot be omitted; Arity is -1 when unknown.
+  Symbol(std::string Name, std::string Qualified, SymbolKind Kind,
+         int Arity = -1, int Required = -1)
+      : Name_(std::move(Name)), Qualified_(std::move(Qualified)), Kind_(Kind),
+        Arity_(Arity), Required_(Required) {}
 
   [[nodiscard]] const std::string &Name() const noexcept { return Name_; }
   [[nodiscard]] const std::string &QualifiedName() const noexcept {
     return Qualified_;
   }
   [[nodiscard]] SymbolKind Kind() const noexcept { return Kind_; }
+  [[nodiscard]] int Arity() const noexcept { return Arity_; }
+  [[nodiscard]] int Required() const noexcept { return Required_; }
 
 private:
   std::string Name_;
   std::string Qualified_;
   SymbolKind Kind_ = SymbolKind::None;
+  int Arity_ = -1;
+  int Required_ = -1;
 };
 
-// A borrow of an immutable symbol list. Holds the list alive, so a consumer may
-// keep a range across further registration or past the State's destruction.
 class SymbolRange {
 public:
   SymbolRange() = default;
@@ -213,19 +219,11 @@ private:
   std::size_t Count_ = 0;
 };
 
-// ---------------------------------------------------------------------------
-// Ownership
-// ---------------------------------------------------------------------------
-
-// Invalidation token for native objects the host lends to scripts. Copying a
-// handle shares one control block; Invalidate() makes every copy refuse access,
-// which is what a rejoin or a DataModel rebuild needs.
 class LifetimeHandle {
 public:
   struct Control {
     std::atomic<bool> Alive{true};
   };
-
   LifetimeHandle() : Shared(std::make_shared<Control>()) {}
 
   [[nodiscard]] bool Alive() const noexcept {
@@ -248,7 +246,6 @@ private:
 class OwnershipPolicy {
 public:
   enum class Kind : std::uint8_t { LuaOwned = 0, Borrowed, Shared };
-
   static OwnershipPolicy LuaOwned() noexcept {
     OwnershipPolicy Policy;
     Policy.Mode = Kind::LuaOwned;
@@ -278,10 +275,6 @@ private:
   LifetimeHandle Lifetime;
 };
 
-// ---------------------------------------------------------------------------
-// Class operators
-// ---------------------------------------------------------------------------
-
 enum class ClassOperator : std::uint8_t {
   Add,
   Subtract,
@@ -298,13 +291,9 @@ enum class ClassOperator : std::uint8_t {
   ToText,
   Call,
   Iterate,
-  Index,    // reserved
-  NewIndex, // reserved
+  Index,
+  NewIndex,
 };
-
-// ---------------------------------------------------------------------------
-// Forward declarations
-// ---------------------------------------------------------------------------
 
 class State;
 class BindingRegistry;
@@ -324,19 +313,15 @@ class Model;
 class Plan;
 struct Target;
 struct ClassInfo;
+struct Runtime;
+struct Liveness;
 
-// Process-wide unique per-type token that works with /GR- (no RTTI). The
-// address of a template static is unique per instantiation within a binary.
 template <class T> inline constexpr unsigned char TypeToken = 0;
 
-// Compile-time "this class was registered" opt-in. The consumer specialises it
-// exactly as it did for Luna::RegisteredClassTrait.
 template <class T> struct RegisteredClassTrait : std::false_type {};
 
-// Compile-time "this enum is bound" opt-in.
 template <class E> struct RegisteredEnumTrait : std::false_type {};
 
-// The metamethod a class operator binds to.
 enum class OperatorSlot : std::uint8_t {
   Add,
   Subtract,
@@ -358,10 +343,9 @@ enum class OperatorSlot : std::uint8_t {
 };
 } // namespace detail
 
-// Public alias, so a host can specialise the trait without naming detail::.
-template <class T>
-struct RegisteredClassTrait : detail::RegisteredClassTrait<T> {};
-
+// An alias, so a specialisation written against it is a compile error instead
+// of something that compiles and does nothing. Specialise luna::detail's.
+template <class T> using RegisteredClassTrait = detail::RegisteredClassTrait<T>;
 } // namespace luna
 
 #pragma pop_macro("max")

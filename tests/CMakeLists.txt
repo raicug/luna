@@ -2,6 +2,10 @@ add_executable(luna_tests tests.cpp)
 target_link_libraries(luna_tests PRIVATE luna::luna)
 target_compile_features(luna_tests PRIVATE cxx_std_20)
 set_target_properties(luna_tests PROPERTIES CXX_EXTENSIONS OFF)
+if(MSVC)
+    # One translation unit holds every template instantiation the cases use.
+    target_compile_options(luna_tests PRIVATE /bigobj)
+endif()
 
 add_test(NAME luna_tests COMMAND luna_tests)
 

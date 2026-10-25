@@ -1,50 +1,131 @@
 #pragma once
 
-// luna : private runtime state.
+// Per-state runtime: the VM, the allocator accounting and the task list.
 
 #include "model.hpp"
 
 #include <luna/state.hpp>
 
+#include <cstdlib>
 #include <atomic>
 #include <cstdint>
+#include <functional>
+#include <mutex>
 #include <string>
 #include <thread>
 #include <vector>
 
 namespace luna {
 namespace detail {
-
-// One runnable chunk. Execute() owns exactly one; Spawn() adds more.
 struct Task {
   lua_State *Co = nullptr;
   int ThreadRef = LUA_NOREF;
   std::uint64_t Id = 0;
   double Due = 0.0;
   bool Dead = false;
+
+  // True while the coroutine is inside lua_resume, so a nested pump skips it.
+  bool Running = false;
+
+  // Non-null while parked on an external event; only Wake clears it.
+  const void *WaitKey = nullptr;
+
+  // Pushes the values a Wake wants the task to resume with.
+  std::function<int(void *)> Resume;
 };
+
+struct MemoryArena {
+  std::size_t Used = 0;
+  std::size_t Limit = 0;
+};
+
+inline void *LunaAllocate(void *Ud, void *Pointer, std::size_t OldSize,
+                          std::size_t NewSize) {
+  auto *Arena = static_cast<MemoryArena *>(Ud);
+  if (NewSize == 0) {
+    std::free(Pointer);
+    Arena->Used -= OldSize;
+    return nullptr;
+  }
+
+  const std::size_t Base = Arena->Used - OldSize;
+  if (Arena->Limit != 0 &&
+      (NewSize > Arena->Limit || Base > Arena->Limit - NewSize))
+    return nullptr;
+
+  void *Fresh = std::realloc(Pointer, NewSize);
+  if (!Fresh)
+    return nullptr;
+
+  Arena->Used = Base + NewSize;
+  return Fresh;
+}
 
 struct Runtime {
   State *Owner = nullptr;
+  StateOptions Settings;
   lua_State *L = nullptr;
   Model World;
-
+  MemoryArena Memory;
+  // Shared with delegates and chunks, which may outlive this object.
+  std::shared_ptr<Liveness> Token = std::make_shared<Liveness>();
   std::atomic<bool> Stop{false};
+  // Written by whichever thread asks for the stop, read by the VM thread.
+  std::mutex StopLock;
   std::string StopReason;
-
-  // Virtual clock. A suspension records a due time against it, so nothing on the
-  // call path ever sleeps.
+  std::uint64_t Steps = 0;
+  bool BudgetTripped = false;
+  bool LastInterrupted = false;
   double Clock = 0.0;
+  // A closure made at start-up that runs a job under lua_pcall, so setting a
+  // guarded call up allocates nothing and cannot itself run out of memory.
+  int GuardRef = LUA_NOREF;
   std::vector<Task> Tasks;
+  // Finished entries not yet reclaimed, and how many scheduler loops are
+  // active.
+  std::size_t DeadTasks = 0;
+  int PumpDepth = 0;
   std::uint64_t NextId = 1;
-
-  // Index into Tasks of the coroutine being resumed, if any. An index rather
-  // than a pointer because Tasks reallocates when a suspension spawns work.
   bool HasRunning = false;
   std::size_t RunningIndex = 0;
-
   explicit Runtime(State *InOwner) : Owner(InOwner), World(nullptr) {}
+
+  ~Runtime() {
+    Token->Alive.store(false, std::memory_order_release);
+    World.Release();
+    if (L)
+      lua_close(L);
+    L = nullptr;
+  }
+
+  void RequestStop(std::string Reason) {
+    {
+      std::lock_guard<std::mutex> Guard(StopLock);
+      StopReason = std::move(Reason);
+    }
+    Stop.store(true, std::memory_order_release);
+  }
+
+  void ClearStop() {
+    Stop.store(false, std::memory_order_release);
+    std::lock_guard<std::mutex> Guard(StopLock);
+    StopReason.clear();
+  }
+
+  std::string StopText() {
+    std::lock_guard<std::mutex> Guard(StopLock);
+    return StopReason;
+  }
+
+  Runtime(const Runtime &) = delete;
+  Runtime &operator=(const Runtime &) = delete;
 };
+
+// Runs Work under lua_pcall on the main thread. A Lua error (out of memory, a
+// read-only table) or a marshalling error comes back as text in Failure instead
+// of unwinding into the host.
+bool RunGuarded(Runtime &R, const std::function<void()> &Work,
+                std::string &Failure);
 
 inline Runtime *RuntimeFromLua(lua_State *L) noexcept {
   lua_Callbacks *Callbacks = lua_callbacks(L);
@@ -56,11 +137,10 @@ inline Model *ModelFromLua(lua_State *L) noexcept {
   return R ? &R->World : nullptr;
 }
 
-// Metamethods installed on every class metatable. Defined in userdata.cpp.
 int ClassIndex(lua_State *L);
 int ClassNewIndex(lua_State *L);
+int ClassIsA(lua_State *L);
 int ClassIter(lua_State *L);
 int ClassIterStep(lua_State *L);
-
 } // namespace detail
 } // namespace luna

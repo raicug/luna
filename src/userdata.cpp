@@ -5,19 +5,14 @@
 #include <lua.h>
 #include <lualib.h>
 
+#include <memory>
 #include <new>
 #include <string>
 #include <utility>
 
 namespace luna {
 namespace detail {
-
-// ---------------------------------------------------------------------------
-// Instance objects
-// ---------------------------------------------------------------------------
-
 namespace {
-
 void DestroyObject(void *Memory) {
   auto *Instance = static_cast<Object *>(Memory);
   if (!Instance || Instance->Magic != kObjectMagic)
@@ -37,14 +32,12 @@ void DestroyObject(void *Memory) {
   }
 }
 
-// Allocates the userdata and attaches the class metatable, leaving it on top.
 Object *NewObject(lua_State *L, TypeId ClassId, ObjectTag Tag) {
   void *Memory = lua_newuserdatadtor(L, sizeof(Object), &DestroyObject);
   auto *Instance = new (Memory) Object{};
   Instance->Magic = kObjectMagic;
   Instance->ClassId = ClassId;
   Instance->Tag = static_cast<std::uint8_t>(Tag);
-
   Model *World = ModelFromLua(L);
   const ClassInfo *Info = World ? World->Class(ClassId) : nullptr;
   if (Info && Info->MetatableRef != LUA_NOREF) {
@@ -60,7 +53,23 @@ const char *NameOfClass(lua_State *L, TypeId ClassId) {
   return Info ? Info->Name.c_str() : "instance";
 }
 
+bool IsUsable(const Object *Instance) {
+  if (static_cast<ObjectTag>(Instance->Tag) != ObjectTag::Borrowed ||
+      !Instance->Control)
+    return true;
+  auto *Control = static_cast<LifetimeHandle::Control *>(Instance->Control);
+  return Control->Alive.load(std::memory_order_acquire);
+}
 } // namespace
+
+bool IsObjectUsable(const Object *Instance) noexcept {
+  return Instance && IsUsable(Instance);
+}
+
+std::shared_ptr<Liveness> LivenessOf(void *VM) noexcept {
+  Runtime *R = RuntimeFromLua(static_cast<lua_State *>(VM));
+  return R ? R->Token : nullptr;
+}
 
 TypeId ClassIdForToken(lua_State *L, const void *Token) noexcept {
   Model *World = ModelFromLua(L);
@@ -72,7 +81,9 @@ TypeId ClassIdForToken(lua_State *L, const void *Token) noexcept {
 bool ReadUserdataPointer(lua_State *L, int Index, TypeId ClassId, void **Out,
                          std::string &Why) {
   if (lua_type(L, Index) != LUA_TUSERDATA) {
-    Why = "expected an instance, got ";
+    Why = "expected ";
+    Why += ClassId == NoType ? "an instance" : NameOfClass(L, ClassId);
+    Why += ", got ";
     Why += LuaTypeName(L, Index);
     return false;
   }
@@ -83,7 +94,17 @@ bool ReadUserdataPointer(lua_State *L, int Index, TypeId ClassId, void **Out,
     return false;
   }
 
-  if (ClassId != NoType && Instance->ClassId != ClassId) {
+  if (!IsUsable(Instance)) {
+    Why = "the instance is no longer available";
+    return false;
+  }
+
+  if (ClassId == NoType) {
+    Why = "the expected class is not registered";
+    return false;
+  }
+
+  if (Instance->ClassId != ClassId) {
     Why = "expected ";
     Why += NameOfClass(L, ClassId);
     Why += ", got ";
@@ -91,23 +112,37 @@ bool ReadUserdataPointer(lua_State *L, int Index, TypeId ClassId, void **Out,
     return false;
   }
 
-  if (static_cast<ObjectTag>(Instance->Tag) == ObjectTag::Borrowed &&
-      Instance->Control) {
-    auto *Control = static_cast<LifetimeHandle::Control *>(Instance->Control);
-    if (!Control->Alive.load(std::memory_order_acquire)) {
-      Why = "the instance is no longer available";
-      return false;
-    }
-  }
-
   *Out = Instance->Pointer;
+  return true;
+}
+
+bool ReadBasePointer(lua_State *L, int Index, TypeId ClassId,
+                     void **Out) noexcept {
+  if (lua_type(L, Index) != LUA_TUSERDATA)
+    return false;
+
+  auto *Instance = static_cast<Object *>(lua_touserdata(L, Index));
+  if (!Instance || Instance->Magic != kObjectMagic || !IsUsable(Instance))
+    return false;
+
+  Model *World = ModelFromLua(L);
+  if (!World)
+    return false;
+
+  void *Pointer = Instance->Pointer;
+  if (!World->RebaseTo(Instance->ClassId, ClassId, Pointer))
+    return false;
+
+  *Out = Pointer;
   return true;
 }
 
 bool StoreSharedPointer(lua_State *L, int Index, TypeId ClassId,
                         std::shared_ptr<void> &Out, std::string &Why) {
   if (lua_type(L, Index) != LUA_TUSERDATA) {
-    Why = "expected an instance, got ";
+    Why = "expected ";
+    Why += ClassId == NoType ? "an instance" : NameOfClass(L, ClassId);
+    Why += ", got ";
     Why += LuaTypeName(L, Index);
     return false;
   }
@@ -118,22 +153,35 @@ bool StoreSharedPointer(lua_State *L, int Index, TypeId ClassId,
     return false;
   }
 
-  if (ClassId != NoType && Instance->ClassId != ClassId) {
-    Why = "expected ";
-    Why += NameOfClass(L, ClassId);
+  if (!IsUsable(Instance)) {
+    Why = "the instance is no longer available";
     return false;
   }
 
-  // Shared and owned payloads own themselves; a borrowed one is kept alive by
-  // the host's lifetime handle, so a shared_ptr would be a lie.
-  if (static_cast<ObjectTag>(Instance->Tag) == ObjectTag::Shared &&
-      Instance->Shared) {
-    Out = *Instance->Shared;
-    return true;
+  if (ClassId == NoType) {
+    Why = "the expected class is not registered";
+    return false;
   }
 
-  Why = "the instance is not shared";
-  return false;
+  void *Pointer = Instance->Pointer;
+  Model *World = ModelFromLua(L);
+  if (!World || !World->RebaseTo(Instance->ClassId, ClassId, Pointer)) {
+    Why = "expected ";
+    Why += NameOfClass(L, ClassId);
+    Why += ", got ";
+    Why += NameOfClass(L, Instance->ClassId);
+    return false;
+  }
+
+  if (static_cast<ObjectTag>(Instance->Tag) != ObjectTag::Shared ||
+      !Instance->Shared) {
+    Why = "the instance is not shared";
+    return false;
+  }
+
+  // Aliasing keeps the control block while pointing at the requested subobject.
+  Out = std::shared_ptr<void>(*Instance->Shared, Pointer);
+  return true;
 }
 
 bool PushBorrowedInstance(lua_State *L, const void *TypeToken, void *Subject,
@@ -146,9 +194,16 @@ bool PushBorrowedInstance(lua_State *L, const void *TypeToken, void *Subject,
   if (ClassId == NoType)
     return false;
 
+  // A pointer that arrives with no handle of its own takes its class's, if the
+  // class was registered with one.
+  const ClassInfo *Info = World->Class(ClassId);
+  void *Control = const_cast<void *>(LifetimeControl);
+  if (!Control && Info && Info->Lifetime)
+    Control = Info->Lifetime.get();
+
   Object *Instance = NewObject(L, ClassId, ObjectTag::Borrowed);
   Instance->Pointer = Subject;
-  Instance->Control = const_cast<void *>(LifetimeControl);
+  Instance->Control = Control;
   return true;
 }
 
@@ -162,10 +217,12 @@ bool PushSharedInstance(lua_State *L, const void *TypeToken,
   if (ClassId == NoType)
     return false;
 
-  auto *Storage = new std::shared_ptr<void>(std::move(Subject));
+  // Owned until the userdata holds it, because making the userdata can throw.
+  std::unique_ptr<std::shared_ptr<void>> Storage(
+      new std::shared_ptr<void>(std::move(Subject)));
   Object *Instance = NewObject(L, ClassId, ObjectTag::Shared);
-  Instance->Shared = Storage;
   Instance->Pointer = Storage->get();
+  Instance->Shared = Storage.release();
   return true;
 }
 
@@ -185,22 +242,12 @@ bool PushOwnedInstance(lua_State *L, const void *TypeToken, void *Subject,
   return true;
 }
 
-// Also used for OwnedValue::Instance, which carries a token rather than a type.
 bool PushInstanceByToken(lua_State *L, const void *TypeToken,
                          std::shared_ptr<void> Subject) {
   return PushSharedInstance(L, TypeToken, std::move(Subject));
 }
 
-// ---------------------------------------------------------------------------
-// Metamethods
-// ---------------------------------------------------------------------------
-
-// A resolve-table entry is either a closure (a method: returned as-is) or a
-// callable context whose first word is its dispatch thunk (a property or field:
-// invoked in place).
 namespace {
-
-// Returns the entry's thunk when it can be invoked directly, else nullptr.
 InvokeThunk DirectThunk(lua_State *L, int Index) {
   if (lua_type(L, Index) != LUA_TUSERDATA)
     return nullptr;
@@ -209,8 +256,6 @@ InvokeThunk DirectThunk(lua_State *L, int Index) {
   return Header ? Header->Thunk : nullptr;
 }
 
-// __index upvalue 3: fn(receiver, key) -> value, or nil when the class declared
-// no ClassOperator::Index.
 int IndexFallback(lua_State *L) {
   if (!lua_isnil(L, lua_upvalueindex(3))) {
     lua_pushvalue(L, lua_upvalueindex(3));
@@ -219,11 +264,17 @@ int IndexFallback(lua_State *L) {
     lua_call(L, 2, 1);
     return 1;
   }
+
+  if (lua_type(L, 2) == LUA_TSTRING) {
+    const Runtime *R = RuntimeFromLua(L);
+    if (R && R->Settings.StrictMembers)
+      luaL_error(L, "%s is not a valid member of %s", lua_tostring(L, 2),
+                 lua_tostring(L, lua_upvalueindex(2)));
+  }
   lua_pushnil(L);
   return 1;
 }
 
-// __newindex upvalue 3: fn(receiver, key, value). True when it ran.
 bool NewIndexFallback(lua_State *L) {
   if (lua_isnil(L, lua_upvalueindex(3)))
     return false;
@@ -235,29 +286,20 @@ bool NewIndexFallback(lua_State *L) {
   lua_call(L, 3, 0);
   return true;
 }
-
 } // namespace
 
-// __index(obj, key)
-//   upvalue 1: resolve table   upvalue 2: class name
-//   upvalue 3: index fallback closure or nil
 int ClassIndex(lua_State *L) {
-  // Only a string can name a member, but a non-string key is still the class's
-  // business: a container binds ClassOperator::Index to answer scene[1].
   if (lua_type(L, 2) != LUA_TSTRING)
     return IndexFallback(L);
 
   lua_pushvalue(L, 2);
   lua_rawget(L, lua_upvalueindex(1));
-
   if (lua_isfunction(L, -1))
-    return 1; // a method is returned as-is: obj:M() compiles to obj.M(obj)
+    return 1;
 
   if (const InvokeThunk Thunk = DirectThunk(L, -1)) {
     void *Context = lua_touserdata(L, -1);
     lua_pop(L, 1);
-    // The receiver is already argument 1 of this call, so the getter runs in
-    // place: no closure, no nested lua_call.
     return Thunk(L, Context);
   }
 
@@ -265,75 +307,79 @@ int ClassIndex(lua_State *L) {
   return IndexFallback(L);
 }
 
-// __newindex(obj, key, value)
-//   upvalue 1: setters table   upvalue 2: class name
-//   upvalue 3: newindex fallback closure or nil
 int ClassNewIndex(lua_State *L) {
-  // A non-string key cannot name a member, so only the class's own
-  // ClassOperator::NewIndex can give the write a meaning.
   if (lua_type(L, 2) != LUA_TSTRING) {
     if (NewIndexFallback(L))
       return 0;
-    // luaL_error is noreturn in this fork, so neither site needs a trailing
-    // return and the compiler knows the function cannot fall through.
+
     luaL_error(L, "%s is not a writable member of %s", luaL_typename(L, 2),
                lua_tostring(L, lua_upvalueindex(2)));
   }
 
   const char *Key = lua_tostring(L, 2);
-
   lua_pushvalue(L, 2);
   lua_rawget(L, lua_upvalueindex(1));
-
   if (const InvokeThunk Thunk = DirectThunk(L, -1)) {
     void *Context = lua_touserdata(L, -1);
     lua_pop(L, 1);
-    // Drop the key so the layout is (receiver, value), which is what a setter
-    // reads as arguments 1 and 2.
     lua_remove(L, 2);
     return Thunk(L, Context);
   }
 
   if (lua_isfunction(L, -1)) {
-    lua_pushvalue(L, 1); // receiver
-    lua_pushvalue(L, 3); // value
+    lua_pushvalue(L, 1);
+    lua_pushvalue(L, 3);
     lua_call(L, 2, 0);
     return 0;
   }
   lua_pop(L, 1);
-
-  // A ClassOperator::NewIndex fallback decides what a write means.
   if (NewIndexFallback(L))
     return 0;
 
-  // Nothing is bound under this name and there is no fallback, so the write has
-  // no meaning. Saying so beats silently dropping it.
   luaL_error(L, "%s is not a writable member of %s", Key,
              lua_tostring(L, lua_upvalueindex(2)));
 }
 
-// __iter(obj): returns the triple a generic for needs -- the stepping closure,
-// the state it is called with, and the initial control.
-//   upvalue 1: iterate target closure
+// instance:IsA("Name") walks the base chain of the instance's own class.
+int ClassIsA(lua_State *L) {
+  if (lua_type(L, 1) != LUA_TUSERDATA || lua_type(L, 2) != LUA_TSTRING) {
+    luaL_error(L, "IsA expects an instance and a class name");
+  }
+
+  auto *Instance = static_cast<Object *>(lua_touserdata(L, 1));
+  if (!Instance || Instance->Magic != kObjectMagic) {
+    luaL_error(L, "IsA expects an instance");
+  }
+
+  Model *World = ModelFromLua(L);
+  if (!World) {
+    lua_pushboolean(L, 0);
+    return 1;
+  }
+
+  std::size_t Length = 0;
+  const char *Name = lua_tolstring(L, 2, &Length);
+  const std::string_view Wanted(Name ? Name : "", Length);
+  lua_pushboolean(L, World->DerivesFrom(Instance->ClassId, Wanted));
+  return 1;
+}
+
 int ClassIter(lua_State *L) {
   lua_pushvalue(L, lua_upvalueindex(1));
   luna::detail::PushClosure(L, &ClassIterStep, nullptr, 1);
-  lua_pushvalue(L, 1);   // state: the receiver
-  lua_pushinteger(L, 0); // control
+  lua_pushvalue(L, 1);
+  lua_pushinteger(L, 0);
   return 3;
 }
 
-// step(state, control) -> control, value   (or nothing when exhausted)
-//   upvalue 1: iterate target
 int ClassIterStep(lua_State *L) {
   const int Control =
       lua_type(L, 2) == LUA_TNUMBER ? static_cast<int>(lua_tointeger(L, 2)) : 0;
 
-  lua_pushvalue(L, lua_upvalueindex(1)); // target
-  lua_pushvalue(L, 1);                   // receiver
+  lua_pushvalue(L, lua_upvalueindex(1));
+  lua_pushvalue(L, 1);
   lua_pushinteger(L, Control);
-  lua_call(L, 2, 1); // target(receiver, control) -> value, or nothing
-
+  lua_call(L, 2, 1);
   if (lua_isnil(L, -1)) {
     lua_pop(L, 1);
     return 0;
@@ -343,6 +389,5 @@ int ClassIterStep(lua_State *L) {
   lua_insert(L, -2);
   return 2;
 }
-
 } // namespace detail
 } // namespace luna

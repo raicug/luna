@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.20)
 
-project(LunaV2 VERSION 0.1.0 LANGUAGES C CXX)
+project(Luna VERSION 0.1.0 LANGUAGES C CXX)
 
 option(LUNA_BUILD_TESTING "Build the luna test suite" ON)
 option(LUNA_BUILD_APP "Build the smoke application" ON)
@@ -27,6 +27,7 @@ add_library(luna STATIC
     src/registry.cpp
     src/userdata.cpp
     src/convert.cpp
+    src/docs.cpp
 )
 
 add_library(luna::luna ALIAS luna)
@@ -80,10 +81,11 @@ if(LUNA_BUILD_BENCH)
     set_target_properties(LunaBench PROPERTIES CXX_EXTENSIONS OFF FOLDER luna)
     # Benchmarks are only meaningful with inlining intact.
     if(MSVC)
-        target_compile_options(LunaBench PRIVATE /O2 /Ob2)
+        # /O2 conflicts with the Debug runtime checks, so it is left off there.
+        target_compile_options(LunaBench PRIVATE $<$<NOT:$<CONFIG:Debug>>:/O2 /Ob2>)
         target_link_options(LunaBench PRIVATE /OPT:REF /OPT:ICF)
     else()
-        target_compile_options(LunaBench PRIVATE -O2)
+        target_compile_options(LunaBench PRIVATE $<$<NOT:$<CONFIG:Debug>>:-O2>)
     endif()
 endif()
 

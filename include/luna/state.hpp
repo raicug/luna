@@ -1,34 +1,52 @@
 #pragma once
 
-// luna : the VM owner.
-//
-// A State owns one Luau main thread and one committed model. Chunks run inside
-// coroutines rather than on a disposable OS thread, which is what lets a native
-// binding suspend instead of sleeping and pumping by hand.
+// The VM, its scheduler and its limits.
 
 #include <luna/bound.hpp>
 #include <luna/fwd.hpp>
 #include <luna/value.hpp>
 
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <string>
 #include <string_view>
 
 namespace luna {
-
 namespace detail {
 class Model;
 struct Runtime;
 struct ChunkState;
 } // namespace detail
 
-// Immutable symbol list as of one commit. Owns its strings, so a snapshot stays
-// readable after further registration and after the State is gone.
+// A task that failed somewhere nobody is waiting for its result: a Spawn, a
+// task resumed by Tick, or one Execute pumped on the way. Task is 0 when the
+// source did not compile, because no task was made.
+struct TaskFailure {
+  std::uint64_t Task = 0;
+  ErrorDiagnostic Error;
+};
+
+struct StateOptions {
+  // Safepoints (loop iterations and calls) a task may use per resume; 0 is no
+  // limit.
+  std::uint64_t InstructionBudget = 0;
+  std::size_t MemoryLimitBytes = 0;
+  bool StripUnsafeLibs = false;
+
+  // Reading a member a class does not have raises "X is not a valid member of
+  // Y" instead of returning nil, so a misspelt name is caught where it is
+  // written.
+  bool StrictMembers = false;
+
+  // Called on the thread that is pumping the scheduler. It may call back into
+  // the State; an exception it throws is swallowed.
+  std::function<void(const TaskFailure &)> OnTaskError;
+};
+
 class ReflectionSnapshot {
 public:
   ReflectionSnapshot() = default;
-
   [[nodiscard]] bool IsValid() const noexcept { return List != nullptr; }
   [[nodiscard]] std::size_t Size() const noexcept {
     return List ? List->size() : 0;
@@ -47,13 +65,16 @@ private:
   friend class State;
 };
 
-// A compiled chunk, re-invocable without recompiling.
 class Chunk {
 public:
   Chunk() = default;
+  // False when the source did not compile; Call() then reports that failure.
+  [[nodiscard]] bool IsValid() const noexcept;
+  [[nodiscard]] std::string_view Name() const noexcept;
 
-  [[nodiscard]] bool IsValid() const noexcept { return Data != nullptr; }
-
+  // Runs the chunk until it finishes or first yields. A chunk that yields stays
+  // in the task list and carries on from State::Tick; Call returns success for
+  // it.
   [[nodiscard]] ExecutionResult Call() const;
   [[nodiscard]] ExecutionResult Call(const ValuePack &Arguments) const;
 
@@ -65,77 +86,72 @@ private:
 class State {
 public:
   State();
+  explicit State(StateOptions Options);
   ~State();
-
   State(const State &) = delete;
   State &operator=(const State &) = delete;
   State(State &&) noexcept;
   State &operator=(State &&) noexcept;
-
   [[nodiscard]] bool IsReady() const noexcept;
-
   [[nodiscard]] BindingRegistry Bindings();
-
-  // --- execution ---------------------------------------------------------
-
-  // Runs to completion. A suspension defers the rest of the chunk until the
-  // scheduler reaches it, and Execute advances the scheduler itself, so a
-  // script that waits still finishes.
+  [[nodiscard]] std::size_t MemoryUsed() const noexcept;
+  [[nodiscard]] const StateOptions &Options() const noexcept;
+  // Locks the globals against scripts. Register everything first: a commit
+  // after this is refused.
+  void Sandbox();
   [[nodiscard]] ExecutionResult Execute(std::string_view Source);
+  [[nodiscard]] Chunk Load(std::string_view Source, std::string_view Name = "");
 
-  [[nodiscard]] Chunk Load(std::string_view Source,
-                           std::string_view Name = "");
-
-  // Starts source as an independent task and returns at its first suspension.
-  // The handle can be passed to Cancel().
+  // Starts source as a task and returns at its first suspension. Returns 0 when
+  // it does not compile; every failure, that one included, goes to OnTaskError.
   [[nodiscard]] std::uint64_t Spawn(std::string_view Source);
-
-  // Advances virtual time and resumes every task that is due. Call once per
-  // frame from the host loop.
   void Tick(double DeltaSeconds);
-
   bool Cancel(std::uint64_t Handle);
-
   [[nodiscard]] std::uint32_t PendingTasks() const noexcept;
-
-  // --- interruption ------------------------------------------------------
-
-  // Safe from any thread. The running chunk stops at its next safepoint.
+  // Entries the scheduler holds, finished ones not yet reclaimed included. A
+  // diagnostic: it stays small however many chunks have run.
+  [[nodiscard]] std::size_t TaskSlots() const noexcept;
+  // Safe from any thread. The running chunk stops at its next safepoint, and
+  // the request stays pending until ClearInterrupt().
   void RequestInterrupt(std::string Reason);
   void ClearInterrupt() noexcept;
   [[nodiscard]] bool IsInterruptPending() const noexcept;
-
-  // --- reflection --------------------------------------------------------
-
   [[nodiscard]] SymbolRange Symbols() const;
   [[nodiscard]] ReflectionSnapshot Reflection() const;
 
-  // --- suspension --------------------------------------------------------
-
-  // A native callable calls Suspend(Delay) then returns lua_yield(L, 0). The
-  // scheduler resumes it once Delay virtual seconds have passed.
+  // A .d.luau body for the registered symbols, with `any` for every type.
+  [[nodiscard]] std::string Definitions() const;
   void Suspend(double DelaySeconds);
-
+  void Wait(const void *Key);
+  // Resumes the tasks parked on Key at the next Tick. Values, when given,
+  // pushes what each one resumes with (what the call that parked it returns).
+  void Wake(const void *Key);
+  void Wake(const void *Key, std::function<int(void *)> Values);
+  [[nodiscard]] bool HasWaiters(const void *Key) const noexcept;
+  // Lets host objects (a Signal) tell if this State is still there.
+  [[nodiscard]] std::shared_ptr<detail::Liveness> Life() const noexcept;
   [[nodiscard]] detail::Runtime *GetRuntime() noexcept;
 
 private:
   friend class BindingRegistry;
   friend class Chunk;
   friend struct detail::Runtime;
-
   std::unique_ptr<detail::Runtime> Core;
 };
 
-// The State that owns a running VM, resolved from inside a native callable.
 State *StateFromVM(void *VM) noexcept;
 
-// Suspends the chunk that is currently running, if a Chunk-bound callable
-// requested it. Returns true when a suspension was recorded.
+namespace detail {
+// The State a runtime belongs to; follows the State through a move.
+State *OwnerOf(Runtime *Core) noexcept;
+} // namespace detail
+
+// Emits a .d.luau body for a snapshot: one declaration per name and per group.
+std::string GenerateDefinitions(const ReflectionSnapshot &Snapshot);
+
 bool SuspendCurrentChunk(void *VM, double DelaySeconds);
 
-// The form a native callable uses: suspend the running chunk for DelaySeconds
-// of virtual time, then return. The trampoline turns it into a yield, so no
-// thread is parked while the script waits.
-void Suspend(double DelaySeconds = 0.0);
+bool SuspendCurrentChunkUntil(void *VM, const void *Key);
 
+void Suspend(double DelaySeconds = 0.0);
 } // namespace luna
