@@ -2282,6 +2282,48 @@ void TestScriptSignals() {
   Check(State.Execute("assert(typedLate == 2)").IsSuccess(),
         "a typed signal's script handler runs as a task too");
 }
+
+void TestInspectingValues() {
+  Fixture F;
+  luna::OwnedValue Seen;
+  F.State.Bindings().Register(
+      "inspect", [&Seen](luna::ArgumentPack Args) { Seen = Args.At(0); });
+  luna::ClassBuilder<Holder> Holders = F.State.Bindings().RegisterClass<Holder>(
+      "Holder", luna::StableTypeKey("t.iv.Holder"));
+  Holders.Factory("new", [] { return Holder{}; })
+      .Operator(luna::ClassOperator::ToText,
+                [](const Holder &) { return std::string("holder!"); });
+  Check(Holders.Commit().IsSuccess(), "a class registers");
+
+  Check(F.Run("inspect({1, 'two', true, nested = {x = 1}, f = print})"),
+        "a table is passed");
+  Check(Seen.Kind() == luna::ValueCategory::Table && Seen.Size() == 3 &&
+            Seen.FieldCount() == 2,
+        "a table reports its sequence and its fields");
+  Check(Seen.Element(0).ToNumber() == 1.0 && Seen.Element(1).TextBytes() == "two" &&
+            Seen.Element(2).ToBoolean() == true,
+        "its elements read back");
+  Check(Seen.Field("nested").Field("x").ToNumber() == 1.0,
+        "a field of a field reads back");
+  Check(Seen.Field("f").Kind() == luna::ValueCategory::Function,
+        "a function is reported as one");
+  Check(Seen.Field("missing").Kind() == luna::ValueCategory::Nil &&
+            Seen.Element(99).Kind() == luna::ValueCategory::Nil,
+        "a missing entry reads as nil");
+  Check(Seen.Element(0).ToText() == "1" && !Seen.Field("nested").ToText(),
+        "scalars have text and tables do not");
+  bool NamedNested = false;
+  for (std::size_t Index = 0; Index < Seen.FieldCount(); ++Index)
+    NamedNested = NamedNested || Seen.FieldName(Index) == "nested";
+  Check(NamedNested, "field names are listed");
+
+  Check(F.Run("inspect(Holder.new())"), "an instance is passed");
+  Check(Seen.Kind() == luna::ValueCategory::Userdata && Seen.IsUserdata() &&
+            Seen.UserdataClassName() == "Holder" &&
+            Seen.UserdataText() == "holder!" && Seen.UserdataIsLive() &&
+            Seen.UserdataTarget() != nullptr,
+        "an instance describes its class, its text and its object");
+}
 } // namespace
 
 int main() {
@@ -2343,6 +2385,7 @@ int main() {
   TestEnumeratorTypes();
   TestPublicClassTrait();
   TestScriptSignals();
+  TestInspectingValues();
   std::printf("\n%d checks, %d failure%s\n", Cases, Failures,
               Failures == 1 ? "" : "s");
   return Failures == 0 ? 0 : 1;

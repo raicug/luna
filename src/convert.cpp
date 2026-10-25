@@ -35,20 +35,38 @@ OwnedValue ReadOwned(lua_State *L, int Index, int Depth) {
   }
 
   case LUA_TUSERDATA: {
-    // Only an instance the VM shares with the host can come back as a value;
-    // one the VM owns or merely borrows cannot outlive the VM, so it reads as
-    // nil.
+    // Described as it was when read. Only an object the host shares is kept
+    // alive, because only that one can go back into Lua.
     auto *Instance = static_cast<Object *>(lua_touserdata(L, Index));
-    if (!Instance || Instance->Magic != kObjectMagic ||
-        static_cast<ObjectTag>(Instance->Tag) != ObjectTag::Shared ||
-        !Instance->Shared || !IsObjectUsable(Instance))
-      return OwnedValue();
+    if (!Instance || Instance->Magic != kObjectMagic)
+      return OwnedValue::FromOpaque(ValueCategory::Userdata);
+
     Model *World = ModelFromLua(L);
     const ClassInfo *Info = World ? World->Class(Instance->ClassId) : nullptr;
-    if (!Info || !Info->Token)
-      return OwnedValue();
-    return OwnedValue::FromInstance(*Instance->Shared, Info->Token);
+    OwnedValue::InstanceRef Described;
+    Described.Live = IsObjectUsable(Instance);
+    Described.Pointer = Instance->Pointer;
+    if (Info) {
+      Described.ClassName = Info->Name;
+      Described.TypeToken = Info->Token;
+    }
+    if (Described.Live && luaL_callmeta(L, Index, "__tostring")) {
+      if (const char *Text = lua_tostring(L, -1))
+        Described.Text = Text;
+      lua_pop(L, 1);
+    }
+    if (Described.Live && Info &&
+        static_cast<ObjectTag>(Instance->Tag) == ObjectTag::Shared &&
+        Instance->Shared)
+      Described.Object = *Instance->Shared;
+    return OwnedValue::FromUserdata(std::move(Described));
   }
+
+  case LUA_TFUNCTION:
+    return OwnedValue::FromOpaque(ValueCategory::Function);
+
+  case LUA_TTHREAD:
+    return OwnedValue::FromOpaque(ValueCategory::Thread);
 
   case LUA_TTABLE: {
     OwnedValue Result = OwnedValue::Table();
@@ -142,8 +160,11 @@ OwnedValue &OwnedValue::Append(OwnedValue Item) {
 namespace detail {
 int PushOwnedValue(lua_State *L, const OwnedValue &Value) {
   if (const auto *Instance = Value.AsInstance()) {
-    if (!Instance->Object)
-      return 0;
+    // A userdata the host does not share has no way back into Lua.
+    if (!Instance->Object || !Instance->TypeToken) {
+      lua_pushnil(L);
+      return 1;
+    }
     // Shares the object with the VM, so the userdata cannot outlive its owner.
     if (PushSharedInstance(L, Instance->TypeToken, Instance->Object))
       return 1;
@@ -260,4 +281,53 @@ bool SetTableField(lua_State *L, int TableIndex, const char *Name) {
   return true;
 }
 } // namespace detail
+} // namespace luna
+
+namespace luna {
+std::optional<std::string> OwnedValue::ToText() const {
+  if (IsString())
+    return std::string(AsString());
+  if (IsBoolean())
+    return std::string(AsBoolean() ? "true" : "false");
+  if (IsNumber()) {
+    char Buffer[40];
+    std::snprintf(Buffer, sizeof(Buffer), "%.14g", AsNumber());
+    return std::string(Buffer);
+  }
+  return std::nullopt;
+}
+
+std::size_t OwnedValue::Size() const noexcept {
+  const OwnedTable *Table = AsTable();
+  return Table ? Table->Items.size() : 0;
+}
+
+std::size_t OwnedValue::FieldCount() const noexcept {
+  const OwnedTable *Table = AsTable();
+  return Table ? Table->Fields.size() : 0;
+}
+
+const OwnedValue &OwnedValue::Element(std::size_t Index) const noexcept {
+  static const OwnedValue Nil;
+  const OwnedTable *Table = AsTable();
+  return Table && Index < Table->Items.size() ? Table->Items[Index] : Nil;
+}
+
+std::string_view OwnedValue::FieldName(std::size_t Index) const noexcept {
+  const OwnedTable *Table = AsTable();
+  return Table && Index < Table->Fields.size()
+             ? std::string_view(Table->Fields[Index].Key)
+             : std::string_view();
+}
+
+const OwnedValue &OwnedValue::Field(std::string_view Name) const noexcept {
+  static const OwnedValue Nil;
+  if (const OwnedTable *Table = AsTable()) {
+    for (const OwnedTable::Entry &Entry : Table->Fields) {
+      if (Entry.Key == Name)
+        return Entry.Value;
+    }
+  }
+  return Nil;
+}
 } // namespace luna

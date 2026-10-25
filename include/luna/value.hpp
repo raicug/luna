@@ -6,6 +6,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <type_traits>
@@ -80,12 +81,26 @@ struct OwnedTable;
 
 class OwnedValue {
 public:
+  // A userdata, as a script handed it over. Object is set only when the host
+  // shares it, which is also what lets it go back into Lua; the rest describes
+  // it as it was when it was read.
   struct InstanceRef {
     std::shared_ptr<void> Object;
     const void *TypeToken = nullptr;
+    std::string ClassName;
+    std::string Text;
+    const void *Pointer = nullptr;
+    bool Live = true;
   };
-  using Payload = std::variant<std::monostate, bool, double, std::string,
-                               std::shared_ptr<OwnedTable>, InstanceRef>;
+
+  // A value with no host-side form: a function or a thread.
+  struct Opaque {
+    ValueCategory Category = ValueCategory::None;
+  };
+
+  using Payload =
+      std::variant<std::monostate, bool, double, std::string,
+                   std::shared_ptr<OwnedTable>, InstanceRef, Opaque>;
 
   OwnedValue() = default;
   OwnedValue(bool Value) : Data(Value) {}
@@ -107,6 +122,16 @@ public:
     Result.Data = InstanceRef{std::move(Object), TypeToken};
     return Result;
   }
+  static OwnedValue FromUserdata(InstanceRef Described) {
+    OwnedValue Result;
+    Result.Data = std::move(Described);
+    return Result;
+  }
+  static OwnedValue FromOpaque(ValueCategory Category) {
+    OwnedValue Result;
+    Result.Data = Opaque{Category};
+    return Result;
+  }
   static OwnedValue Nil() { return OwnedValue(); }
   static OwnedValue Boolean(bool Value) { return OwnedValue(Value); }
   static OwnedValue Number(double Value) { return OwnedValue(Value); }
@@ -118,9 +143,66 @@ public:
 
   template <class T> static OwnedValue Instance(std::shared_ptr<T> Value) {
     OwnedValue Result;
+    T *Raw = Value.get();
     Result.Data = InstanceRef{std::shared_ptr<void>(std::move(Value)),
-                              static_cast<const void *>(&detail::TypeToken<T>)};
+                              static_cast<const void *>(&detail::TypeToken<T>),
+                              std::string(), std::string(), Raw, true};
     return Result;
+  }
+
+  // What a value read from a script is, for code that inspects it.
+  [[nodiscard]] ValueCategory Kind() const noexcept {
+    if (IsNil())
+      return ValueCategory::Nil;
+    if (IsBoolean())
+      return ValueCategory::Boolean;
+    if (IsNumber())
+      return ValueCategory::Number;
+    if (IsString())
+      return ValueCategory::String;
+    if (IsTable())
+      return ValueCategory::Table;
+    if (IsInstance())
+      return ValueCategory::Userdata;
+    return std::get<Opaque>(Data).Category;
+  }
+  [[nodiscard]] std::optional<double> ToNumber() const noexcept {
+    return IsNumber() ? std::optional<double>(AsNumber()) : std::nullopt;
+  }
+  [[nodiscard]] std::optional<bool> ToBoolean() const noexcept {
+    return IsBoolean() ? std::optional<bool>(AsBoolean()) : std::nullopt;
+  }
+  // A string, number or boolean as text; nothing for the rest.
+  [[nodiscard]] std::optional<std::string> ToText() const;
+  [[nodiscard]] std::string_view TextBytes() const noexcept {
+    return AsString();
+  }
+
+  // A table: the sequence, then the named fields. Out of range reads as nil.
+  [[nodiscard]] std::size_t Size() const noexcept;
+  [[nodiscard]] std::size_t FieldCount() const noexcept;
+  [[nodiscard]] const OwnedValue &Element(std::size_t Index) const noexcept;
+  [[nodiscard]] std::string_view FieldName(std::size_t Index) const noexcept;
+  [[nodiscard]] const OwnedValue &Field(std::string_view Name) const noexcept;
+
+  // A userdata: its class, its tostring text, whether it was usable when read,
+  // and the object it wrapped.
+  [[nodiscard]] bool IsUserdata() const noexcept { return IsInstance(); }
+  [[nodiscard]] std::string_view UserdataClassName() const noexcept {
+    const InstanceRef *Ref = AsInstance();
+    return Ref ? std::string_view(Ref->ClassName) : std::string_view();
+  }
+  [[nodiscard]] std::string_view UserdataText() const noexcept {
+    const InstanceRef *Ref = AsInstance();
+    return Ref ? std::string_view(Ref->Text) : std::string_view();
+  }
+  [[nodiscard]] bool UserdataIsLive() const noexcept {
+    const InstanceRef *Ref = AsInstance();
+    return Ref && Ref->Live;
+  }
+  [[nodiscard]] const void *UserdataTarget() const noexcept {
+    const InstanceRef *Ref = AsInstance();
+    return Ref ? Ref->Pointer : nullptr;
   }
 
   [[nodiscard]] bool IsTable() const noexcept {
