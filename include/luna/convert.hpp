@@ -48,6 +48,7 @@ struct Object {
 
 inline thread_local bool SuspensionRequested = false;
 inline thread_local double SuspensionDelay = 0.0;
+inline thread_local bool SuspensionElapsed = false;
 
 // Outlives the VM, so a handle can tell whether its state is still there.
 struct Liveness {
@@ -65,7 +66,19 @@ inline void ClearSuspensionRequest() noexcept {
   SuspensionRequested = false;
   SuspensionDelay = 0.0;
   SuspensionKey = nullptr;
+  SuspensionElapsed = false;
 }
+
+// How a function becomes a task: now (run to its first yield), on the next
+// tick, or after a delay.
+enum class StartMode : std::uint8_t { Now, Next, After };
+
+// Starts a task. Prepare pushes the function and then its arguments onto the
+// new coroutine and returns how many arguments it pushed. Returns the task
+// handle, or 0 when the task could not be made (the failure goes to
+// OnTaskError).
+std::uint64_t StartTask(lua_State *VM, StartMode Mode, double Delay,
+                        const std::function<int(lua_State *)> &Prepare);
 
 bool CompleteSuspension(lua_State *L);
 
@@ -118,7 +131,7 @@ template <class A> struct ClassSubject {
   using Ptr = std::remove_cv_t<std::remove_pointer_t<Bare>>;
   using Type = std::conditional_t<std::is_pointer_v<Bare>, Ptr,
                                   typename SharedOr<Bare>::Type>;
-  static constexpr bool Is = RegisteredClassTrait<Type>::value;
+  static constexpr bool Is = IsClassType<Type>;
 };
 
 template <class A> inline constexpr bool ClassV = ClassSubject<A>::Is;
@@ -128,7 +141,7 @@ TypeId ClassIdForToken(lua_State *L, const void *Token) noexcept;
 // Containers carry the class of their element, not of the parameter.
 template <class E> TypeId ElementClassId(lua_State *L) noexcept {
   using Subject = typename ClassSubject<E>::Type;
-  if constexpr (RegisteredClassTrait<Subject>::value)
+  if constexpr (IsClassType<Subject>)
     return ClassIdForToken(L, static_cast<const void *>(&TypeToken<Subject>));
   else
     return NoType;
@@ -458,11 +471,10 @@ bool ReadValue(lua_State *L, int Index, SlotType<A> &Out, TypeId ClassId,
   } else {
     UnsupportedParameterType<UnrefT<A>> Unsupported;
     (void)Unsupported;
-    static_assert(
-        sizeof(A) == 0,
-        "luna: no codec for this parameter type. Specialise "
-        "luna::detail::RegisteredClassTrait for a class, or use a supported "
-        "scalar. Structural types are refused on purpose.");
+    static_assert(sizeof(A) == 0,
+                  "luna: no codec for this parameter type. Specialise "
+                  "luna::RegisteredClassTrait for a class, or use a supported "
+                  "scalar. Structural types are refused on purpose.");
     return false;
   }
 }

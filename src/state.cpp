@@ -176,6 +176,7 @@ bool SuspendCurrentChunk(void *VM, double DelaySeconds) {
   detail::SuspensionRequested = true;
   detail::SuspensionDelay = DelaySeconds > 0.0 ? DelaySeconds : 0.0;
   detail::SuspensionKey = nullptr;
+  detail::SuspensionElapsed = false;
   return true;
 }
 
@@ -188,26 +189,59 @@ bool SuspendCurrentChunkUntil(void *VM, const void *Key) {
 }
 
 namespace detail {
+// The task a coroutine belongs to, if the scheduler already knows it.
+Task *TaskOf(Runtime &R, lua_State *L) {
+  if (R.HasRunning && R.RunningIndex < R.Tasks.size()) {
+    Task &Running = R.Tasks[R.RunningIndex];
+    if (!Running.Dead && Running.Co == L)
+      return &Running;
+  }
+  for (Task &Entry : R.Tasks) {
+    if (!Entry.Dead && Entry.Co == L)
+      return &Entry;
+  }
+  return nullptr;
+}
+
+// A coroutine a script made (coroutine.wrap) is not a task until it waits. From
+// then on the scheduler resumes it, and whoever resumed it first sees it yield.
+Task *Adopt(Runtime &R, lua_State *L) {
+  lua_checkstack(L, 2);
+  lua_pushthread(L);
+  lua_xmove(L, R.L, 1);
+  Task Entry;
+  Entry.Co = L;
+  Entry.ThreadRef = luna::detail::PinTop(R.L);
+  Entry.Id = R.NextId++;
+  Entry.Adopted = true;
+  R.Tasks.push_back(Entry);
+  return &R.Tasks.back();
+}
+
 bool CompleteSuspension(lua_State *L) {
   if (!SuspensionRequested)
     return false;
 
-  SuspensionRequested = false;
   const double Delay = SuspensionDelay;
   const void *Key = SuspensionKey;
-  SuspensionDelay = 0.0;
-  SuspensionKey = nullptr;
+  const bool Elapsed = SuspensionElapsed;
+  ClearSuspensionRequest();
   Runtime *R = RuntimeFromLua(L);
-  if (!R || !R->HasRunning)
+  if (!R)
     return false;
 
-  Task &Entry = R->Tasks[R->RunningIndex];
+  Task *Entry = TaskOf(*R, L);
+  if (!Entry)
+    Entry = Adopt(*R, L);
+
+  Entry->Elapsed = Elapsed && !Key;
+  Entry->Since = R->Clock;
   if (Key) {
-    Entry.WaitKey = Key;
-    Entry.Due = std::numeric_limits<double>::infinity();
+    Entry->WaitKey = Key;
+    Entry->Due = std::numeric_limits<double>::infinity();
   } else {
-    Entry.WaitKey = nullptr;
-    Entry.Due = R->Clock + Delay;
+    Entry->WaitKey = nullptr;
+    Entry->Due = R->Clock + Delay;
   }
   return true;
 }
@@ -327,7 +361,13 @@ int ResumeTask(detail::Runtime &R, std::size_t Index, int Arguments = 0) {
   R.RunningIndex = Index;
   R.Tasks[Index].Running = true;
   // A Wake may have values for the call that parked this task.
-  int Pushed = Arguments;
+  int Pushed = Arguments + R.Tasks[Index].StartArgs;
+  R.Tasks[Index].StartArgs = 0;
+  if (R.Tasks[Index].Elapsed) {
+    R.Tasks[Index].Elapsed = false;
+    lua_pushnumber(Co, R.Clock - R.Tasks[Index].Since);
+    ++Pushed;
+  }
   if (R.Tasks[Index].Resume) {
     const std::function<int(void *)> Make = std::move(R.Tasks[Index].Resume);
     R.Tasks[Index].Resume = nullptr;
@@ -356,6 +396,11 @@ bool PumpOnce(detail::Runtime &R, std::size_t Index, ErrorDiagnostic &Failure,
   // resumed again from a nested pump.
   if (R.Tasks[Index].Dead || R.Tasks[Index].Running)
     return true;
+
+  // The script may have resumed a coroutine of its own again, ahead of us.
+  if (R.Tasks[Index].Adopted &&
+      lua_costatus(R.L, R.Tasks[Index].Co) != LUA_COSUS)
+    return false;
 
   // The task list can grow while the script runs, so nothing here may hold a
   // reference into it across the resume.
@@ -410,6 +455,20 @@ void CompactTasks(detail::Runtime &R) {
   R.DeadTasks = 0;
 }
 
+// Applies the wakes other threads posted, on this one.
+void DrainInbox(detail::Runtime &R) {
+  if (!R.InboxFull.exchange(false, std::memory_order_acq_rel))
+    return;
+
+  std::vector<std::pair<const void *, std::function<int(void *)>>> Taken;
+  {
+    std::lock_guard<std::mutex> Guard(R.InboxLock);
+    Taken.swap(R.Inbox);
+  }
+  for (auto &Entry : Taken)
+    R.Owner->Wake(Entry.first, std::move(Entry.second));
+}
+
 void ReportFailure(detail::Runtime &R, std::uint64_t Task,
                    ErrorDiagnostic Error) {
   if (!R.Settings.OnTaskError)
@@ -420,6 +479,55 @@ void ReportFailure(detail::Runtime &R, std::uint64_t Task,
   }
 }
 } // namespace
+
+namespace detail {
+std::uint64_t StartTask(lua_State *VM, StartMode Mode, double Delay,
+                        const std::function<int(lua_State *)> &Prepare) {
+  Runtime *Core = RuntimeFromLua(VM);
+  if (!Core || !Core->L)
+    return 0;
+
+  Runtime &R = *Core;
+  CompactTasks(R);
+  PumpScope Scope(R);
+  lua_State *Co = nullptr;
+  int ThreadRef = LUA_NOREF;
+  int Count = 0;
+  std::string Fault;
+  if (!RunGuarded(
+          R,
+          [&] {
+            Co = lua_newthread(R.L);
+            ThreadRef = luna::detail::PinTop(R.L);
+            Count = Prepare(Co);
+          },
+          Fault)) {
+    if (ThreadRef != LUA_NOREF)
+      luna::detail::Unpin(R.L, ThreadRef);
+    ReportFailure(R, 0, ErrorDiagnostic(ErrorCategory::Runtime, Fault));
+    return 0;
+  }
+
+  Task Entry;
+  Entry.Co = Co;
+  Entry.ThreadRef = ThreadRef;
+  Entry.Id = R.NextId++;
+  Entry.Due = R.Clock + (Mode == StartMode::After && Delay > 0.0 ? Delay : 0.0);
+  Entry.StartArgs = Count;
+  R.Tasks.push_back(Entry);
+  const std::size_t Index = R.Tasks.size() - 1;
+  const std::uint64_t Id = Entry.Id;
+  if (Mode == StartMode::Now) {
+    ErrorDiagnostic Failure;
+    if (!PumpOnce(R, Index, Failure)) {
+      if (Failure.Category() != ErrorCategory::None)
+        ReportFailure(R, Id, std::move(Failure));
+      ReleaseTask(R, Index);
+    }
+  }
+  return Id;
+}
+} // namespace detail
 
 ExecutionResult State::Execute(std::string_view Source) {
   if (!IsReady())
@@ -468,6 +576,7 @@ ExecutionResult State::Execute(std::string_view Source) {
   const std::size_t Index = R.Tasks.size() - 1;
   ErrorDiagnostic Failure;
   for (;;) {
+    DrainInbox(R);
     for (std::size_t Other = 0; Other < R.Tasks.size(); ++Other) {
       if (Other == Index || R.Tasks[Other].Dead || R.Tasks[Other].Running)
         continue;
@@ -610,6 +719,7 @@ void State::Tick(double DeltaSeconds) {
   if (DeltaSeconds > 0.0)
     R.Clock += DeltaSeconds;
 
+  DrainInbox(R);
   {
     PumpScope Scope(R);
     const std::size_t Count = R.Tasks.size();
@@ -689,6 +799,16 @@ void State::Wake(const void *Key) {
   Wake(Key, nullptr);
 }
 
+void State::PostWake(const void *Key, std::function<int(void *)> Values) {
+  if (!Core || !Key)
+    return;
+  {
+    std::lock_guard<std::mutex> Guard(Core->InboxLock);
+    Core->Inbox.emplace_back(Key, std::move(Values));
+  }
+  Core->InboxFull.store(true, std::memory_order_release);
+}
+
 void State::Wake(const void *Key, std::function<int(void *)> Values) {
   if (!Core || !Key)
     return;
@@ -711,6 +831,11 @@ bool State::HasWaiters(const void *Key) const noexcept {
   return false;
 }
 
+void SuspendMeasured(double DelaySeconds) {
+  SuspendCurrentChunk(nullptr, DelaySeconds);
+  detail::SuspensionElapsed = true;
+}
+
 void Suspend(double DelaySeconds) {
   SuspendCurrentChunk(nullptr, DelaySeconds);
 }
@@ -731,6 +856,21 @@ ReflectionSnapshot State::Reflection() const {
     return ReflectionSnapshot();
   return ReflectionSnapshot(Core->World.Snapshot());
 }
+
+const ErrorDiagnostic *Chunk::Diagnostic() const noexcept {
+  return Data && !Data->Compiled ? &Data->Failure : nullptr;
+}
+
+namespace detail {
+bool PushChunkFunction(lua_State *L, const Chunk &Loaded) {
+  const auto &Data = Loaded.Data;
+  if (!Data || !Data->Compiled || !Data->Life ||
+      !Data->Life->Alive.load(std::memory_order_acquire))
+    return false;
+  lua_rawgeti(L, LUA_REGISTRYINDEX, Data->FunctionRef);
+  return true;
+}
+} // namespace detail
 
 bool Chunk::IsValid() const noexcept {
   return Data && Data->Compiled;

@@ -98,7 +98,7 @@ An enumerator is a plain number by default. An alias names an existing enumerato
 
 ### Enumerator objects
 
-`AsObjects()` publishes each enumerator as one interned table instead of a number:
+`AsObjects()` publishes each enumerator as one interned object instead of a number:
 
 ```cpp
 channels.AsObjects();
@@ -111,7 +111,7 @@ print(info == Studio.Channel.Info)             --> true
 print(info == Studio.Channel.Warning)          --> false
 ```
 
-Because each enumerator is created once, identity comparison works.
+Because each enumerator is created once, identity comparison works. An enumerator is a userdata, so `typeof(info)` is `"EnumItem"`, and `tostring(info)` is `Studio.Channel.Info`.
 
 ### Enum parameters and returns
 
@@ -119,7 +119,7 @@ A C++ enum used as a parameter is read from a number, and as a return it is writ
 
 ### Locked
 
-Enum tables and enumerator objects are read-only to scripts: `Studio.Channel.Info = 5` and `Studio.Channel.Info.Value = 9` are both errors.
+Enum tables and enumerators are read-only to scripts: `Studio.Channel.Info = 5` and `Studio.Channel.Info.Value = 9` are both errors, and `getmetatable` on an enumerator returns a lock message.
 
 ## The `StableTypeKey`
 

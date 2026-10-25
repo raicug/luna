@@ -60,7 +60,7 @@ struct Sprite {
 };
 
 // One line, at global scope, makes a type bindable.
-template <> struct luna::detail::RegisteredClassTrait<Sprite> : std::true_type {};
+template <> struct luna::RegisteredClassTrait<Sprite> : std::true_type {};
 
 enum class Channel : int { Debug = 10, Info = 20 };
 

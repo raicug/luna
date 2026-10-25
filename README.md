@@ -13,8 +13,12 @@ scripts against them. Scripts can wait without blocking a thread.
   whole batch before anything is linked, and a failure after linking began (a
   value factory that fails, running out of memory) is undone, so a rejected
   commit publishes nothing. `Commit()` returns a result and never throws.
+- **A task library.** `task.spawn`, `defer`, `delay`, `cancel` and `wait`, built on the
+  scheduler, with `wait` working inside coroutines a script makes itself.
 - **Coroutine scheduler.** A native `luna::Suspend(seconds)` yields the running
   chunk and the scheduler resumes it later. Many scripts share one thread.
+- **Script signals.** `luna::ScriptSignal` is a signal scripts can make and use:
+  `Connect`, `Once`, `Wait`, connection objects, and handlers that run as tasks.
 - **Signals.** A host `luna::Signal<void(...)>` takes native and script handlers,
   isolates a throwing handler, and lets a script park on `:Wait()` until the next
   fire instead of polling for changes.
@@ -69,7 +73,7 @@ struct Sprite {
 };
 
 // A host type opts in with one line, at namespace scope.
-template <> struct luna::detail::RegisteredClassTrait<Sprite> : std::true_type {};
+template <> struct luna::RegisteredClassTrait<Sprite> : std::true_type {};
 
 luna::State state;
 

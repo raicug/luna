@@ -32,6 +32,17 @@ struct Task {
 
   // Pushes the values a Wake wants the task to resume with.
   std::function<int(void *)> Resume;
+
+  // Arguments already on the coroutine's stack for its first resume.
+  int StartArgs = 0;
+
+  // A coroutine a script made that began waiting, so the scheduler took it
+  // over.
+  bool Adopted = false;
+
+  // The call that parked the task returns the seconds that passed.
+  bool Elapsed = false;
+  double Since = 0.0;
 };
 
 struct MemoryArena {
@@ -81,6 +92,10 @@ struct Runtime {
   // guarded call up allocates nothing and cannot itself run out of memory.
   int GuardRef = LUA_NOREF;
   std::vector<Task> Tasks;
+  // Wakes posted by other threads, applied on the state's own thread.
+  std::mutex InboxLock;
+  std::vector<std::pair<const void *, std::function<int(void *)>>> Inbox;
+  std::atomic<bool> InboxFull{false};
   // Finished entries not yet reclaimed, and how many scheduler loops are
   // active.
   std::size_t DeadTasks = 0;

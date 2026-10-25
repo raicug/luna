@@ -283,6 +283,7 @@ enum class ClassOperator : std::uint8_t {
   Modulo,
   Power,
   UnaryMinus,
+  Negate = UnaryMinus,
   Equal,
   Less,
   LessOrEqual,
@@ -308,6 +309,9 @@ template <class Signature> class Delegate;
 template <class T> class ClassBuilder;
 template <class T> class EnumBuilder;
 
+// Specialise this, at global scope, to make a class bindable.
+template <class T> struct RegisteredClassTrait : std::false_type {};
+
 namespace detail {
 class Model;
 class Plan;
@@ -319,6 +323,11 @@ struct Liveness;
 template <class T> inline constexpr unsigned char TypeToken = 0;
 
 template <class T> struct RegisteredClassTrait : std::false_type {};
+
+// A class opts in through either name; the public one is the one to use.
+template <class T>
+inline constexpr bool IsClassType =
+    RegisteredClassTrait<T>::value || ::luna::RegisteredClassTrait<T>::value;
 
 template <class E> struct RegisteredEnumTrait : std::false_type {};
 
@@ -343,9 +352,6 @@ enum class OperatorSlot : std::uint8_t {
 };
 } // namespace detail
 
-// An alias, so a specialisation written against it is a compile error instead
-// of something that compiles and does nothing. Specialise luna::detail's.
-template <class T> using RegisteredClassTrait = detail::RegisteredClassTrait<T>;
 } // namespace luna
 
 #pragma pop_macro("max")

@@ -17,6 +17,7 @@ namespace detail {
 class Model;
 struct Runtime;
 struct ChunkState;
+bool PushChunkFunction(lua_State *L, const Chunk &Loaded);
 } // namespace detail
 
 // A task that failed somewhere nobody is waiting for its result: a Spawn, a
@@ -71,6 +72,8 @@ public:
   // False when the source did not compile; Call() then reports that failure.
   [[nodiscard]] bool IsValid() const noexcept;
   [[nodiscard]] std::string_view Name() const noexcept;
+  // The compile error, or null when the chunk compiled.
+  [[nodiscard]] const ErrorDiagnostic *Diagnostic() const noexcept;
 
   // Runs the chunk until it finishes or first yields. A chunk that yields stays
   // in the task list and carries on from State::Tick; Call returns success for
@@ -81,7 +84,26 @@ public:
 private:
   std::shared_ptr<detail::ChunkState> Data;
   friend class State;
+  friend bool detail::PushChunkFunction(lua_State *, const Chunk &);
 };
+
+namespace detail {
+// A callable that returns a Chunk hands the script the compiled function, which
+// it then calls in its own task, so `wait` works inside it.
+template <> struct CustomCodec<Chunk, void> {
+  static constexpr bool Enabled = true;
+  static bool Read(lua_State *, int, Chunk &, ArgError &Error) {
+    Error.Set("a chunk cannot be read from a script");
+    return false;
+  }
+  static bool Accepts(lua_State *, int) { return false; }
+  static int Write(lua_State *L, const Chunk &Loaded) {
+    if (!PushChunkFunction(L, Loaded))
+      throw MarshalError("the chunk did not compile");
+    return 1;
+  }
+};
+} // namespace detail
 
 class State {
 public:
@@ -128,6 +150,9 @@ public:
   void Wake(const void *Key);
   void Wake(const void *Key, std::function<int(void *)> Values);
   [[nodiscard]] bool HasWaiters(const void *Key) const noexcept;
+  // Like Wake, and safe from any thread. It takes effect on the state's thread,
+  // at its next Tick, so work finished elsewhere can resume a parked task.
+  void PostWake(const void *Key, std::function<int(void *)> Values = nullptr);
   // Lets host objects (a Signal) tell if this State is still there.
   [[nodiscard]] std::shared_ptr<detail::Liveness> Life() const noexcept;
   [[nodiscard]] detail::Runtime *GetRuntime() noexcept;
@@ -154,4 +179,12 @@ bool SuspendCurrentChunk(void *VM, double DelaySeconds);
 bool SuspendCurrentChunkUntil(void *VM, const void *Key);
 
 void Suspend(double DelaySeconds = 0.0);
+
+// Like Suspend, but the call returns the seconds that actually passed.
+void SuspendMeasured(double DelaySeconds);
+
+// Registers task.spawn, task.defer, task.delay, task.cancel and task.wait. With
+// GlobalAliases it also registers wait, spawn and delay.
+RegistrationResult RegisterTaskLibrary(BindingRegistry Registry,
+                                       bool GlobalAliases = true);
 } // namespace luna

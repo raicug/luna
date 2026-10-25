@@ -28,6 +28,8 @@ add_library(luna STATIC
     src/userdata.cpp
     src/convert.cpp
     src/docs.cpp
+    src/tasklib.cpp
+    src/signals.cpp
 )
 
 add_library(luna::luna ALIAS luna)

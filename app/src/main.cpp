@@ -23,8 +23,7 @@ public:
   }
 };
 
-template <>
-struct luna::detail::RegisteredClassTrait<Sprite> : std::true_type {};
+template <> struct luna::RegisteredClassTrait<Sprite> : std::true_type {};
 
 enum class Channel : int { Debug = 10, Info = 20, Warning = 30 };
 

@@ -37,7 +37,7 @@ Consequences:
 
 - A delegate works after the script that registered it has finished, and after garbage collection.
 - A delegate works while the registering script is suspended, without disturbing it.
-- A handler cannot `wait`. The host called it, so there is no task to suspend, and `wait()` raises `cannot wait here` rather than doing nothing. A handler that must wait should start a task with `Spawn`.
+- A handler cannot `wait`. The host called it, so there is no task to suspend, and `wait()` raises `cannot wait here` rather than doing nothing. A handler that must wait is started with `Spawn`, `Defer` or `SpawnAfter` instead; see [Tasks and scheduling](tasks-and-scheduling.md#running-a-function-as-a-task).
 - The function's return value is ignored.
 
 An error in the handler comes back in the result. It does not propagate to the host.
@@ -119,7 +119,47 @@ state.Tick(0.0);                  // the waiter resumes, v == 7
 
 A signal with several arguments returns them all: `local n, text = Both:Wait()`.
 
+A typed signal's script handlers run as tasks (`Delegate::Spawn`), so a handler may `task.wait`. A failure in one goes to `OnTaskError`; it is not in the `FireReport`, which counts host handlers.
+
 `Wait` needs the signal to be attached to the state. `Execute` of a script that waits returns at once with `IsPending()` true.
+
+## ScriptSignal
+
+`luna::Signal` is typed: its handlers take the arguments the host declared. `luna::ScriptSignal` is the other shape, for a signal scripts make and use freely: its payload is whatever was fired, and a script gets the API it expects.
+
+```cpp
+luna::RegisterScriptSignals(registry);          // classes Signal and Connection
+
+luna::ScriptSignal changed("Changed");
+registry.RegisterValue("Changed", [changed] { return changed; });   // by value: copies share handlers
+
+changed.Fire("a", 1);                           // any number of values
+changed.Connect([](const luna::ValuePack &p) { /* host handler */ });
+```
+
+| Script call | Meaning |
+| --- | --- |
+| `Signal.new(name?)` | Makes a signal |
+| `s:Connect(fn)` / `s:ConnectParallel(fn)` | Connects `fn(...)`; returns a connection |
+| `s:Once(fn)` | The same, disconnected after its first run |
+| `s:Wait()` | Parks the script; returns the fired values |
+| `s:Fire(...)` | Fires it from the script |
+| `s:DisconnectAll()` | Disconnects every handler |
+| `s.ConnectionCount`, `s.Name` | Properties |
+| `conn:Disconnect()`, `conn.Connected` | The connection |
+
+A script handler runs as a task of its own, so it can wait. A signal needs no `Attach`: `Wait` learns the state from the script that calls it. Handlers connected while it fires run from the next fire.
+
+### Names
+
+```cpp
+luna::ScriptSignalNames names;
+names.Signal = "Signal";            // the global the script uses
+names.SignalType = "Event";         // what typeof reports (defaults to the name)
+names.Connection = "Connection";
+names.ConnectionType = "Link";
+luna::RegisterScriptSignals(registry, names);
+```
 
 ## Lifetime
 

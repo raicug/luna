@@ -70,12 +70,10 @@ public:
   }
 
   Connection Connect(ScriptHandler Callback) {
-    return Add(
-        [Callback = std::move(Callback)](A... Args) mutable -> std::string {
-          const DelegateCallResult Result =
-              Callback.Invoke(std::forward<A>(Args)...);
-          return Result.IsSuccess() ? std::string() : Result.Diagnostic();
-        });
+    return Add([Callback = std::move(Callback)](A... Args) -> std::string {
+      Callback.Spawn(std::forward<A>(Args)...);
+      return std::string();
+    });
   }
 
   std::size_t ConnectScript(ScriptHandler Callback) {
@@ -170,10 +168,9 @@ private:
   }
 
   static Sink Make(ScriptHandler Callback) {
-    return [Callback = std::move(Callback)](A... Args) mutable -> std::string {
-      const DelegateCallResult Result =
-          Callback.Invoke(std::forward<A>(Args)...);
-      return Result.IsSuccess() ? std::string() : Result.Diagnostic();
+    return [Callback = std::move(Callback)](A... Args) -> std::string {
+      Callback.Spawn(std::forward<A>(Args)...);
+      return std::string();
     };
   }
 
@@ -222,4 +219,78 @@ void RegisterSignal(BindingRegistry Registry, std::string_view Name,
       Name, [&Target]() -> Signal<void(A...)> * { return &Target; },
       OwnershipPolicy::Borrowed(LifetimeHandle()));
 }
+
+namespace detail {
+struct SignalCore;
+}
+
+// A connection a script holds: it can disconnect it and ask if it is still
+// live.
+class ScriptConnection {
+public:
+  ScriptConnection() = default;
+  void Disconnect() const;
+  [[nodiscard]] bool Connected() const;
+  bool operator==(const ScriptConnection &Other) const;
+
+private:
+  friend class ScriptSignal;
+  std::weak_ptr<detail::SignalCore> Owner;
+  std::uint64_t Id = 0;
+};
+
+// A signal whose payload is decided at fire time, shaped for scripts: they
+// connect with Connect or Once, get a connection back, and Wait for the next
+// fire. A script handler runs as a task of its own, so it may wait. Copies
+// share one list of handlers, so handing one to a script is cheap.
+class ScriptSignal {
+public:
+  explicit ScriptSignal(std::string Name = std::string());
+
+  [[nodiscard]] const std::string &Name() const;
+  void Fire(ValuePack Payload) const;
+  template <class... A> void Fire(A &&...Values) const {
+    ValuePack Payload;
+    (Payload.Append(OwnedValue(std::forward<A>(Values))), ...);
+    Fire(std::move(Payload));
+  }
+
+  ScriptConnection Connect(std::function<void(const ValuePack &)> Handler,
+                           bool Once = false) const;
+  ScriptConnection Connect(Delegate<void(ValuePack)> Handler,
+                           bool Once = false) const;
+  [[nodiscard]] std::size_t ConnectionCount() const;
+  void DisconnectAll() const;
+
+  // Tells the signal which state a script waits in, so Fire can wake it. A
+  // script-facing call does this itself; call it for a signal only the host
+  // uses.
+  void Bind(void *VM) const;
+  [[nodiscard]] const void *Key() const;
+  bool operator==(const ScriptSignal &Other) const;
+
+private:
+  std::shared_ptr<detail::SignalCore> Core;
+};
+
+// The names the two classes take in a script, and what typeof reports for them.
+struct ScriptSignalNames {
+  std::string Signal = "Signal";
+  std::string Connection = "Connection";
+  std::string SignalType;
+  std::string ConnectionType;
+};
+
+// Registers the signal and connection classes. A script can then make one with
+// Signal.new(), connect, wait and fire; the host hands signals out by value.
+RegistrationResult
+RegisterScriptSignals(BindingRegistry Registry,
+                      const ScriptSignalNames &Names = ScriptSignalNames());
 } // namespace luna
+
+template <>
+struct luna::detail::RegisteredClassTrait<luna::ScriptSignal> : std::true_type {
+};
+template <>
+struct luna::detail::RegisteredClassTrait<luna::ScriptConnection>
+    : std::true_type {};

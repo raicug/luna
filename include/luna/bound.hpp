@@ -68,7 +68,7 @@ struct CallableHeader {
 
 template <class A> constexpr const void *TokenOf() {
   using Subject = typename ClassSubject<A>::Type;
-  if constexpr (RegisteredClassTrait<Subject>::value)
+  if constexpr (IsClassType<Subject>)
     return static_cast<const void *>(&TypeToken<Subject>);
   else
     return nullptr;
@@ -389,7 +389,34 @@ public:
 
   DelegateCallResult Invoke(A... Args) const;
 
+  // Runs the function as a task of its own, so it may wait. Spawn runs it to
+  // its first yield now, Defer starts it at the next tick, and SpawnAfter after
+  // a delay. Each returns the task handle, or 0 if the delegate is not bound.
+  std::uint64_t Spawn(A... Args) const {
+    return Start(detail::StartMode::Now, 0.0, Args...);
+  }
+  std::uint64_t Defer(A... Args) const {
+    return Start(detail::StartMode::Next, 0.0, Args...);
+  }
+  std::uint64_t SpawnAfter(double Seconds, A... Args) const {
+    return Start(detail::StartMode::After, Seconds, Args...);
+  }
+
 private:
+  std::uint64_t Start(detail::StartMode Mode, double Delay, A... Args) const {
+    if (!IsBound())
+      return 0;
+    const int Ref = Shared->Ref;
+    return detail::StartTask(
+        static_cast<lua_State *>(Shared->VM), Mode, Delay, [&](lua_State *Co) {
+          lua_checkstack(Co, static_cast<int>(sizeof...(A)) * 4 + 8);
+          lua_rawgeti(Co, LUA_REGISTRYINDEX, Ref);
+          int Pushed = 0;
+          ((Pushed += detail::WriteValue(Co, Args, NoType)), ...);
+          return Pushed;
+        });
+  }
+
   std::shared_ptr<Handle> Shared;
 };
 
@@ -526,6 +553,7 @@ struct StagedEnum {
 struct StagedClass {
   std::string Name;
   std::string StableKey;
+  std::string TypeName;
   const void *Token = nullptr;
   std::string BaseName;
   std::shared_ptr<LifetimeHandle::Control> Lifetime;
@@ -826,6 +854,12 @@ public:
   // read.
   ClassBuilder &BorrowedFrom(const LifetimeHandle &Handle) {
     Staged_.Lifetime = Handle.ControlBlock();
+    return *this;
+  }
+
+  // What typeof reports for an instance, when it should not be the class name.
+  ClassBuilder &TypeName(std::string_view Name) {
+    Staged_.TypeName = std::string(Name);
     return *this;
   }
 

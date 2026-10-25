@@ -27,6 +27,44 @@ std::string_view ParentOf(std::string_view Qualified) {
                                        : Qualified.substr(0, Dot);
 }
 
+// What tostring gives an enumerator: the closure's one upvalue.
+int EnumItemText(lua_State *L) {
+  lua_pushvalue(L, lua_upvalueindex(1));
+  return 1;
+}
+
+// An enumerator is a userdata, because typeof only reports a custom type name
+// for one. Its fields live in the table its metatable indexes, and the same
+// userdata is handed out every time, so it compares equal to itself only.
+void PushEnumItem(lua_State *L, const std::string &EnumName,
+                  const std::string &Name, double Value) {
+  lua_newuserdata(L, 1);
+  lua_createtable(L, 0, 4);
+
+  lua_pushstring(L, "EnumItem");
+  lua_setfield(L, -2, "__type");
+
+  lua_createtable(L, 0, 3);
+  lua_pushlstring(L, Name.data(), Name.size());
+  lua_setfield(L, -2, "Name");
+  lua_pushnumber(L, Value);
+  lua_setfield(L, -2, "Value");
+  lua_pushlstring(L, EnumName.data(), EnumName.size());
+  lua_setfield(L, -2, "EnumName");
+  lua_setreadonly(L, -1, 1);
+  lua_setfield(L, -2, "__index");
+
+  const std::string Text = EnumName + "." + Name;
+  lua_pushlstring(L, Text.data(), Text.size());
+  lua_pushcclosurek(L, &EnumItemText, "tostring", 1, nullptr);
+  lua_setfield(L, -2, "__tostring");
+
+  lua_pushstring(L, "The metatable is locked");
+  lua_setfield(L, -2, "__metatable");
+  lua_setreadonly(L, -1, 1);
+  lua_setmetatable(L, -2);
+}
+
 std::string_view LeafOf(std::string_view Qualified) {
   const std::size_t Dot = LastDot(Qualified);
   return Dot == std::string_view::npos ? Qualified : Qualified.substr(Dot + 1);
@@ -361,7 +399,10 @@ void LinkBatch(Runtime &R, Batch &Pending, std::string &Error) {
     const bool Fresh = Info->MetatableRef == LUA_NOREF;
     if (Fresh) {
       lua_createtable(L, 0, 8);
-      lua_pushlstring(L, Leaf.data(), Leaf.size());
+      if (Entry.TypeName.empty())
+        lua_pushlstring(L, Leaf.data(), Leaf.size());
+      else
+        lua_pushlstring(L, Entry.TypeName.data(), Entry.TypeName.size());
       lua_setfield(L, -2, "__type");
       // getmetatable hands a script this string, not the metatable to edit.
       lua_pushstring(L, "The metatable is locked");
@@ -523,15 +564,8 @@ void LinkBatch(Runtime &R, Batch &Pending, std::string &Error) {
     lua_createtable(L, 0, Count);
     for (const StagedEnumValue &Value : Entry.Values) {
       if (Entry.AsObjects) {
-        lua_createtable(L, 0, 3);
-        lua_pushlstring(L, Value.Name.c_str(), Value.Name.size());
-        lua_setfield(L, -2, "Name");
-        lua_pushnumber(L, static_cast<double>(Value.Value));
-        lua_setfield(L, -2, "Value");
-        lua_pushlstring(L, Entry.Name.c_str(), Entry.Name.size());
-        lua_setfield(L, -2, "EnumName");
-        // An enumerator is a value; a script cannot rewrite it.
-        lua_setreadonly(L, -1, 1);
+        PushEnumItem(L, Entry.Name, Value.Name,
+                     static_cast<double>(Value.Value));
       } else {
         lua_pushnumber(L, static_cast<double>(Value.Value));
       }

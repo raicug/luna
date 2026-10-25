@@ -31,6 +31,8 @@ How luna is put together behind the public headers. Read this when you are chang
 | `src/userdata.cpp` | Instances and the metamethods behind a class |
 | `src/convert.cpp` | `OwnedValue` and `ArgumentPack` implementations |
 | `src/state.cpp` | The scheduler, `Chunk`, hooks and the guarded call |
+| `src/tasklib.cpp` | `RegisterTaskLibrary`: `task.*` on top of `StartTask` |
+| `src/signals.cpp` | `ScriptSignal`, `ScriptConnection`, `RegisterScriptSignals` |
 | `src/docs.cpp` | `.d.luau` generation |
 
 The boundary rule: nothing a consumer includes names a Luau *type* in its own declarations except through `lua_State *` in codec templates. `tests/boundary.cpp` compiles each public header alone to enforce that.
@@ -103,7 +105,9 @@ Registering a name a second time builds an **overload set**: one closure whose u
 - `ResumeTask` saves `HasRunning`, `RunningIndex` and the budget counter, resumes, and restores them, so a nested `Spawn`, `Execute` or `Chunk::Call` leaves the outer task intact. It marks the task `Running` so a nested pump cannot resume it.
 - It never holds a reference into the vector across a resume, because a script can start tasks and grow it.
 - `PumpScope` counts active scheduler loops. `CompactTasks` reclaims finished entries only when that count is zero.
-- `CompleteSuspension` turns a `Suspend` or `Wait` request into a wake time or a wait key on the running task.
+- `CompleteSuspension` turns a `Suspend` or `Wait` request into a wake time or a wait key on the task that owns the **yielding coroutine**. A coroutine the script made (`coroutine.wrap`) has no task yet, so `Adopt` pins it and adds one, and from then on the scheduler resumes it directly. Its first resumer simply sees it yield.
+- `StartTask` is the one way a function becomes a task. It makes the coroutine under the guard, lets the caller push the function and arguments, and either runs it to its first yield (`Now`) or leaves it for a `Tick` (`Next`, `After`). `Delegate::Spawn` and `task.spawn` both use it.
+- A task can ask for the elapsed time on resume (`SuspendMeasured`), or be resumed with values (`Wake`). `PostWake` queues a wake under a mutex; `DrainInbox` applies it on the state's thread at the start of `Tick` and each `Execute` pass.
 
 ## Interrupts and budgets
 

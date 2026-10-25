@@ -29,7 +29,9 @@ Each test is a function that builds a `Fixture` (one `State`) and exercises one 
 | `TestClasses`, `TestOwnership`, `TestBaseClasses`, `TestIndexFallback`, `TestIteration` | Classes |
 | `TestOverloads`, `TestOverloadsAreStrict` | Overload selection |
 | `TestSuspension`, `TestScheduler`, `TestChunks`, `TestChunkYields`, `TestNestedSchedulerEntry` | Tasks |
-| `TestSignals`, `TestSignalWaitValues`, `TestHandlerOutlivesTask` | Events and delegates |
+| `TestSignals`, `TestSignalWaitValues`, `TestScriptSignals`, `TestHandlerOutlivesTask` | Events and delegates |
+| `TestTaskLibrary`, `TestWakeFromAnotherThread` | The task library, function tasks, cross-thread wakes |
+| `TestChunkReturnedToScript`, `TestEnumeratorTypes`, `TestPublicClassTrait` | Chunks as functions, enumerator types, the public trait |
 | `TestInterrupt`, `TestInterruptWithoutBudget`, `TestLimits` | Limits |
 | `TestValidation`, `TestFailedCommitLeavesNothing`, `TestRegistrationNeverThrows` | Registration failure |
 | `TestBindingsAreLocked`, `TestUnregisteredClassRefused`, `TestNameBelongsToOneType` | Safety |

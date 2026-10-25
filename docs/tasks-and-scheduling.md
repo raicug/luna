@@ -52,6 +52,79 @@ Value: cannot wait here, because this call is not running in a task that can yie
 
 That covers a handler a host `Delegate` or `Signal` calls, and a getter reached through a metamethod. It is an error rather than a silent no-op so a missing wait never goes unnoticed. A callable that asks to wait and then fails does not leave the request behind for the next call.
 
+## Waiting inside a coroutine
+
+A script can make coroutines of its own with `coroutine.wrap` and `coroutine.create`, and a native `wait` called inside one suspends **that coroutine**. The scheduler adopts it the first time it waits: the code that resumed it sees it yield and carries on, and the scheduler resumes it when its time comes.
+
+```lua
+local worker = coroutine.wrap(function()
+  task.wait(1)
+  print("a second later")
+end)
+worker()            -- returns at once
+print("not blocked")
+```
+
+An adopted coroutine fails like any task: its error goes to `OnTaskError`. If the script resumes it again itself before the scheduler does, the scheduler notices it is no longer suspended and lets it go.
+
+## Running a function as a task
+
+`State::Spawn` starts source text. To start a *function*, with arguments, use a `Delegate`:
+
+```cpp
+luna::Delegate<void(double)> handler;
+registry.Register("hold", [&](luna::Delegate<void(double)> h) { handler = h; });
+
+handler.Spawn(7.0);            // runs now, until its first wait
+handler.Defer(7.0);            // starts at the next Tick
+handler.SpawnAfter(2.0, 7.0);  // starts after two seconds
+```
+
+Each returns the task handle (0 if the delegate is not bound), which `Cancel` accepts. Unlike `Invoke`, which runs a function to completion on a throwaway thread, a spawned function is a real task: it can wait, and its failure goes to `OnTaskError`.
+
+## The task library
+
+```cpp
+luna::RegisterTaskLibrary(registry);              // task.* and the global aliases
+luna::RegisterTaskLibrary(registry, false);       // task.* only
+```
+
+| Script call | Meaning |
+| --- | --- |
+| `task.spawn(fn, ...)` | Runs `fn` as a task now, until its first wait. Returns the handle. |
+| `task.defer(fn, ...)` | Starts `fn` at the next tick |
+| `task.delay(seconds, fn, ...)` | Starts `fn` after `seconds` |
+| `task.cancel(handle)` | Drops a task started by any of the above |
+| `task.wait(seconds)` | Waits, and **returns the seconds that actually passed** |
+| `wait`, `spawn`, `delay` | The same, as globals (skipped when you pass `false`) |
+
+`task.wait` is `luna::SuspendMeasured`. Use it in your own functions when a script should get the elapsed time back:
+
+```cpp
+registry.Register("pause", [](double s) { luna::SuspendMeasured(s); });
+// local elapsed = pause(0.5)
+```
+
+## Waking from another thread
+
+`Wake` must run on the state's own thread. For work finished elsewhere (a download, a file read), `PostWake` is the thread-safe version:
+
+```cpp
+static int done;
+registry.Register("download", [](std::string url) {
+  luna::WaitForSignal(&done);                    // parks the script
+  pool.Run([url] {
+    std::string body = Fetch(url);
+    state.PostWake(&done, [body](void *vm) {     // from the worker thread
+      lua_pushlstring(static_cast<lua_State *>(vm), body.data(), body.size());
+      return 1;
+    });
+  });
+});
+```
+
+The wake is queued and applied at the state's next `Tick`, or when `Execute` pumps; the values function runs there, on the state's thread, and pushes what the parked call returns.
+
 ## Waiting for an event
 
 `State::Wait(key)` and `State::Wake(key)` are the primitive a `Signal` uses:
@@ -75,7 +148,25 @@ args.Append(42);
 luna::ExecutionResult first = chunk.Call(args);   // runs until it finishes or first waits
 ```
 
-`Call` can be repeated, and each call runs on its own coroutine. A chunk that fails to compile is still a `Chunk`; `Call()` returns the compile error. The chunk's own return values are not collected.
+`Call` can be repeated, and each call runs on its own coroutine. A chunk that fails to compile is still a `Chunk`; `Call()` returns the compile error, and `chunk.Diagnostic()` returns it without running anything. The chunk's own return values are not collected.
+
+### Handing a chunk to a script
+
+A callable can **return** a `Chunk`. The script receives the compiled function, and calls it in its own task, so a `wait` inside it works. That is how `loadstring` is written:
+
+```cpp
+registry.Register("loadstring", [&state](std::string source) {
+  luna::Chunk chunk = state.Load(source, "loadstring");
+  if (!chunk.IsValid())
+    throw std::runtime_error(chunk.Diagnostic()->Message());
+  return chunk;
+});
+```
+
+```lua
+local f = loadstring("local a, b = ... return a * b")
+print(f(6, 7))   --> 42
+```
 
 Passing an `OwnedValue::Instance` of a class that is not registered fails the call with `not registered`, and does not throw.
 

@@ -82,6 +82,12 @@ struct luna::detail::RegisteredClassTrait<Moved> : std::true_type {};
 template <>
 struct luna::detail::RegisteredClassTrait<Holder> : std::true_type {};
 
+// Opts in through the public name.
+struct Plain {
+  double V = 4.0;
+};
+template <> struct luna::RegisteredClassTrait<Plain> : std::true_type {};
+
 // Never registered with any State.
 struct Stranger {
   int Value = 3;
@@ -1962,6 +1968,320 @@ void TestOutOfMemoryAtTaskCreation() {
   Check(!Threw, "Execute, Spawn and Load do not throw when memory runs out");
   Check(Refused > 0, "running out of memory is reported to the caller");
 }
+
+void TestTaskLibrary() {
+  std::vector<luna::TaskFailure> Failures;
+  luna::StateOptions Options;
+  Options.OnTaskError = [&Failures](const luna::TaskFailure &Failure) {
+    Failures.push_back(Failure);
+  };
+  luna::State State(Options);
+  luna::BindingRegistry Registry = State.Bindings();
+  Check(luna::RegisterTaskLibrary(Registry).IsSuccess(),
+        "the task library registers");
+
+  // A coroutine the script made keeps waiting after its caller moved on.
+  (void)State.Spawn("local co = coroutine.wrap(function()\n"
+                    "  task.wait(1)\n"
+                    "  inner = true\n"
+                    "end)\n"
+                    "co()\n"
+                    "outer = true");
+  Check(State.Execute("assert(outer == true and inner == nil)").IsSuccess(),
+        "the caller carries on past a coroutine that waits");
+  State.Tick(1.1);
+  Check(State.Execute("assert(inner == true)").IsSuccess(),
+        "the scheduler resumes a coroutine the script made");
+
+  (void)State.Spawn("elapsed = task.wait(0.5)");
+  State.Tick(0.6);
+  Check(State.Execute("assert(elapsed >= 0.5 and elapsed < 0.7)").IsSuccess(),
+        "task.wait returns the seconds that passed");
+
+  Check(State
+            .Execute("task.spawn(function(a, b) sum = a + b end, 2, 3)\n"
+                     "assert(sum == 5)")
+            .IsSuccess(),
+        "task.spawn runs now and passes its arguments");
+  Check(State.Execute("task.spawn(function() task.wait(1) late = true end)")
+                .IsSuccess() &&
+            State.PendingTasks() == 1,
+        "a spawned function can wait");
+  State.Tick(1.1);
+  Check(State.Execute("assert(late == true)").IsSuccess(),
+        "it finishes when its time comes");
+
+  Check(State
+            .Execute("task.defer(function() deferred = true end)\n"
+                     "assert(deferred == nil)")
+            .IsSuccess(),
+        "task.defer does not run at once");
+  State.Tick(0.0);
+  Check(State.Execute("assert(deferred == true)").IsSuccess(),
+        "it runs on the next tick");
+
+  Check(
+      State
+          .Execute("task.delay(2, function() delayed = true end)\n"
+                   "local h = task.delay(1, function() cancelled = true end)\n"
+                   "task.cancel(h)")
+          .IsSuccess(),
+      "task.delay and task.cancel run");
+  State.Tick(1.5);
+  Check(
+      State.Execute("assert(delayed == nil and cancelled == nil)").IsSuccess(),
+      "nothing fires early, and a cancelled task never fires");
+  State.Tick(1.0);
+  Check(
+      State.Execute("assert(delayed == true and cancelled == nil)").IsSuccess(),
+      "the delay fires at its time");
+
+  Failures.clear();
+  Check(State.Execute("task.spawn(function() error('boom') end)").IsSuccess(),
+        "a spawned function that fails does not fail its spawner");
+  Check(Failures.size() == 1 &&
+            Failures[0].Error.Message().find("boom") != std::string::npos,
+        "its failure goes to OnTaskError");
+  Check(!State.Execute("task.spawn(5)").IsSuccess(),
+        "task.spawn refuses something that is not a function");
+  Check(State.Execute("wait(0.1) aliased = true").IsSuccess(),
+        "the global wait is there too");
+
+  luna::Delegate<void(double)> Held;
+  Registry.Register("hold", [&Held](luna::Delegate<void(double)> Handler) {
+    Held = Handler;
+  });
+  Check(State.Execute("hold(function(v) task.wait(1) heldGot = v end)")
+            .IsSuccess(),
+        "a handler that waits registers");
+  Check(Held.Spawn(7.0) != 0, "a delegate can start its function as a task");
+  State.Tick(1.1);
+  Check(State.Execute("assert(heldGot == 7)").IsSuccess(),
+        "that task waited and finished, with its argument");
+  (void)Held.SpawnAfter(2.0, 8.0);
+  State.Tick(1.0);
+  Check(State.Execute("assert(heldGot == 7)").IsSuccess(),
+        "a delayed spawn waits");
+  State.Tick(1.1);
+  Check(State.Execute("assert(heldGot == 7)").IsSuccess(),
+        "and then runs its function, which waits one more second");
+  State.Tick(1.1);
+  Check(State.Execute("assert(heldGot == 8)").IsSuccess(), "which finishes");
+}
+
+void TestWakeFromAnotherThread() {
+  Fixture F;
+  static int Key = 0;
+  F.State.Bindings().Register("park", [] { luna::WaitForSignal(&Key); });
+  (void)F.State.Spawn("got = park()");
+  Check(F.State.HasWaiters(&Key), "a script is parked");
+  Check(F.Run("assert(got == nil)"), "it is still parked");
+
+  std::thread Worker([&F] {
+    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    F.State.PostWake(&Key, [](void *VM) {
+      lua_pushnumber(static_cast<lua_State *>(VM), 5.0);
+      return 1;
+    });
+  });
+  Worker.join();
+  F.State.Tick(0.0);
+  Check(F.Run("assert(got == 5)"),
+        "a wake posted from another thread resumes the script with its values");
+}
+
+void TestChunkReturnedToScript() {
+  Fixture F;
+  luna::State *Host = &F.State;
+  Check(luna::RegisterTaskLibrary(F.State.Bindings()).IsSuccess(),
+        "the task library registers");
+  F.State.Bindings().Register("load", [Host](std::string Source) {
+    luna::Chunk Loaded = Host->Load(Source, "loaded");
+    if (!Loaded.IsValid())
+      throw std::runtime_error(Loaded.Diagnostic()->Message());
+    return Loaded;
+  });
+
+  Check(F.Run("local f = load('return 1 + 1') assert(type(f) == 'function')\n"
+              "assert(f() == 2)"),
+        "a returned chunk is a function the script can call");
+  Check(F.Run("local f = load('local a, b = ... return a * b') assert(f(6, 7) "
+              "== 42)"),
+        "it takes arguments and returns values");
+  std::string Message;
+  Check(!F.Run("load('x = = 1')", &Message),
+        "a chunk that does not compile throws");
+  Check(Message.find("loaded") != std::string::npos,
+        "the error names the chunk and carries the compile error");
+
+  (void)F.State.Spawn("load('task.wait(0.5) loadedDone = true')()");
+  Check(F.Run("assert(loadedDone == nil)"),
+        "the loaded function waits in the caller's task");
+  F.State.Tick(0.6);
+  Check(F.Run("assert(loadedDone == true)"), "and finishes after the wait");
+
+  luna::Chunk Broken = F.State.Load("x = = 1", "broken");
+  Check(!Broken.IsValid() && Broken.Diagnostic() &&
+            Broken.Diagnostic()->Category() == luna::ErrorCategory::Compile,
+        "a chunk that did not compile reports its diagnostic");
+  Check(F.State.Load("return 1", "fine").Diagnostic() == nullptr,
+        "a chunk that compiled has none");
+}
+
+void TestEnumeratorTypes() {
+  Fixture F;
+  enum class Hue : int { Red = 1, Green = 2 };
+  luna::EnumBuilder<Hue> Hues = F.State.Bindings().RegisterEnum<Hue>(
+      "Hue", luna::StableTypeKey("t.et.Hue"));
+  Hues.Value("Red", Hue::Red).Value("Green", Hue::Green).AsObjects();
+  Check(Hues.Commit().IsSuccess(), "an enum registers");
+  Check(F.Run("assert(typeof(Hue.Red) == 'EnumItem')"),
+        "an enumerator reports EnumItem");
+  Check(F.Run("assert(tostring(Hue.Green) == 'Hue.Green')"),
+        "an enumerator prints as its enum and name");
+  Check(F.Run("assert(Hue.Red == Hue.Red and Hue.Red ~= Hue.Green)"),
+        "enumerators still compare by identity");
+  Check(F.Run("assert(type(getmetatable(Hue.Red)) == 'string')"),
+        "their metatable is locked");
+  Check(!F.Run("Hue.Red.Value = 3"), "and they are still read-only");
+}
+
+void TestPublicClassTrait() {
+  Fixture F;
+  luna::ClassBuilder<Plain> Plains = F.State.Bindings().RegisterClass<Plain>(
+      "Plain", luna::StableTypeKey("t.pt.Plain"));
+  Plains.Factory("new", [] { return Plain{}; })
+      .Property("V", [](const Plain &Self) { return Self.V; });
+  Check(Plains.Commit().IsSuccess(),
+        "a class that opted in through luna::RegisteredClassTrait registers");
+  F.State.Bindings().Register("take", [](const Plain &Self) { return Self.V; });
+  Check(F.Run("assert(take(Plain.new()) == 4 and Plain.new().V == 4)"),
+        "it works as a parameter and a return");
+}
+
+void TestScriptSignals() {
+  std::vector<luna::TaskFailure> Failures;
+  luna::StateOptions Options;
+  Options.OnTaskError = [&Failures](const luna::TaskFailure &Failure) {
+    Failures.push_back(Failure);
+  };
+  luna::State State(Options);
+  luna::BindingRegistry Registry = State.Bindings();
+  Check(luna::RegisterTaskLibrary(Registry).IsSuccess(),
+        "the task library registers");
+  luna::ScriptSignalNames Names;
+  Names.SignalType = "Event";
+  Check(luna::RegisterScriptSignals(Registry, Names).IsSuccess(),
+        "the script signal classes register");
+
+  luna::ScriptSignal Changed("Changed");
+  Check(Registry.RegisterValue("Changed", [Changed] { return Changed; })
+            .IsSuccess(),
+        "a signal is handed to scripts by value");
+
+  Check(State
+            .Execute("got = {}\n"
+                     "conn = Changed:Connect(function(a, b)\n"
+                     "  got[#got + 1] = a .. b\n"
+                     "end)\n"
+                     "assert(conn.Connected == true)\n"
+                     "assert(typeof(conn) == 'Connection')\n"
+                     "assert(typeof(Changed) == 'Event')\n"
+                     "assert(Changed.ConnectionCount == 1 and Changed.Name == "
+                     "'Changed')")
+            .IsSuccess(),
+        "a script connects and gets a connection object");
+  Changed.Fire("x", "y");
+  Check(State.Execute("assert(got[1] == 'xy')").IsSuccess(),
+        "a handler receives what the host fired");
+  Check(State.Execute("conn:Disconnect() assert(conn.Connected == false)")
+            .IsSuccess(),
+        "a connection disconnects");
+  Changed.Fire("p", "q");
+  Check(State.Execute("assert(#got == 1 and Changed.ConnectionCount == 0)")
+            .IsSuccess(),
+        "a disconnected handler does not run again");
+
+  Check(State
+            .Execute("once = 0\n"
+                     "Changed:Once(function() once = once + 1 end)")
+            .IsSuccess(),
+        "a script connects with Once");
+  Changed.Fire();
+  Changed.Fire();
+  Check(State.Execute("assert(once == 1)").IsSuccess(),
+        "a Once handler runs once");
+
+  (void)State.Spawn("local a, b = Changed:Wait() waited = a + b");
+  Changed.Fire(3.0, 4.0);
+  State.Tick(0.0);
+  Check(State.Execute("assert(waited == 7)").IsSuccess(),
+        "Wait returns the values fired, with no Attach call");
+
+  Check(State
+            .Execute("Changed:Connect(function(v)\n"
+                     "  task.wait(1)\n"
+                     "  late = v\n"
+                     "end)")
+            .IsSuccess(),
+        "a handler that waits connects");
+  Changed.Fire(9.0);
+  Check(State.Execute("assert(late == nil)").IsSuccess(), "it is parked");
+  State.Tick(1.1);
+  Check(State.Execute("assert(late == 9)").IsSuccess(),
+        "a signal handler runs as a task, so it can wait");
+
+  int HostCalls = 0;
+  const luna::ScriptConnection Hosted =
+      Changed.Connect([&HostCalls](const luna::ValuePack &Payload) {
+        HostCalls += static_cast<int>(Payload.Size());
+      });
+  Check(State.Execute("Changed:Fire(1, 2, 3)").IsSuccess() && HostCalls == 3,
+        "a script can fire a signal, and a host handler hears it");
+  Hosted.Disconnect();
+  Check(!Hosted.Connected(), "a host connection disconnects");
+
+  Check(
+      State
+          .Execute(
+              "local s = Signal.new('mine')\n"
+              "local n = 0\n"
+              "s:Connect(function() n = n + 1 end)\n"
+              "s:Fire() s:Fire()\n"
+              "assert(n == 2 and s.Name == 'mine' and s.ConnectionCount == 1)\n"
+              "s:DisconnectAll()\n"
+              "assert(s.ConnectionCount == 0)\n"
+              "assert(tostring(s) == 'Event mine')")
+          .IsSuccess(),
+      "a script makes its own signal");
+  Check(State.Execute("assert(Changed == Changed and Changed ~= Signal.new())")
+            .IsSuccess(),
+        "signals compare by identity");
+
+  Failures.clear();
+  Check(State
+            .Execute("Signal.new():Connect(function() error('bad') end)\n"
+                     "local s = Signal.new() s:Connect(function() error('bad') "
+                     "end) s:Fire()")
+            .IsSuccess(),
+        "a handler that fails does not fail the fire");
+  Check(Failures.size() == 1 &&
+            Failures[0].Error.Message().find("bad") != std::string::npos,
+        "its failure goes to OnTaskError");
+
+  luna::Signal<void(double)> Typed;
+  Typed.Attach(State);
+  luna::RegisterSignal(Registry, "Typed", luna::StableTypeKey("t.ss.Typed"),
+                       Typed);
+  Check(
+      State.Execute("Typed:Connect(function(v) task.wait(1) typedLate = v end)")
+          .IsSuccess(),
+      "a typed signal connects a handler that waits");
+  Typed.Fire(2.0);
+  State.Tick(1.1);
+  Check(State.Execute("assert(typedLate == 2)").IsSuccess(),
+        "a typed signal's script handler runs as a task too");
+}
 } // namespace
 
 int main() {
@@ -2017,6 +2337,12 @@ int main() {
   TestSymbolsAreSafeToRead();
   TestDiagnosticsAndDefinitions();
   TestOutOfMemoryAtTaskCreation();
+  TestTaskLibrary();
+  TestWakeFromAnotherThread();
+  TestChunkReturnedToScript();
+  TestEnumeratorTypes();
+  TestPublicClassTrait();
+  TestScriptSignals();
   std::printf("\n%d checks, %d failure%s\n", Cases, Failures,
               Failures == 1 ? "" : "s");
   return Failures == 0 ? 0 : 1;

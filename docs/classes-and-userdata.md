@@ -7,10 +7,10 @@
 One line, at global scope, before the type is used:
 
 ```cpp
-template <> struct luna::detail::RegisteredClassTrait<Sprite> : std::true_type {};
+template <> struct luna::RegisteredClassTrait<Sprite> : std::true_type {};
 ```
 
-This is what lets a parameter or return of type `Sprite`, `Sprite &`, `Sprite *` or `std::shared_ptr<Sprite>` compile. Without it the signature is refused with a `static_assert`.
+The older `luna::detail::RegisteredClassTrait` works too. This is what lets a parameter or return of type `Sprite`, `Sprite &`, `Sprite *` or `std::shared_ptr<Sprite>` compile. Without it the signature is refused with a `static_assert`.
 
 ## A class
 
@@ -49,6 +49,7 @@ print(s:Area(), s.Height, tostring(s), Studio.Sprite.Max)
 | `Field(name, &T::member)` | Read-write access to a data member, by value |
 | `Operator(op, callable)` | A metamethod |
 | `Constant(name, OwnedValue)` | An immutable value on the class table |
+| `TypeName(name)` | What `typeof` reports, when it should not be the class name |
 | `BaseOf<B>(baseName)` | Inherit from an already-registered base |
 | `BorrowedFrom(handle)` | Tie borrowed instances to a `LifetimeHandle` |
 | `Commit()` | Publish |

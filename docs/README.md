@@ -15,7 +15,7 @@ These pages start with the public API and work inward, toward validation, the sc
 | 5 | [Values and conversion](values-and-conversion.md) | Supported types, containers, `OwnedValue`, `ValuePack`, numbers |
 | 6 | [Namespaces, constants and enums](namespaces-constants-and-enums.md) | Hierarchical registration |
 | 7 | [Classes and userdata](classes-and-userdata.md) | Members, operators, ownership, inheritance, locking |
-| 8 | [Tasks and scheduling](tasks-and-scheduling.md) | `Execute`, `Spawn`, `Tick`, `Suspend`, chunks |
+| 8 | [Tasks and scheduling](tasks-and-scheduling.md) | `Execute`, `Spawn`, `Tick`, `Suspend`, the task library, chunks |
 | 9 | [Signals and delegates](signals-and-delegates.md) | Events, handlers, `Wait` |
 | 10 | [Safety and limits](safety-and-limits.md) | Interrupts, budgets, memory, sandboxing, locked bindings |
 | 11 | [Errors and results](errors-and-results.md) | Every failure the API can report |
@@ -42,8 +42,8 @@ Supported today:
 - **Containers.** `std::vector`, `std::map`, `std::unordered_map`, `std::pair`, `std::tuple` and `std::optional` convert in both directions, nested as deeply as you like.
 - **Namespaces, constants and enums.** Nested namespaces, constants, and enums with aliases. `AsObjects()` publishes each enumerator as an interned object with `Name`, `Value` and `EnumName`.
 - **Classes.** Factories, methods, static methods, properties (with write hooks), fields, operators including generic-`for` iteration, class constants, single inheritance with `IsA`, and three ownership models.
-- **A coroutine scheduler.** A native `luna::Suspend(seconds)` yields the running script. `Spawn`, `Tick` and `Cancel` drive tasks from the host loop, so many scripts share one thread.
-- **Signals and delegates.** A `Delegate` holds one script function. A `Signal` owns a list of handlers, fires them with isolation, and lets a script `:Wait()` for the next fire.
+- **A coroutine scheduler.** A native `luna::Suspend(seconds)` yields the running script, including a coroutine the script made itself. `Spawn`, `Tick` and `Cancel` drive tasks from the host loop, a `Delegate` can start its function as a task, and `RegisterTaskLibrary` gives scripts `task.spawn`, `defer`, `delay`, `cancel` and `wait`.
+- **Signals and delegates.** A `Delegate` holds one script function. A `Signal` owns a list of handlers, fires them with isolation, and lets a script `:Wait()` for the next fire. A `ScriptSignal` is the dynamic version scripts make and use freely, with connection objects, `Once` and handlers that run as tasks.
 - **Limits.** `RequestInterrupt` from any thread, an optional safepoint budget, a memory ceiling, `Sandbox()`, and bindings a script cannot rewrite.
 - **Reflection.** `Symbols()`, immutable `ReflectionSnapshot`s, and generated `.d.luau` definitions.
 - **Transactional registration.** `Commit()` validates the whole batch first, then links under a protected call. A failure after linking began is rolled back, so a rejected commit publishes nothing.
