@@ -5,6 +5,7 @@ project(Luna VERSION 0.1.0 LANGUAGES C CXX)
 option(LUNA_BUILD_TESTING "Build the luna test suite" ON)
 option(LUNA_BUILD_APP "Build the smoke application" ON)
 option(LUNA_BUILD_BENCH "Build the performance gates" ON)
+option(LUNA_BUNDLE_LUAU "Also produce one static library holding luna and Luau" ON)
 option(LUNA_INSTALL "Generate install and export rules" ${PROJECT_IS_TOP_LEVEL})
 set(LUNA_SANITIZE "" CACHE STRING "Sanitizers to enable, e.g. address,undefined")
 
@@ -90,6 +91,48 @@ else()
     target_compile_options(luna PRIVATE -Wall -Wextra -fno-rtti)
 endif()
 
+
+# One archive with luna and every Luau library it needs, so a consumer links a
+# single file and includes a single directory (the Luau headers the public
+# headers use are installed next to luna's).
+if(LUNA_BUNDLE_LUAU)
+    set(_luna_bundle_targets luna)
+    set(_luna_bundle_queue Luau.VM Luau.Compiler)
+    while(_luna_bundle_queue)
+        list(POP_FRONT _luna_bundle_queue _t)
+        if(NOT TARGET ${_t} OR _t IN_LIST _luna_bundle_targets)
+            continue()
+        endif()
+        get_target_property(_type ${_t} TYPE)
+        if(_type STREQUAL "STATIC_LIBRARY")
+            list(APPEND _luna_bundle_targets ${_t})
+        endif()
+        get_target_property(_deps ${_t} INTERFACE_LINK_LIBRARIES)
+        if(_deps)
+            foreach(_d ${_deps})
+                if(TARGET ${_d})
+                    list(APPEND _luna_bundle_queue ${_d})
+                endif()
+            endforeach()
+        endif()
+    endwhile()
+
+    set(_luna_bundle_inputs "")
+    foreach(_t ${_luna_bundle_targets})
+        list(APPEND _luna_bundle_inputs "$<TARGET_FILE:${_t}>")
+    endforeach()
+
+    set(LUNA_BUNDLE_FILE
+        "${CMAKE_BINARY_DIR}/${CMAKE_STATIC_LIBRARY_PREFIX}luna_bundled${CMAKE_STATIC_LIBRARY_SUFFIX}")
+    add_custom_command(
+        OUTPUT "${LUNA_BUNDLE_FILE}"
+        COMMAND ${CMAKE_COMMAND} "-DOUT=${LUNA_BUNDLE_FILE}" "-DAR=${CMAKE_AR}"
+                "-DINPUTS=${_luna_bundle_inputs}" -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/bundle.cmake"
+        DEPENDS ${_luna_bundle_targets} cmake/bundle.cmake
+        COMMENT "Bundling luna and Luau into one library"
+        VERBATIM)
+    add_custom_target(luna_bundle ALL DEPENDS "${LUNA_BUNDLE_FILE}")
+endif()
 
 if(LUNA_BUILD_APP)
     add_executable(LunaApp app/src/main.cpp)

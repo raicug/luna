@@ -29,3 +29,16 @@ install(FILES
     "${CMAKE_CURRENT_BINARY_DIR}/lunaConfigVersion.cmake"
     DESTINATION ${LUNA_CMAKE_DIR}
 )
+
+# The self-contained flavour: luna_bundled plus the Luau headers luna's public
+# headers include, in the same directory, so no Luau setup is needed.
+if(LUNA_BUNDLE_LUAU)
+    install(FILES "${LUNA_BUNDLE_FILE}" DESTINATION ${CMAKE_INSTALL_LIBDIR})
+    foreach(_dir ${LUNA_LUAU_INCLUDE_DIRS})
+        foreach(_header lua.h lualib.h luaconf.h)
+            if(EXISTS "${_dir}/${_header}")
+                install(FILES "${_dir}/${_header}" DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+            endif()
+        endforeach()
+    endforeach()
+endif()

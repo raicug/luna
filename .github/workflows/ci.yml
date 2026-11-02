@@ -83,6 +83,12 @@ jobs:
           cmake --build build-consumer
           ./build-consumer/consumer
 
+      # The self-contained flavour: one include directory, one library, no CMake
+      # package and no Luau checkout.
+      - name: Consume the bundled library with a bare compiler
+        if: matrix.install
+        run: sh tests/package/plain.sh "$PWD/prefix" ${{ matrix.cxx }}
+
   windows:
     name: ${{ matrix.name }}
     runs-on: windows-latest

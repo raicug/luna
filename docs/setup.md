@@ -84,3 +84,13 @@ cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release `
 `cmake --install build` installs the library, headers and a `luna` package. Luau is not installed with it: add Luau to your build first (`FetchContent_MakeAvailable` or `add_subdirectory`) so `Luau.VM` and `Luau.Compiler` exist, then `find_package(luna REQUIRED)` and link `luna::luna`. `tests/package` is a working example and CI builds it. Set `-DLUNA_INSTALL=OFF` to skip the install rules.
 
 `-DLUNA_SANITIZE=address,undefined` (or `thread`) instruments the whole build on GCC and Clang. MSVC accepts `address` only. The benchmark test is not registered under a sanitizer.
+
+## One library and one include directory
+
+`LUNA_BUNDLE_LUAU` (on by default) also produces `luna_bundled.lib` (`libluna_bundled.a` elsewhere): luna and the Luau libraries it needs merged into a single static library. `cmake --install` puts it in `lib/` and the three Luau headers luna's headers include (`lua.h`, `lualib.h`, `luaconf.h`) beside luna's in `include/`. A project then needs no Luau checkout and no CMake package:
+
+```powershell
+cl /std:c++20 /EHsc /MD /I<prefix>\include main.cpp /link <prefix>\lib\luna_bundled.lib
+```
+
+The release archives are laid out this way. Build the library in the same configuration as your program (Release with `/MD`, for example), since a static library carries its runtime choice with it.

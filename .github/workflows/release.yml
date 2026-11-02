@@ -61,10 +61,10 @@ jobs:
             echo
             echo "### Using the packages"
             echo
-            echo "Each archive holds the library, headers, a CMake package and the Luau static"
-            echo "libraries it was built against (\`lib/luau\`). Luau is not exported by the"
-            echo "package: add Luau to your build (or link those libraries) before"
-            echo "\`find_package(luna)\`."
+            echo "Each archive is self-contained: add \`include/\` to your include path and"
+            echo "link \`lib/luna_bundled\` (luna and Luau in one static library). No Luau"
+            echo "checkout or CMake package is needed. \`lib/luna\` alone plus the CMake"
+            echo "package is also there for builds that bring their own Luau."
           } > notes.md
           cat notes.md
 
@@ -106,8 +106,6 @@ jobs:
         run: |
           name="luna-${{ needs.prepare.outputs.version }}-${{ matrix.name }}"
           cmake --install build --prefix "$name"
-          mkdir -p "$name/lib/luau"
-          find build/_deps -type f \( -name 'Luau.*.lib' -o -name 'libLuau.*.a' \) -exec cp {} "$name/lib/luau/" \;
           cp LICENSE README.md "$name/"
           if [ "${{ matrix.archive }}" = zip ]; then
             7z a -tzip "$name.zip" "$name" >/dev/null
