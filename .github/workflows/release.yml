@@ -1,0 +1,143 @@
+name: release
+
+# Publishes a release whenever the version in CMakeLists.txt has no tag yet.
+# To ship one: bump project(Luna VERSION x.y.z) and push to main.
+on:
+  push:
+    branches: [main]
+    paths: [CMakeLists.txt]
+  workflow_dispatch:
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+env:
+  CMAKE_GENERATOR: Ninja
+  CMAKE_BUILD_PARALLEL_LEVEL: 4
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      publish: ${{ steps.v.outputs.publish }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Read version and look for an existing tag
+        id: v
+        run: |
+          version=$(sed -nE 's/^project\(Luna VERSION ([0-9]+\.[0-9]+\.[0-9]+).*/\1/p' CMakeLists.txt | tr -d '\r')
+          if [ -z "$version" ]; then echo "no version found" >&2; exit 1; fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          if git rev-parse -q --verify "refs/tags/v$version" >/dev/null; then
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            echo "v$version already released, nothing to do"
+          else
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Write changelog
+        if: steps.v.outputs.publish == 'true'
+        run: |
+          prev=$(git describe --tags --abbrev=0 --match 'v*' 2>/dev/null || true)
+          {
+            echo "## luna v${{ steps.v.outputs.version }}"
+            echo
+            if [ -n "$prev" ]; then
+              echo "Changes since $prev:"
+              echo
+              git log "$prev..HEAD" --no-merges --pretty='- %s (%h)'
+              echo
+              echo "Full diff: https://github.com/${{ github.repository }}/compare/$prev...v${{ steps.v.outputs.version }}"
+            else
+              echo "First release."
+              echo
+              git log --no-merges --pretty='- %s (%h)'
+            fi
+            echo
+            echo "### Using the packages"
+            echo
+            echo "Each archive holds the library, headers, a CMake package and the Luau static"
+            echo "libraries it was built against (\`lib/luau\`). Luau is not exported by the"
+            echo "package: add Luau to your build (or link those libraries) before"
+            echo "\`find_package(luna)\`."
+          } > notes.md
+          cat notes.md
+
+      - uses: actions/upload-artifact@v4
+        if: steps.v.outputs.publish == 'true'
+        with:
+          name: notes
+          path: notes.md
+
+  build:
+    needs: prepare
+    if: needs.prepare.outputs.publish == 'true'
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - name: windows-x64
+            os: windows-latest
+            archive: zip
+          - name: linux-x64
+            os: ubuntu-latest
+            archive: tar.gz
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ilammy/msvc-dev-cmd@v1
+        if: runner.os == 'Windows'
+
+      - name: Build and test
+        shell: bash
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DLUNA_BUILD_APP=OFF \
+            -DLUNA_BUILD_BENCH=OFF -DLUNA_BUILD_DEMO=OFF
+          cmake --build build
+          ctest --test-dir build -C Release --output-on-failure
+
+      - name: Package
+        shell: bash
+        run: |
+          name="luna-${{ needs.prepare.outputs.version }}-${{ matrix.name }}"
+          cmake --install build --prefix "$name"
+          mkdir -p "$name/lib/luau"
+          find build/_deps -type f \( -name 'Luau.*.lib' -o -name 'libLuau.*.a' \) -exec cp {} "$name/lib/luau/" \;
+          cp LICENSE README.md "$name/"
+          if [ "${{ matrix.archive }}" = zip ]; then
+            7z a -tzip "$name.zip" "$name" >/dev/null
+          else
+            tar -czf "$name.tar.gz" "$name"
+          fi
+          ls -l luna-*
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: package-${{ matrix.name }}
+          path: luna-*.${{ matrix.archive }}
+
+  publish:
+    needs: [prepare, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "v${{ needs.prepare.outputs.version }}" dist/luna-* \
+            --repo "${{ github.repository }}" \
+            --target "${{ github.sha }}" \
+            --title "luna v${{ needs.prepare.outputs.version }}" \
+            --notes-file dist/notes.md
