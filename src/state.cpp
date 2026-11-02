@@ -768,13 +768,26 @@ std::size_t State::TaskSlots() const noexcept {
   return Core ? Core->Tasks.size() : 0;
 }
 
+namespace {
+// Luau documents setting the interrupt callback from another thread as the way
+// to stop a running chunk, and the VM reads it with a plain load, so the store
+// is a deliberate race on one aligned pointer. It is kept out of ThreadSanitizer
+// here, and only here, so the rest of RequestInterrupt stays checked.
+#if defined(__clang__) || defined(__GNUC__)
+__attribute__((no_sanitize("thread")))
+#endif
+void ArmInterrupt(lua_State *L) {
+  lua_callbacks(L)->interrupt = &detail::InterruptHook;
+}
+} // namespace
+
 void State::RequestInterrupt(std::string Reason) {
   if (!Core)
     return;
   Core->RequestStop(std::move(Reason));
-  // Safe from any thread, per Luau; it takes effect at the next safepoint.
+  // Takes effect at the next safepoint.
   if (Core->L)
-    lua_callbacks(Core->L)->interrupt = &detail::InterruptHook;
+    ArmInterrupt(Core->L);
 }
 
 void State::ClearInterrupt() noexcept {
