@@ -3,42 +3,58 @@ name: ci
 on:
   push:
     branches: [main]
+    paths-ignore: ["**.md", "docs/**", "LICENSE"]
   pull_request:
+    paths-ignore: ["**.md", "docs/**", "LICENSE"]
+
+# A newer push makes the older run pointless.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CMAKE_GENERATOR: Ninja
+  CMAKE_BUILD_PARALLEL_LEVEL: 4
 
 jobs:
-  build:
+  linux:
     name: ${{ matrix.name }}
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         include:
-          - name: windows-msvc-release
-            os: windows-latest
-            config: Release
-            args: -DLUNA_BUILD_DEMO=OFF
-          - name: windows-msvc-asan
-            os: windows-latest
-            config: Debug
-            args: -DLUNA_BUILD_DEMO=OFF -DLUNA_SANITIZE=address
           - name: linux-gcc-asan-ubsan
-            os: ubuntu-latest
+            cc: gcc
+            cxx: g++
             config: Debug
-            args: -DCMAKE_CXX_COMPILER=g++ -DLUNA_SANITIZE=address,undefined
+            args: -DLUNA_SANITIZE=address,undefined
           - name: linux-clang-release
-            os: ubuntu-latest
+            cc: clang
+            cxx: clang++
             config: Release
-            args: -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
+            args: ""
+            install: true
+          - name: linux-clang-tsan
+            cc: clang
+            cxx: clang++
+            config: Debug
+            args: -DLUNA_SANITIZE=thread
     steps:
       - uses: actions/checkout@v4
+      - uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: ${{ matrix.name }}
 
       - name: Configure
         run: >
           cmake -S . -B build -DCMAKE_BUILD_TYPE=${{ matrix.config }}
+          -DCMAKE_C_COMPILER=${{ matrix.cc }} -DCMAKE_CXX_COMPILER=${{ matrix.cxx }}
+          -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
           -DLUNA_BUILD_APP=OFF ${{ matrix.args }}
 
       - name: Build
-        run: cmake --build build --config ${{ matrix.config }} --parallel
+        run: cmake --build build
 
       - name: Test
         run: ctest --test-dir build -C ${{ matrix.config }} --output-on-failure -E luna_bench
@@ -55,27 +71,55 @@ jobs:
         with:
           name: bench-${{ matrix.name }}
           path: build/bench-results.json
+          if-no-files-found: ignore
 
-  tsan:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - run: >
-          cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_COMPILER=clang++
-          -DCMAKE_C_COMPILER=clang -DLUNA_SANITIZE=thread -DLUNA_BUILD_APP=OFF
-      - run: cmake --build build --parallel
-      - run: ctest --test-dir build --output-on-failure
-
-  install:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
+      # Reuses the Release build above instead of compiling a second time.
       - name: Install and consume
+        if: matrix.install
         run: |
-          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DLUNA_BUILD_TESTING=OFF \
-            -DLUNA_BUILD_APP=OFF -DLUNA_BUILD_BENCH=OFF -DCMAKE_INSTALL_PREFIX=$PWD/prefix
-          cmake --build build --parallel
-          cmake --install build
-          cmake -S tests/package -B build-consumer -DCMAKE_PREFIX_PATH=$PWD/prefix \
-            -DLUNA_LUAU_SOURCE=$PWD/build/_deps/luau-src
+          cmake --install build --prefix "$PWD/prefix"
+          cmake -S tests/package -B build-consumer -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_PREFIX_PATH="$PWD/prefix" -DLUNA_LUAU_SOURCE="$PWD/build/_deps/luau-src"
           cmake --build build-consumer
+          ./build-consumer/consumer
+
+  windows:
+    name: ${{ matrix.name }}
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: windows-msvc-release
+            config: Release
+            args: ""
+          - name: windows-msvc-asan
+            config: Debug
+            args: -DLUNA_SANITIZE=address
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Configure
+        run: >
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=${{ matrix.config }}
+          -DLUNA_BUILD_APP=OFF -DLUNA_BUILD_DEMO=OFF ${{ matrix.args }}
+
+      - name: Build
+        run: cmake --build build
+
+      - name: Test
+        run: ctest --test-dir build -C ${{ matrix.config }} --output-on-failure -E luna_bench
+
+      - name: Benchmarks
+        if: matrix.config == 'Release'
+        continue-on-error: true
+        run: ctest --test-dir build -C Release --output-on-failure -R luna_bench
+
+      - name: Archive benchmark results
+        if: matrix.config == 'Release' && always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bench-${{ matrix.name }}
+          path: build/bench-results.json
+          if-no-files-found: ignore

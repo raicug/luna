@@ -21,11 +21,19 @@ if(LUNA_LUAU_SOURCE)
     add_subdirectory("${LUNA_LUAU_SOURCE}" "${CMAKE_BINARY_DIR}/_luau"
                      EXCLUDE_FROM_ALL)
 else()
+    # luna needs only Luau.VM, Luau.Compiler and what they pull in. Excluding
+    # Luau from "all" skips Analysis, CodeGen and the rest; the targets luna
+    # links are still built because they are dependencies.
+    set(_luna_luau_exclude "")
+    if(CMAKE_VERSION VERSION_GREATER_EQUAL 3.28)
+        set(_luna_luau_exclude EXCLUDE_FROM_ALL)
+    endif()
     FetchContent_Declare(
         Luau
         GIT_REPOSITORY https://github.com/luau-lang/luau.git
         GIT_TAG ${LUNA_LUAU_VERSION}
         GIT_SHALLOW TRUE
+        ${_luna_luau_exclude}
     )
     FetchContent_MakeAvailable(Luau)
 endif()
