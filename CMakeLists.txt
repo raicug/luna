@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.20)
 
-project(Luna VERSION 0.1.0 LANGUAGES C CXX)
+project(Luna VERSION 0.2.0 LANGUAGES C CXX)
 
 option(LUNA_BUILD_TESTING "Build the luna test suite" ON)
 option(LUNA_BUILD_APP "Build the smoke application" ON)
