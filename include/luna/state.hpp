@@ -18,7 +18,62 @@ class Model;
 struct Runtime;
 struct ChunkState;
 bool PushChunkFunction(lua_State *L, const Chunk &Loaded);
+
+bool GlobalGet(State &Owner, std::string_view Path,
+               const std::function<void(lua_State *, int)> &Read,
+               ErrorDiagnostic &Error);
+bool GlobalSet(State &Owner, std::string_view Path,
+               const std::function<int(lua_State *)> &Push,
+               ErrorDiagnostic &Error);
+bool GlobalCall(State &Owner, std::string_view Path,
+                const std::function<int(lua_State *)> &PushArguments,
+                int Results, const std::function<void(lua_State *, int)> &Read,
+                ErrorDiagnostic &Error);
+
+template <class T>
+using CallArgument =
+    std::conditional_t<std::is_convertible_v<const T &, std::string_view>,
+                       std::string_view, std::decay_t<T>>;
 } // namespace detail
+
+template <class T> class Outcome {
+public:
+  explicit Outcome(T Produced) : Data(std::move(Produced)) {}
+  explicit Outcome(ErrorDiagnostic Failed) : Failure(std::move(Failed)) {}
+
+  [[nodiscard]] bool IsSuccess() const noexcept { return Data.has_value(); }
+  [[nodiscard]] explicit operator bool() const noexcept { return IsSuccess(); }
+  [[nodiscard]] const ErrorDiagnostic *Diagnostic() const noexcept {
+    return Data ? nullptr : &Failure;
+  }
+
+  [[nodiscard]] const T &Value() const & noexcept { return *Data; }
+  [[nodiscard]] T Value() && { return std::move(*Data); }
+  template <class U> [[nodiscard]] T ValueOr(U &&Fallback) const & {
+    return Data ? *Data : static_cast<T>(std::forward<U>(Fallback));
+  }
+
+private:
+  std::optional<T> Data;
+  ErrorDiagnostic Failure;
+};
+
+template <> class Outcome<void> {
+public:
+  Outcome() = default;
+  explicit Outcome(ErrorDiagnostic Failed) : Failure(std::move(Failed)) {}
+
+  [[nodiscard]] bool IsSuccess() const noexcept {
+    return Failure.Category() == ErrorCategory::None;
+  }
+  [[nodiscard]] explicit operator bool() const noexcept { return IsSuccess(); }
+  [[nodiscard]] const ErrorDiagnostic *Diagnostic() const noexcept {
+    return IsSuccess() ? nullptr : &Failure;
+  }
+
+private:
+  ErrorDiagnostic Failure;
+};
 
 // A task that failed somewhere nobody is waiting for its result: a Spawn, a
 // task resumed by Tick, or one Execute pumped on the way. Task is 0 when the
@@ -124,6 +179,12 @@ public:
   [[nodiscard]] ExecutionResult Execute(std::string_view Source);
   [[nodiscard]] Chunk Load(std::string_view Source, std::string_view Name = "");
 
+  template <class T> [[nodiscard]] Outcome<T> Get(std::string_view Path);
+  template <class T>
+  [[nodiscard]] Outcome<void> Set(std::string_view Path, const T &Value);
+  template <class R = void, class... A>
+  [[nodiscard]] Outcome<R> Call(std::string_view Path, const A &...Arguments);
+
   // Starts source as a task and returns at its first suspension. Returns 0 when
   // it does not compile; every failure, that one included, goes to OnTaskError.
   [[nodiscard]] std::uint64_t Spawn(std::string_view Source);
@@ -163,6 +224,72 @@ private:
   friend struct detail::Runtime;
   std::unique_ptr<detail::Runtime> Core;
 };
+
+template <class T> Outcome<T> State::Get(std::string_view Path) {
+  static_assert(!std::is_reference_v<T>, "luna: Get returns a value");
+  std::optional<T> Found;
+  ErrorDiagnostic Error;
+  const bool Ok = detail::GlobalGet(
+      *this, Path,
+      [&Found](lua_State *L, int Index) {
+        detail::SlotType<T> Slot{};
+        detail::ArgError Problem;
+        if (!detail::ReadValue<T>(L, Index, Slot,
+                                  detail::ElementClassId<T>(L), Problem))
+          throw detail::MarshalError(Problem.Text);
+        Found.emplace(std::move(Slot));
+      },
+      Error);
+  if (!Ok)
+    return Outcome<T>(std::move(Error));
+  return Outcome<T>(std::move(*Found));
+}
+
+template <class T>
+Outcome<void> State::Set(std::string_view Path, const T &Value) {
+  ErrorDiagnostic Error;
+  const bool Ok = detail::GlobalSet(
+      *this, Path,
+      [&Value](lua_State *L) {
+        if (detail::WriteValue(L, Value, NoType) != 1)
+          throw detail::MarshalError("the value does not become one value");
+        return 1;
+      },
+      Error);
+  return Ok ? Outcome<void>() : Outcome<void>(std::move(Error));
+}
+
+template <class R, class... A>
+Outcome<R> State::Call(std::string_view Path, const A &...Arguments) {
+  static_assert(!std::is_reference_v<R>, "luna: Call returns a value");
+  std::optional<std::conditional_t<std::is_void_v<R>, int, R>> Found;
+  ErrorDiagnostic Error;
+  const bool Ok = detail::GlobalCall(
+      *this, Path,
+      [&Arguments...](lua_State *L) {
+        int Pushed = 0;
+        ((Pushed += detail::WriteValue(
+              L, static_cast<detail::CallArgument<A>>(Arguments), NoType)),
+         ...);
+        return Pushed;
+      },
+      std::is_void_v<R> ? 0 : 1,
+      [&Found](lua_State *L, int Index) {
+        if constexpr (!std::is_void_v<R>) {
+          detail::SlotType<R> Slot{};
+          detail::ArgError Problem;
+          if (!detail::ReadValue<R>(L, Index, Slot,
+                                    detail::ElementClassId<R>(L), Problem))
+            throw detail::MarshalError("the return value: " + Problem.Text);
+          Found.emplace(std::move(Slot));
+        }
+      },
+      Error);
+  if constexpr (std::is_void_v<R>)
+    return Ok ? Outcome<void>() : Outcome<void>(std::move(Error));
+  else
+    return Ok ? Outcome<R>(std::move(*Found)) : Outcome<R>(std::move(Error));
+}
 
 State *StateFromVM(void *VM) noexcept;
 

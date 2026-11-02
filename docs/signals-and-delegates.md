@@ -38,7 +38,7 @@ Consequences:
 - A delegate works after the script that registered it has finished, and after garbage collection.
 - A delegate works while the registering script is suspended, without disturbing it.
 - A handler cannot `wait`. The host called it, so there is no task to suspend, and `wait()` raises `cannot wait here` rather than doing nothing. A handler that must wait is started with `Spawn`, `Defer` or `SpawnAfter` instead; see [Tasks and scheduling](tasks-and-scheduling.md#running-a-function-as-a-task).
-- The function's return value is ignored.
+- A delegate with a non-`void` return type hands the result back: `Invoke` returns a `DelegateReturn<R>`, which adds `Value()` and `ValueOr()` to the usual result. See [Reading and calling from the host](reading-and-calling-from-the-host.md).
 
 An error in the handler comes back in the result. It does not propagate to the host.
 

@@ -17,6 +17,7 @@ These pages start with the public API and work inward, toward validation, the sc
 | 7 | [Classes and userdata](classes-and-userdata.md) | Members, operators, ownership, inheritance, locking |
 | 8 | [Tasks and scheduling](tasks-and-scheduling.md) | `Execute`, `Spawn`, `Tick`, `Suspend`, the task library, chunks |
 | 9 | [Signals and delegates](signals-and-delegates.md) | Events, handlers, `Wait` |
+| 9b | [Reading and calling from the host](reading-and-calling-from-the-host.md) | `Get`, `Set`, `Call`, `Outcome`, delegate return values |
 | 10 | [Safety and limits](safety-and-limits.md) | Interrupts, budgets, memory, sandboxing, locked bindings |
 | 11 | [Errors and results](errors-and-results.md) | Every failure the API can report |
 | 12 | [Reflection and definitions](reflection-and-definitions.md) | Symbols, `.d.luau` generation |

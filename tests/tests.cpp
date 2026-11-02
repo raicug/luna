@@ -2334,6 +2334,136 @@ void TestInspectingValues() {
             Seen.UserdataTarget() != nullptr,
         "an instance describes its class, its text and its object");
 }
+
+void TestHostAccess() {
+  Fixture F;
+  Check(F.Run("Config = { speed = 4, name = 'rex', nested = { depth = 2 } }\n"
+              "Values = {1, 2, 3}\n"
+              "Util = { twice = function(x) return x * 2 end }\n"
+              "function Add(a, b) return a + b end\n"
+              "function Greet(n) return 'hi ' .. n end\n"
+              "function Boom() error('nope') end\n"
+              "function Nothing() end"),
+        "a script defines globals for the host");
+
+  const luna::Outcome<double> Speed = F.State.Get<double>("Config.speed");
+  Check(Speed.IsSuccess() && Speed.Value() == 4.0, "a number is read by path");
+  const luna::Outcome<std::string> Name =
+      F.State.Get<std::string>("Config.name");
+  Check(Name.IsSuccess() && Name.Value() == "rex", "a string is read by path");
+  Check(F.State.Get<double>("Config.nested.depth").ValueOr(0.0) == 2.0,
+        "a nested path is read");
+  const luna::Outcome<std::vector<double>> Items =
+      F.State.Get<std::vector<double>>("Values");
+  Check(Items.IsSuccess() && Items.Value().size() == 3 &&
+            Items.Value()[2] == 3.0,
+        "a table is read as a vector");
+  const luna::Outcome<std::optional<double>> Absent =
+      F.State.Get<std::optional<double>>("Config.absent");
+  Check(Absent.IsSuccess() && !Absent.Value().has_value(),
+        "an absent field reads as an empty optional");
+
+  const luna::Outcome<double> Wrong = F.State.Get<double>("Config.name");
+  Check(!Wrong.IsSuccess() && Wrong.Diagnostic() &&
+            Wrong.Diagnostic()->Message().find("expected a number") !=
+                std::string::npos,
+        "a wrong type is refused with the reason");
+  const luna::Outcome<double> Missing = F.State.Get<double>("Nowhere.value");
+  Check(!Missing.IsSuccess() && Missing.Diagnostic() &&
+            Missing.Diagnostic()->Message().find("'Nowhere' is nil") !=
+                std::string::npos,
+        "a missing parent names itself");
+  Check(!F.State.Get<double>("Config..speed").IsSuccess() &&
+            !F.State.Get<double>("").IsSuccess(),
+        "a malformed path is refused");
+
+  Check(F.State.Set("Config.speed", 9.5).IsSuccess() &&
+            F.Run("assert(Config.speed == 9.5)"),
+        "a field is assigned by path");
+  Check(F.State.Set("Fresh", std::string("new")).IsSuccess() &&
+            F.Run("assert(Fresh == 'new')"),
+        "a new global is created");
+  Check(F.State.Set("Config.tags", std::vector<std::string>{"a", "b"})
+                .IsSuccess() &&
+            F.Run("assert(#Config.tags == 2 and Config.tags[2] == 'b')"),
+        "a container is assigned");
+  const luna::Outcome<void> NoParent = F.State.Set("Nowhere.value", 1.0);
+  Check(!NoParent.IsSuccess() && NoParent.Diagnostic(),
+        "assigning under a missing table fails");
+
+  Check(F.State.Call<double>("Add", 2, 3).ValueOr(0.0) == 5.0,
+        "a global function is called with a result");
+  Check(F.State.Call<std::string>("Greet", "bob").ValueOr("") == "hi bob",
+        "a string literal is passed as text");
+  Check(F.State.Call<double>("Util.twice", 21).ValueOr(0.0) == 42.0,
+        "a function inside a table is called by path");
+  Check(F.State.Call("Nothing").IsSuccess(), "a call without a result");
+
+  const luna::Outcome<void> Raised = F.State.Call("Boom");
+  Check(!Raised.IsSuccess() && Raised.Diagnostic() &&
+            Raised.Diagnostic()->Message().find("nope") != std::string::npos,
+        "a script error comes back as a diagnostic");
+  const luna::Outcome<double> BadReturn = F.State.Call<double>("Greet", "x");
+  Check(!BadReturn.IsSuccess() && BadReturn.Diagnostic() &&
+            BadReturn.Diagnostic()->Message().find("return value") !=
+                std::string::npos,
+        "a result of the wrong type is refused");
+  const luna::Outcome<void> NotCallable = F.State.Call("Config");
+  Check(!NotCallable.IsSuccess() && NotCallable.Diagnostic() &&
+            NotCallable.Diagnostic()->Message().find("is not a function") !=
+                std::string::npos,
+        "a call to a non-function is refused");
+
+  const luna::Outcome<luna::Delegate<double(double, double)>> Held =
+      F.State.Get<luna::Delegate<double(double, double)>>("Add");
+  Check(Held.IsSuccess() && Held.Value().Invoke(4, 5).ValueOr(0.0) == 9.0,
+        "a script function is kept as a delegate");
+
+  F.State.RequestInterrupt("stop");
+  const luna::Outcome<double> Stopped = F.State.Call<double>("Add", 1, 1);
+  Check(!Stopped.IsSuccess() && Stopped.Diagnostic() &&
+            Stopped.Diagnostic()->Category() ==
+                luna::ErrorCategory::Interrupted,
+        "a pending interrupt refuses a call");
+  F.State.ClearInterrupt();
+  Check(F.State.Call<double>("Add", 1, 1).IsSuccess(),
+        "a call works again once the interrupt is cleared");
+}
+
+void TestDelegateReturns() {
+  Fixture F;
+  luna::Delegate<double(double)> Triple;
+  luna::Delegate<std::string(std::string)> Shout;
+  luna::Delegate<double()> Liar;
+  luna::BindingRegistry Registry = F.State.Bindings();
+  Registry.Register("HoldTriple",
+                    [&Triple](luna::Delegate<double(double)> Given) {
+                      Triple = Given;
+                    });
+  Registry.Register("HoldShout",
+                    [&Shout](luna::Delegate<std::string(std::string)> Given) {
+                      Shout = Given;
+                    });
+  Registry.Register("HoldLiar", [&Liar](luna::Delegate<double()> Given) {
+    Liar = Given;
+  });
+  Check(F.Run("HoldTriple(function(x) return x * 3 end)\n"
+              "HoldShout(function(s) return s .. '!' end)\n"
+              "HoldLiar(function() return 'text' end)"),
+        "delegates with return types are captured");
+
+  const auto Tripled = Triple.Invoke(7);
+  Check(Tripled.IsSuccess() && Tripled.Value() == 21.0,
+        "a delegate returns a number");
+  const auto Shouted = Shout.Invoke("hey");
+  Check(Shouted.IsSuccess() && Shouted.Value() == "hey!",
+        "a delegate returns a string");
+  const auto Lied = Liar.Invoke();
+  Check(!Lied.IsSuccess() &&
+            Lied.Diagnostic().find("return value") != std::string::npos,
+        "a result of the wrong type fails the call");
+}
+
 } // namespace
 
 int main() {
@@ -2396,6 +2526,8 @@ int main() {
   TestPublicClassTrait();
   TestScriptSignals();
   TestInspectingValues();
+  TestHostAccess();
+  TestDelegateReturns();
   std::printf("\n%d checks, %d failure%s\n", Cases, Failures,
               Failures == 1 ? "" : "s");
   return Failures == 0 ? 0 : 1;

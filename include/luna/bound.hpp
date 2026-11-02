@@ -352,6 +352,23 @@ private:
   std::string Error_;
 };
 
+template <class R> class DelegateReturn : public DelegateCallResult {
+public:
+  DelegateReturn() = default;
+  explicit DelegateReturn(DelegateCallResult Failed)
+      : DelegateCallResult(std::move(Failed)) {}
+  explicit DelegateReturn(R Produced) : Data(std::move(Produced)) {}
+
+  [[nodiscard]] const R &Value() const & noexcept { return *Data; }
+  [[nodiscard]] R Value() && { return std::move(*Data); }
+  template <class U> [[nodiscard]] R ValueOr(U &&Fallback) const & {
+    return Data ? *Data : static_cast<R>(std::forward<U>(Fallback));
+  }
+
+private:
+  std::optional<R> Data;
+};
+
 template <class Signature> class Delegate;
 
 template <class R, class... A> class Delegate<R(A...)> {
@@ -387,7 +404,11 @@ public:
     return Result;
   }
 
-  DelegateCallResult Invoke(A... Args) const;
+  using InvokeResult =
+      std::conditional_t<std::is_void_v<R>, DelegateCallResult,
+                         DelegateReturn<R>>;
+
+  InvokeResult Invoke(A... Args) const;
 
   // Runs the function as a task of its own, so it may wait. Spawn runs it to
   // its first yield now, Defer starts it at the next tick, and SpawnAfter after
@@ -421,15 +442,15 @@ private:
 };
 
 template <class R, class... A>
-DelegateCallResult Delegate<R(A...)>::Invoke(A... Args) const {
+typename Delegate<R(A...)>::InvokeResult
+Delegate<R(A...)>::Invoke(A... Args) const {
   if (!IsBound())
-    return DelegateCallResult("the handler is no longer available");
+    return InvokeResult(
+        DelegateCallResult("the handler is no longer available"));
 
   auto *Main = static_cast<lua_State *>(Shared->VM);
   const int Base = lua_gettop(Main);
-  // A thread of its own, anchored on the main stack until the call returns, so
-  // the handler never runs on (or inside the continuation of) a task's
-  // coroutine.
+  // A thread of its own keeps the handler off the coroutine of any running task.
   lua_State *Thread = lua_newthread(Main);
   lua_checkstack(Thread, static_cast<int>(sizeof...(A)) * 4 + 8);
   lua_rawgeti(Thread, LUA_REGISTRYINDEX, Shared->Ref);
@@ -441,17 +462,36 @@ DelegateCallResult Delegate<R(A...)>::Invoke(A... Args) const {
     (PushOne(static_cast<A>(Args)), ...);
   } catch (const std::exception &Thrown) {
     lua_settop(Main, Base);
-    return DelegateCallResult(Thrown.what());
+    return InvokeResult(DelegateCallResult(Thrown.what()));
   }
-  const int Status = lua_pcall(Thread, Pushed, 0, 0);
+  constexpr int Wanted = std::is_void_v<R> ? 0 : 1;
+  const int Status = lua_pcall(Thread, Pushed, Wanted, 0);
   if (Status != 0) {
     const char *Message = lua_tostring(Thread, -1);
     std::string Text = Message ? Message : "handler raised an error";
     lua_settop(Main, Base);
-    return DelegateCallResult(std::move(Text));
+    return InvokeResult(DelegateCallResult(std::move(Text)));
   }
-  lua_settop(Main, Base);
-  return DelegateCallResult();
+
+  if constexpr (std::is_void_v<R>) {
+    lua_settop(Main, Base);
+    return InvokeResult();
+  } else {
+    detail::SlotType<R> Slot{};
+    detail::ArgError Problem;
+    bool Read = false;
+    try {
+      Read = detail::ReadValue<R>(Thread, lua_gettop(Thread), Slot,
+                                  detail::ElementClassId<R>(Thread), Problem);
+    } catch (const std::exception &Thrown) {
+      Problem.Set(Thrown.what());
+    }
+    lua_settop(Main, Base);
+    if (!Read)
+      return InvokeResult(DelegateCallResult("the handler's return value: " +
+                                             Problem.Text));
+    return InvokeResult(std::move(Slot));
+  }
 }
 
 namespace detail {

@@ -608,6 +608,158 @@ ExecutionResult State::Execute(std::string_view Source) {
   }
 }
 
+namespace detail {
+namespace {
+bool SplitPath(std::string_view Path, std::vector<std::string> &Parts) {
+  std::size_t Start = 0;
+  while (true) {
+    const std::size_t Dot = Path.find('.', Start);
+    const std::string_view Part =
+        Path.substr(Start, Dot == std::string_view::npos ? Dot : Dot - Start);
+    if (Part.empty())
+      return false;
+    Parts.emplace_back(Part);
+    if (Dot == std::string_view::npos)
+      return true;
+    Start = Dot + 1;
+  }
+}
+
+std::string JoinPath(const std::vector<std::string> &Parts,
+                     std::size_t Count) {
+  std::string Joined;
+  for (std::size_t Index = 0; Index < Count; ++Index) {
+    if (Index != 0)
+      Joined += '.';
+    Joined += Parts[Index];
+  }
+  return Joined;
+}
+
+// Leaves the value at the first Count segments on top of the stack; only the
+// path's own last segment may be nil.
+void WalkTo(lua_State *L, const std::vector<std::string> &Parts,
+            std::size_t Count) {
+  lua_pushvalue(L, LUA_GLOBALSINDEX);
+  for (std::size_t Index = 0; Index < Count; ++Index) {
+    lua_getfield(L, -1, Parts[Index].c_str());
+    lua_remove(L, -2);
+    if (lua_isnil(L, -1) && Index + 1 < Parts.size())
+      luaL_error(L, "'%s' is nil", JoinPath(Parts, Index + 1).c_str());
+  }
+}
+
+Runtime *Prepare(State &Owner, std::string_view Path,
+                 std::vector<std::string> &Parts, ErrorDiagnostic &Error) {
+  Runtime *R = Owner.GetRuntime();
+  if (!R || !R->L) {
+    Error = ErrorDiagnostic(ErrorCategory::Runtime, "the state is not ready");
+    return nullptr;
+  }
+  if (!SplitPath(Path, Parts)) {
+    Error = ErrorDiagnostic(ErrorCategory::Runtime,
+                            "'" + std::string(Path) + "' is not a valid path");
+    return nullptr;
+  }
+  return R;
+}
+} // namespace
+
+bool GlobalGet(State &Owner, std::string_view Path,
+               const std::function<void(lua_State *, int)> &Read,
+               ErrorDiagnostic &Error) {
+  std::vector<std::string> Parts;
+  Runtime *R = Prepare(Owner, Path, Parts, Error);
+  if (!R)
+    return false;
+
+  std::string Fault;
+  const bool Ok = RunGuarded(
+      *R,
+      [&] {
+        WalkTo(R->L, Parts, Parts.size());
+        Read(R->L, lua_gettop(R->L));
+      },
+      Fault);
+  if (!Ok)
+    Error = Diagnose(ErrorCategory::Runtime, std::move(Fault));
+  return Ok;
+}
+
+bool GlobalSet(State &Owner, std::string_view Path,
+               const std::function<int(lua_State *)> &Push,
+               ErrorDiagnostic &Error) {
+  std::vector<std::string> Parts;
+  Runtime *R = Prepare(Owner, Path, Parts, Error);
+  if (!R)
+    return false;
+
+  std::string Fault;
+  const bool Ok = RunGuarded(
+      *R,
+      [&] {
+        WalkTo(R->L, Parts, Parts.size() - 1);
+        Push(R->L);
+        lua_setfield(R->L, -2, Parts.back().c_str());
+      },
+      Fault);
+  if (!Ok)
+    Error = Diagnose(ErrorCategory::Runtime, std::move(Fault));
+  return Ok;
+}
+
+bool GlobalCall(State &Owner, std::string_view Path,
+                const std::function<int(lua_State *)> &PushArguments,
+                int Results, const std::function<void(lua_State *, int)> &Read,
+                ErrorDiagnostic &Error) {
+  std::vector<std::string> Parts;
+  Runtime *R = Prepare(Owner, Path, Parts, Error);
+  if (!R)
+    return false;
+  if (R->Stop.load(std::memory_order_acquire)) {
+    Error = ErrorDiagnostic(ErrorCategory::Interrupted, R->StopText());
+    return false;
+  }
+
+  ErrorDiagnostic Raised;
+  bool Failed = false;
+  std::string Fault;
+  const bool Ok = RunGuarded(
+      *R,
+      [&] {
+        lua_State *L = R->L;
+        WalkTo(L, Parts, Parts.size());
+        if (lua_type(L, -1) != LUA_TFUNCTION)
+          luaL_error(L, "'%s' is not a function", std::string(Path).c_str());
+
+        lua_State *Co = lua_newthread(L);
+        lua_pushvalue(L, -2);
+        lua_xmove(L, Co, 1);
+        lua_checkstack(Co, 64);
+        const int Count = PushArguments(Co);
+        if (lua_pcall(Co, Count, Results, 0) != 0) {
+          const bool Stopped = R->Stop.load(std::memory_order_acquire);
+          Raised = MakeError(Co, Stopped ? ErrorCategory::Interrupted
+                                         : ErrorCategory::Runtime);
+          Failed = true;
+          return;
+        }
+        if (Results > 0)
+          Read(Co, lua_gettop(Co));
+      },
+      Fault);
+  if (!Ok) {
+    Error = Diagnose(ErrorCategory::Runtime, std::move(Fault));
+    return false;
+  }
+  if (Failed) {
+    Error = std::move(Raised);
+    return false;
+  }
+  return true;
+}
+} // namespace detail
+
 Chunk State::Load(std::string_view Source, std::string_view Name) {
   if (!IsReady())
     return Chunk();
