@@ -5,6 +5,8 @@ project(Luna VERSION 0.1.0 LANGUAGES C CXX)
 option(LUNA_BUILD_TESTING "Build the luna test suite" ON)
 option(LUNA_BUILD_APP "Build the smoke application" ON)
 option(LUNA_BUILD_BENCH "Build the performance gates" ON)
+option(LUNA_INSTALL "Generate install and export rules" ${PROJECT_IS_TOP_LEVEL})
+set(LUNA_SANITIZE "" CACHE STRING "Sanitizers to enable, e.g. address,undefined")
 
 # The demo uses the Win32 and Direct3D 11 ImGui backends, so it only exists on
 # Windows. Everywhere else there is nothing to switch on.
@@ -37,6 +39,7 @@ add_library(luna::luna ALIAS luna)
 target_include_directories(luna
     PUBLIC
         "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>"
+    "$<INSTALL_INTERFACE:include>"
     PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}/src"
 )
@@ -47,10 +50,13 @@ target_compile_features(luna PUBLIC cxx_std_20)
 # consumer needs the include directories but never names a Luau type itself.
 # The headers are exported as SYSTEM, which keeps /W4 and -Wall pointed at
 # luna's own code.
-target_link_libraries(luna PUBLIC Luau.VM Luau.Compiler)
+# Luau is not part of the export set, so the installed package links it back in
+# from the consumer's own targets (see cmake/lunaConfig.cmake.in).
+target_link_libraries(luna PUBLIC
+    "$<BUILD_INTERFACE:Luau.VM>" "$<BUILD_INTERFACE:Luau.Compiler>")
 target_include_directories(luna SYSTEM
     PRIVATE ${LUNA_LUAU_INCLUDE_DIRS}
-    INTERFACE ${LUNA_LUAU_INCLUDE_DIRS}
+    INTERFACE "$<BUILD_INTERFACE:${LUNA_LUAU_INCLUDE_DIRS}>"
 )
 
 set_target_properties(luna PROPERTIES
@@ -62,6 +68,21 @@ if(MSVC)
     target_compile_options(luna PRIVATE /W4 /EHsc /GR-)
 else()
     target_compile_options(luna PRIVATE -Wall -Wextra -fno-rtti)
+endif()
+
+# Sanitizers apply to every target in the build, Luau included, so they agree
+# on instrumentation. MSVC only offers address; request it with "address".
+if(LUNA_SANITIZE)
+    if(MSVC)
+        if(LUNA_SANITIZE STREQUAL "address")
+            add_compile_options(/fsanitize=address)
+        else()
+            message(FATAL_ERROR "MSVC supports LUNA_SANITIZE=address only")
+        endif()
+    else()
+        add_compile_options(-fsanitize=${LUNA_SANITIZE} -fno-omit-frame-pointer)
+        add_link_options(-fsanitize=${LUNA_SANITIZE})
+    endif()
 endif()
 
 if(LUNA_BUILD_APP)
@@ -88,6 +109,14 @@ if(LUNA_BUILD_BENCH)
         target_link_options(LunaBench PRIVATE /OPT:REF /OPT:ICF)
     else()
         target_compile_options(LunaBench PRIVATE $<$<NOT:$<CONFIG:Debug>>:-O2>)
+    endif()
+    # Exits non-zero when a gate fails. Timing is meaningless in Debug or under
+    # a sanitizer, so it only registers for optimised configurations.
+    if(LUNA_BUILD_TESTING AND NOT LUNA_SANITIZE)
+        add_test(NAME luna_bench
+            COMMAND LunaBench --json "${CMAKE_BINARY_DIR}/bench-results.json"
+            CONFIGURATIONS Release RelWithDebInfo MinSizeRel)
+        set_tests_properties(luna_bench PROPERTIES LABELS bench)
     endif()
 endif()
 
@@ -143,4 +172,8 @@ if(LUNA_BUILD_DEMO)
     if(LUNA_BUILD_TESTING)
         add_test(NAME luna_demo COMMAND LunaDemoSelfTest)
     endif()
+endif()
+
+if(LUNA_INSTALL)
+    include(cmake/install.cmake)
 endif()

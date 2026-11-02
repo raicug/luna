@@ -1,0 +1,81 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: windows-msvc-release
+            os: windows-latest
+            config: Release
+            args: -DLUNA_BUILD_DEMO=OFF
+          - name: windows-msvc-asan
+            os: windows-latest
+            config: Debug
+            args: -DLUNA_BUILD_DEMO=OFF -DLUNA_SANITIZE=address
+          - name: linux-gcc-asan-ubsan
+            os: ubuntu-latest
+            config: Debug
+            args: -DCMAKE_CXX_COMPILER=g++ -DLUNA_SANITIZE=address,undefined
+          - name: linux-clang-release
+            os: ubuntu-latest
+            config: Release
+            args: -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure
+        run: >
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=${{ matrix.config }}
+          -DLUNA_BUILD_APP=OFF ${{ matrix.args }}
+
+      - name: Build
+        run: cmake --build build --config ${{ matrix.config }} --parallel
+
+      - name: Test
+        run: ctest --test-dir build -C ${{ matrix.config }} --output-on-failure -E luna_bench
+
+      # Reported but not blocking until the OwnedValue table gate is resolved.
+      - name: Benchmarks
+        if: matrix.config == 'Release'
+        continue-on-error: true
+        run: ctest --test-dir build -C Release --output-on-failure -R luna_bench
+
+      - name: Archive benchmark results
+        if: matrix.config == 'Release' && always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bench-${{ matrix.name }}
+          path: build/bench-results.json
+
+  tsan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: >
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_COMPILER=clang++
+          -DCMAKE_C_COMPILER=clang -DLUNA_SANITIZE=thread -DLUNA_BUILD_APP=OFF
+      - run: cmake --build build --parallel
+      - run: ctest --test-dir build --output-on-failure
+
+  install:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install and consume
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DLUNA_BUILD_TESTING=OFF \
+            -DLUNA_BUILD_APP=OFF -DLUNA_BUILD_BENCH=OFF -DCMAKE_INSTALL_PREFIX=$PWD/prefix
+          cmake --build build --parallel
+          cmake --install build
+          cmake -S tests/package -B build-consumer -DCMAKE_PREFIX_PATH=$PWD/prefix \
+            -DLUNA_LUAU_SOURCE=$PWD/build/_deps/luau-src
+          cmake --build build-consumer

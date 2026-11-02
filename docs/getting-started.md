@@ -10,7 +10,7 @@ cmake --build build
 ctest --test-dir build
 ```
 
-CTest runs three entries: `luna_tests`, `luna_boundary` and `luna_demo` (the demo's headless self-test). To run the benchmarks:
+CTest runs `luna_tests`, `luna_boundary` and `luna_demo` (the demo's headless self-test). In Release builds it also runs `luna_bench`, which exits non-zero when a performance gate fails and writes `bench-results.json` into the build directory. To run the benchmarks by hand (`--json <path>` writes the results):
 
 ```powershell
 .\build\LunaBench.exe

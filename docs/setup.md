@@ -78,3 +78,9 @@ cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release `
 ---
 
 [← Documentation index](README.md) · [Next: Getting started →](getting-started.md)
+
+## Installing and sanitizers
+
+`cmake --install build` installs the library, headers and a `luna` package. Luau is not installed with it: add Luau to your build first (`FetchContent_MakeAvailable` or `add_subdirectory`) so `Luau.VM` and `Luau.Compiler` exist, then `find_package(luna REQUIRED)` and link `luna::luna`. `tests/package` is a working example and CI builds it. Set `-DLUNA_INSTALL=OFF` to skip the install rules.
+
+`-DLUNA_SANITIZE=address,undefined` (or `thread`) instruments the whole build on GCC and Clang. MSVC accepts `address` only. The benchmark test is not registered under a sanitizer.

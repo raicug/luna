@@ -1,0 +1,16 @@
+@PACKAGE_INIT@
+
+# luna links Luau statically but does not install it. Provide the Luau.VM and
+# Luau.Compiler targets before find_package(luna), for example with
+# FetchContent_MakeAvailable(Luau) or add_subdirectory on a Luau checkout.
+foreach(_luna_target Luau.VM Luau.Compiler)
+    if(NOT TARGET ${_luna_target})
+        set(luna_FOUND FALSE)
+        set(luna_NOT_FOUND_MESSAGE
+            "luna needs the ${_luna_target} target; add Luau to your build first")
+        return()
+    endif()
+endforeach()
+
+include("${CMAKE_CURRENT_LIST_DIR}/lunaTargets.cmake")
+target_link_libraries(luna::luna INTERFACE Luau.VM Luau.Compiler)

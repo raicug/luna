@@ -74,7 +74,7 @@ std::string Nanoseconds(double Value) {
   return Text;
 }
 
-void Print() {
+int Print() {
   std::printf("\n%-44s %10s %10s %10s %10s\n", "workload (marginal cost)",
               "bound", "pure luau", "delta", "gate");
   std::printf("%s\n", std::string(90, '-').c_str());
@@ -93,6 +93,30 @@ void Print() {
   std::printf("%s\n", std::string(90, '-').c_str());
   std::printf("%d of %zu gates met\n",
               static_cast<int>(Results.size()) - Failed, Results.size());
+  return Failed;
+}
+
+// Machine-readable results so CI can archive them and a run can be compared
+// with an earlier one.
+bool WriteJson(const char *Path) {
+  std::FILE *File = std::fopen(Path, "w");
+  if (!File)
+    return false;
+  std::fprintf(File, "{\n  \"results\": [\n");
+  for (std::size_t Index = 0; Index < Results.size(); ++Index) {
+    const Result &Entry = Results[Index];
+    const double Delta = Entry.BoundNs - Entry.RawNs;
+    std::fprintf(File,
+                 "    {\"name\": \"%s\", \"bound_ns\": %.3f, "
+                 "\"raw_ns\": %.3f, \"delta_ns\": %.3f, \"gate_ns\": %.3f, "
+                 "\"pass\": %s}%s\n",
+                 Entry.Name.c_str(), Entry.BoundNs, Entry.RawNs, Delta,
+                 Entry.GateNs, Delta <= Entry.GateNs ? "true" : "false",
+                 Index + 1 < Results.size() ? "," : "");
+  }
+  std::fprintf(File, "  ]\n}\n");
+  std::fclose(File);
+  return true;
 }
 
 void PropertyRead() {
@@ -307,7 +331,7 @@ void Concurrency() {
 }
 } // namespace
 
-int main() {
+int main(int Argc, char **Argv) {
   std::printf("luna benchmarks (median of %d runs, marginal over pure "
               "Luau)\n",
               kRuns);
@@ -318,6 +342,13 @@ int main() {
   YieldResume();
   Registration();
   Concurrency();
-  Print();
-  return 0;
+  const int Failed = Print();
+
+  for (int Index = 1; Index + 1 < Argc; ++Index) {
+    if (std::string(Argv[Index]) == "--json" && !WriteJson(Argv[Index + 1])) {
+      std::fprintf(stderr, "could not write %s\n", Argv[Index + 1]);
+      return 2;
+    }
+  }
+  return Failed == 0 ? 0 : 1;
 }
