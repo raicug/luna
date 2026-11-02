@@ -21,6 +21,26 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_C_STANDARD 11)
 
+# Sanitizers apply to every target in the build, Luau included, so they agree
+# on instrumentation. MSVC only offers address; request it with "address".
+if(LUNA_SANITIZE)
+    if(MSVC)
+        if(LUNA_SANITIZE STREQUAL "address")
+            add_compile_options(/fsanitize=address)
+        else()
+            message(FATAL_ERROR "MSVC supports LUNA_SANITIZE=address only")
+        endif()
+    else()
+        add_compile_options(-fsanitize=${LUNA_SANITIZE} -fno-omit-frame-pointer)
+        # luna builds with -fno-rtti, which the vptr check cannot see through.
+        if(LUNA_SANITIZE MATCHES "undefined")
+            add_compile_options(-fno-sanitize=vptr)
+            add_link_options(-fno-sanitize=vptr)
+        endif()
+        add_link_options(-fsanitize=${LUNA_SANITIZE})
+    endif()
+endif()
+
 include(cmake/dependencies.cmake)
 
 add_library(luna STATIC
@@ -70,20 +90,6 @@ else()
     target_compile_options(luna PRIVATE -Wall -Wextra -fno-rtti)
 endif()
 
-# Sanitizers apply to every target in the build, Luau included, so they agree
-# on instrumentation. MSVC only offers address; request it with "address".
-if(LUNA_SANITIZE)
-    if(MSVC)
-        if(LUNA_SANITIZE STREQUAL "address")
-            add_compile_options(/fsanitize=address)
-        else()
-            message(FATAL_ERROR "MSVC supports LUNA_SANITIZE=address only")
-        endif()
-    else()
-        add_compile_options(-fsanitize=${LUNA_SANITIZE} -fno-omit-frame-pointer)
-        add_link_options(-fsanitize=${LUNA_SANITIZE})
-    endif()
-endif()
 
 if(LUNA_BUILD_APP)
     add_executable(LunaApp app/src/main.cpp)

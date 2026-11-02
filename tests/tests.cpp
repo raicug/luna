@@ -15,6 +15,16 @@
 #include <tuple>
 #include <vector>
 
+namespace {
+// Factories that return a raw pointer hand the script a borrowed instance, so the
+// host keeps ownership. The tests park those instances here until exit.
+template <class T> T *Keep() {
+  static std::vector<std::unique_ptr<T>> Owned;
+  Owned.push_back(std::make_unique<T>());
+  return Owned.back().get();
+}
+} // namespace
+
 struct Point {
   double X = 0.0;
   double Y = 0.0;
@@ -296,19 +306,19 @@ void TestOwnership() {
 
   luna::ClassBuilder<Root> Roots =
       Registry.RegisterClass<Root>("Root", luna::StableTypeKey("t.Root"));
-  Roots.Factory("new", [] { return new Root(); });
+  Roots.Factory("new", [] { return Keep<Root>(); });
   Roots.Field("Value", &Root::Value);
   Check(Roots.Commit().IsSuccess(), "the base class commits");
   luna::ClassBuilder<Child> Children =
       Registry.RegisterClass<Child>("Child", luna::StableTypeKey("t.Child"));
-  Children.Factory("new", [] { return new Child(); });
+  Children.Factory("new", [] { return Keep<Child>(); });
   Children.BaseOf<Root>("Root");
   Check(Children.Commit().IsSuccess(), "the derived class commits");
 
   luna::LifetimeHandle ChildLifetime;
   Check(Registry
             .RegisterValue(
-                "derived", []() -> Child * { return new Child(); },
+                "derived", []() -> Child * { return Keep<Child>(); },
                 luna::OwnershipPolicy::Borrowed(ChildLifetime))
             .IsSuccess(),
         "a borrowed instance of a derived class publishes");
@@ -338,7 +348,7 @@ void TestAliases() {
   luna::BindingRegistry Registry = F.State.Bindings();
   luna::ClassBuilder<Point> Points =
       Registry.RegisterClass<Point>("Point", luna::StableTypeKey("t.Point"));
-  Points.Factory("new", [] { return new Point(); });
+  Points.Factory("new", [] { return Keep<Point>(); });
   Points.Property(
       "X", [](const Point &Self) { return Self.X; },
       [](Point &Self, double Value) { Self.X = Value; });
@@ -364,7 +374,7 @@ void TestExtension() {
   luna::BindingRegistry Registry = F.State.Bindings();
   luna::ClassBuilder<Bag> Bags =
       Registry.RegisterClass<Bag>("Bag", luna::StableTypeKey("t.Bag"));
-  Bags.Factory("new", [] { return new Bag(); });
+  Bags.Factory("new", [] { return Keep<Bag>(); });
   Bags.Field("Known", &Bag::Known);
   Bags.Operator(luna::ClassOperator::ToText,
                 [](const Bag &) { return std::string("Bag!"); });
@@ -730,7 +740,7 @@ void TestContainers() {
 
   luna::ClassBuilder<Point> Points =
       Registry.RegisterClass<Point>("Point", luna::StableTypeKey("t.Point"));
-  Points.Factory("new", [] { return new Point(); });
+  Points.Factory("new", [] { return Keep<Point>(); });
   Points.Field("Tag", &Point::Tag);
   Check(Points.Commit().IsSuccess(), "a class for container elements commits");
   Registry.Register("TupClass", [](std::tuple<Point, double> Entry) {
@@ -947,7 +957,7 @@ void TestOverloads() {
 
   luna::ClassBuilder<Point> Points = F.State.Bindings().RegisterClass<Point>(
       "Point", luna::StableTypeKey("t.Point"));
-  Points.Factory("new", [] { return new Point(); });
+  Points.Factory("new", [] { return Keep<Point>(); });
   Points.Field("Tag", &Point::Tag);
   Points.Method("Scale", [](Point &Self) { return Self.Tag; });
   Points.Method("Scale", [](Point &Self, double By) { return Self.Tag * By; });
@@ -1033,7 +1043,7 @@ void TestDefinitions() {
 
   luna::ClassBuilder<Point> Points = F.State.Bindings().RegisterClass<Point>(
       "Point", luna::StableTypeKey("t.Point"));
-  Points.Factory("new", [] { return new Point(); });
+  Points.Factory("new", [] { return Keep<Point>(); });
   Points.Field("Tag", &Point::Tag);
   Points.Method("Sum", &Point::Sum);
   Points.Commit();
@@ -1084,7 +1094,7 @@ void TestBaseClasses() {
 
   luna::ClassBuilder<Root> Roots = F.State.Bindings().RegisterClass<Root>(
       "Root", luna::StableTypeKey("t.Root"));
-  Roots.Factory("new", [] { return new Root(); });
+  Roots.Factory("new", [] { return Keep<Root>(); });
   Roots.Field("Value", &Root::Value);
   Roots.Method("Doubled", &Root::Doubled);
   Roots.Operator(luna::ClassOperator::Add, [](const Root &A, const Root &B) {
@@ -1094,7 +1104,7 @@ void TestBaseClasses() {
 
   luna::ClassBuilder<Child> Children = F.State.Bindings().RegisterClass<Child>(
       "Child", luna::StableTypeKey("t.Child"));
-  Children.Factory("new", [] { return new Child(); });
+  Children.Factory("new", [] { return Keep<Child>(); });
   Children.Field("Extra", &Child::Extra);
   Children.BaseOf<Root>("Root");
   Children.Commit();
@@ -1145,13 +1155,13 @@ void TestBaseClasses() {
   // A base that does not sit at offset zero needs the stored offset applied.
   luna::ClassBuilder<Side> Sides = F.State.Bindings().RegisterClass<Side>(
       "Side", luna::StableTypeKey("t.Side"));
-  Sides.Factory("new", [] { return new Side(); });
+  Sides.Factory("new", [] { return Keep<Side>(); });
   Sides.Field("Pad", &Side::Pad);
   Sides.Commit();
 
   luna::ClassBuilder<Mixed> Mixeds = F.State.Bindings().RegisterClass<Mixed>(
       "Mixed", luna::StableTypeKey("t.Mixed"));
-  Mixeds.Factory("new", [] { return new Mixed(); });
+  Mixeds.Factory("new", [] { return Keep<Mixed>(); });
   Mixeds.BaseOf<Root>("Root");
   Mixeds.Commit();
 
